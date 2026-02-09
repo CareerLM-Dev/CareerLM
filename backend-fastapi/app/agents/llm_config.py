@@ -36,11 +36,11 @@ RESUME_LLM = ChatGroq(
 # }
 
 # ===== COLD EMAIL MODULE =====
-# EMAIL_LLM = ChatGroq(
-#     api_key=os.getenv("GROQ_API_KEY"),
-#     model="llama-3.1-8b-instant",  # Fast, creative for email writing
-#     temperature=0.9  # Higher creativity for personalization
-# )
+EMAIL_LLM = ChatGroq(
+    api_key=os.getenv("OSS_API_KEY"),
+    model="openai/gpt-oss-20b",  # Fast, creative for email writing
+    temperature=0.9  # Higher creativity for personalization
+)
 
 # ===== STUDY PROGRESS MODULE =====
 # PROGRESS_LLM = ChatGroq(
@@ -54,6 +54,6 @@ __all__ = [
     "RESUME_LLM",
     # "SKILL_LLM",
     # "INTERVIEW_LLM",
-    # "EMAIL_LLM",
+    "EMAIL_LLM",
     # "PROGRESS_LLM",
 ]

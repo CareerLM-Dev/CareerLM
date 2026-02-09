@@ -13,3 +13,6 @@ numpy
 pandas
 langgraph
 langchain_groq
+sentence-transformers
+beautifulsoup4
+
