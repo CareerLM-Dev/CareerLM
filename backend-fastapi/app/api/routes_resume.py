@@ -1,50 +1,21 @@
 # app/routes/resume.py (or wherever your router is)
 import io
 import json
-import pdfplumber
 from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from app.services.resume_optimizer import optimize_resume_logic
+
+# Import centralized parser
+from app.services.resume_parser import ResumeParser, get_parser
+
+# Import service modules
+from app.services.resume_optimizer import optimize_resume_logic, extract_text_from_pdf, parse_resume_sections
 from app.services.skill_gap_analyzer import analyze_skill_gap
+
+# Import Supabase client
 from supabase_client import supabase
-import re
 
 router = APIRouter()
-
-def extract_text_from_pdf(file_bytes):
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-    return text
-
-
-def parse_resume_sections(text: str):
-    """Parse resume into sections: experience, projects, skills, education"""
-    section_titles = ["Experience", "Projects", "Skills", "Education"]
-    pattern = r"(?i)\b(" + "|".join(section_titles) + r")\b"
-    splits = re.split(pattern, text)
-
-    sections, current_section = {}, None
-    for part in splits:
-        part = part.strip()
-        if not part:
-            continue
-
-        if part.lower() in [s.lower() for s in section_titles]:
-            current_section = part.lower()
-            sections[current_section] = ""
-        elif current_section:
-            sections[current_section] += ("\n" if sections[current_section] else "") + part
-
-    if "skills" in sections:
-        skills_list = re.split(r"[,\n;]+", sections["skills"])
-        sections["skills"] = [s.strip() for s in skills_list if s.strip()]
-
-    return sections
 
 
 @router.post("/optimize")
@@ -143,6 +114,7 @@ async def optimize_resume(
         "resume_id": resume_id,
         "version_number": new_version_number,
         "content": json.dumps(result),
+        "content": json.dumps(result),
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
@@ -161,7 +133,14 @@ async def optimize_resume(
 async def skill_gap_analysis(resume: UploadFile = File(...)):
     """
     Analyze career matches based on skills clustering.
+    
     Returns probability-based career recommendations and skill gaps for each career.
+    
+    Args:
+        resume: The uploaded resume file (PDF).
+        
+    Returns:
+        JSON response with skill analysis and career recommendations.
     """
     try:
         resume_bytes = await resume.read()
@@ -209,6 +188,15 @@ async def generate_study_materials(
 ):
     """
     Generate personalized study materials and learning resources based on skill gaps.
+    
+    Args:
+        resume: The uploaded resume file (PDF).
+        job_description: The target job description.
+        target_career: Optional target career path.
+        missing_skills: Optional JSON string of missing skills.
+        
+    Returns:
+        JSON response with study materials and learning resources.
     """
     try:
         resume_bytes = await resume.read()

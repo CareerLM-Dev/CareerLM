@@ -1,5 +1,6 @@
 import "./ResumeBox.css";
 import ATSScore from "./ATSScore";
+import { formatText } from "../utils/textFormatter";
 
 function ResultBox({ result }) {
   if (!result) return null;
@@ -93,9 +94,11 @@ function ResultBox({ result }) {
                   {result.gaps && result.gaps.length > 0 ? (
                     <div className="items-row">
                       {result.gaps.map((gap, idx) => (
-                        <span key={idx} className="item-chip gap-chip">
-                          {gap}
-                        </span>
+                        <span 
+                          key={idx} 
+                          className="item-chip gap-chip"
+                          dangerouslySetInnerHTML={{ __html: formatText(gap) }}
+                        />
                       ))}
                     </div>
                   ) : (
@@ -149,9 +152,13 @@ function ResultBox({ result }) {
                   result.alignment_suggestions.length > 0 ? (
                     <div className="items-row">
                       {result.alignment_suggestions.map((suggestion, idx) => (
-                        <span key={idx} className="item-chip suggestion-chip">
-                          {suggestion}
-                        </span>
+                        <span
+                          key={idx}
+                          className="item-chip suggestion-chip"
+                          dangerouslySetInnerHTML={{
+                            __html: formatText(suggestion),
+                          }}
+                        />
                       ))}
                     </div>
                   ) : (

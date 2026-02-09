@@ -10,6 +10,7 @@ import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
 import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
+import { formatText } from "../utils/textFormatter";
 import "./Dashboard.css";
 
 function Dashboard() {
@@ -640,9 +641,11 @@ function Dashboard() {
                               resumeData.gaps.length > 0 ? (
                               resumeData.gaps.slice(0, 6).map((gap, idx) => {
                                 return (
-                                  <span key={idx} className="skill-tag missing">
-                                    {gap}
-                                  </span>
+                                  <span 
+                                    key={idx} 
+                                    className="skill-tag missing"
+                                    dangerouslySetInnerHTML={{ __html: formatText(gap) }}
+                                  />
                                 );
                               })
                             ) : (
@@ -685,9 +688,10 @@ function Dashboard() {
                                     <span
                                       key={idx}
                                       className="skill-tag existing"
-                                    >
-                                      {suggestion}
-                                    </span>
+                                      dangerouslySetInnerHTML={{
+                                        __html: formatText(suggestion),
+                                      }}
+                                    />
                                   );
                                 })
                             ) : (

@@ -5,16 +5,11 @@
     padding: 20px 40px;
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.98) 100%);
     backdrop-filter: blur(10px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
     position: sticky;
     top: 0;
     z-index: 100;
     border-bottom: 1px solid rgba(59, 130, 246, 0.1);
     transition: all 0.3s ease;
-}
-
-.navbar:hover {
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
 }
 
 .navbar-logo a {
@@ -308,7 +303,3 @@
         min-width: 200px;
     }
 }
-
-
-
-

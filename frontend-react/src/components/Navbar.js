@@ -65,12 +65,20 @@ function Navbar() {
         <Link to="/">CareerLM</Link>
       </div>
       <div className="navbar-links">
-        {/* Navigate to sections */}
-        <button onClick={() => handleSectionNavigation("home")}>Home</button>
-        <button onClick={() => handleSectionNavigation("about")}>About</button>
-        <button onClick={() => handleSectionNavigation("contact")}>
-          Contact
-        </button>
+        {/* Only show navigation links when not logged in */}
+        {!isAuthenticated && (
+          <>
+            <button onClick={() => handleSectionNavigation("home")}>
+              Home
+            </button>
+            <button onClick={() => handleSectionNavigation("about")}>
+              About
+            </button>
+            <button onClick={() => handleSectionNavigation("contact")}>
+              Contact
+            </button>
+          </>
+        )}
 
         {isAuthenticated ? (
           <div className="profile-dropdown" ref={dropdownRef}>

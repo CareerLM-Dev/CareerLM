@@ -1,10 +1,13 @@
-import re
-import pdfplumber
-import io
+"""
+Skill Gap Analyzer Module
+
+This module provides functionality to analyze resumes and identify skill gaps
+based on career cluster matching using TF-IDF and cosine similarity.
+"""
+
 import os
 from groq import Groq
 from dotenv import load_dotenv
-import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -132,17 +135,16 @@ CAREER_CLUSTERS = {
 }
 
 
-def extract_text_from_pdf(file_bytes):
-    """Extract text from PDF file bytes"""
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
-
-
-def extract_skills_from_resume(resume_text):
-    """Extract skills from resume text using pattern matching."""
+def extract_skills_from_resume(resume_text: str) -> list:
+    """
+    Extract skills from resume text using pattern matching.
+    
+    Args:
+        resume_text: The extracted resume text.
+        
+    Returns:
+        List of found skills.
+    """
     resume_lower = resume_text.lower()
     found_skills = set()
     
@@ -159,8 +161,17 @@ def extract_skills_from_resume(resume_text):
     return list(found_skills)
 
 
-def calculate_skill_match_percentage(user_skills, career_skills):
-    """Calculate percentage match between user skills and career requirements."""
+def calculate_skill_match_percentage(user_skills: list, career_skills: list) -> float:
+    """
+    Calculate percentage match between user skills and career requirements.
+    
+    Args:
+        user_skills: List of user's skills.
+        career_skills: List of required career skills.
+        
+    Returns:
+        Match percentage as a float.
+    """
     user_skills_set = set(skill.lower() for skill in user_skills)
     career_skills_set = set(skill.lower() for skill in career_skills)
     
@@ -173,8 +184,17 @@ def calculate_skill_match_percentage(user_skills, career_skills):
     return round(match_percentage, 2)
 
 
-def calculate_semantic_similarity(user_text, career_keywords):
-    """Calculate semantic similarity using TF-IDF and cosine similarity."""
+def calculate_semantic_similarity(user_text: str, career_keywords: list) -> float:
+    """
+    Calculate semantic similarity using TF-IDF and cosine similarity.
+    
+    Args:
+        user_text: The resume text.
+        career_keywords: List of career keywords.
+        
+    Returns:
+        Similarity score as a percentage.
+    """
     try:
         # Combine career keywords into a single text
         career_text = " ".join(career_keywords)
@@ -190,8 +210,17 @@ def calculate_semantic_similarity(user_text, career_keywords):
         return 0.0
 
 
-def calculate_career_probabilities(resume_text, user_skills):
-    """Calculate probability scores for each career based on skills and semantic matching."""
+def calculate_career_probabilities(resume_text: str, user_skills: list) -> list:
+    """
+    Calculate probability scores for each career based on skills and semantic matching.
+    
+    Args:
+        resume_text: The extracted resume text.
+        user_skills: List of user's skills.
+        
+    Returns:
+        List of career match dictionaries sorted by probability.
+    """
     career_matches = []
     
     for career_name, cluster_data in CAREER_CLUSTERS.items():
@@ -206,7 +235,6 @@ def calculate_career_probabilities(resume_text, user_skills):
         
         # Find matched and missing skills
         user_skills_lower = set(skill.lower() for skill in user_skills)
-        career_skills_lower = set(skill.lower() for skill in cluster_data["skills"])
         
         matched_skills = [
             skill for skill in cluster_data["skills"] 
@@ -235,8 +263,18 @@ def calculate_career_probabilities(resume_text, user_skills):
     return career_matches
 
 
-def get_ai_career_recommendations(resume_text, user_skills, top_careers):
-    """Get AI-powered career recommendations and learning paths."""
+def get_ai_career_recommendations(resume_text: str, user_skills: list, top_careers: list) -> str:
+    """
+    Get AI-powered career recommendations and learning paths.
+    
+    Args:
+        resume_text: The extracted resume text.
+        user_skills: List of user's skills.
+        top_careers: List of top career matches.
+        
+    Returns:
+        AI-generated recommendations string.
+    """
     try:
         top_3_careers = top_careers[:3]
         careers_summary = "\n".join([
@@ -273,19 +311,19 @@ Keep the response structured and practical."""
         return f"AI recommendations unavailable: {str(e)}"
 
 
-def analyze_skill_gap(resume_content, filename=None):
-    """Main function to analyze skill gaps and recommend careers based on clustering."""
-    try:
-        # Extract text from resume
-        if filename and filename.lower().endswith('.pdf'):
-            resume_text = extract_text_from_pdf(resume_content)
-        else:
-            try:
-                resume_text = resume_content.decode("utf-8")
-            except Exception:
-                resume_text = str(resume_content)
+def analyze_skill_gap(resume_text: str, filename: str = None) -> dict:
+    """
+    Main function to analyze skill gaps and recommend careers based on clustering.
+    
+    Args:
+        resume_text: The extracted resume text (already parsed).
+        filename: Optional filename for logging purposes.
         
-        # Extract user skills
+    Returns:
+        Dictionary containing skill analysis, career matches, and recommendations.
+    """
+    try:
+        # Extract user skills from the text
         user_skills = extract_skills_from_resume(resume_text)
         
         if not user_skills:
