@@ -11,7 +11,7 @@ import re
 
 from app.agents.resume.state import ResumeState
 from app.agents.llm_config import RESUME_LLM
-from app.services.ats_checker import get_ats_score_components
+from app.services.ats_checker import get_ats_score
 
 # Use module-specific LLM from config
 llm = RESUME_LLM
@@ -31,11 +31,10 @@ def resume_analyzer_agent(state: ResumeState) -> ResumeState:
     messages.append("📊 Resume Analyzer: Starting ATS analysis...")
 
     # Get ATS score using existing service
-    resume_bytes = state["resume_text"].encode("utf-8")
-    ats_result = get_ats_score_components(
-        resume_bytes,
-        state["job_description"],
-        filename="resume.txt"
+    ats_result = get_ats_score(
+        state["resume_text"],
+        state.get("resume_sections", {}),
+        state["job_description"]
     )
 
     ats_score = ats_result["overall_score"]
