@@ -11,3 +11,5 @@ supabase
 scikit-learn
 numpy
 pandas
+langgraph
+langchain_groq

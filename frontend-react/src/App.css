@@ -1,53 +1,56 @@
-
-/* Global styles */
+/* Global styles                 */
+/* ============================= */
 body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    background: #f9f9f9; /* fallback */
-  }
-  
-  /* App container */
-  .App {
-    max-width: 600px;
-    margin: 40px auto;
+    background: #f9f9f9;
+    /* fallback */
+}
+
+/* Main app container */
+.App {
+    max-width: 1200px;
+    margin: 0 auto;
     padding: 24px;
     position: relative;
-    z-index: 1; /* ensures content is above background */
-  }
-  
-  /* Reusable radial gradient background */
-  .bg-radial-gradient {
+    z-index: 1;
+    /* keeps content above background */
+}
+
+/* Reusable radial gradient background */
+.bg-radial-gradient {
     position: relative;
     width: 100%;
-    min-height: 100vh; /* full screen height */
-    background: radial-gradient(
-      125% 125% at 50% 90%,
-      #fff 40%,
-      #3b82f6 100%
-    );
-    overflow: hidden; /* prevents scroll issues if content slightly overflows */
+    min-height: 100vh;
+    /* full screen height */
+    background: radial-gradient(125% 125% at 50% 90%,
+            #fff 40%,
+            #6366f1 100%);
+    overflow: hidden;
+    /* avoids scrollbars on small overflow */
     display: flex;
-    justify-content: center; /* center content horizontally */
-    padding: 20px; /* optional padding for small screens */
+    flex-direction: column;
+    align-items: center;
+    /* center horizontally */
+    justify-content: flex-start;
+    /* stack content naturally */
+    padding: 20px;
     box-sizing: border-box;
     z-index: 0;
-  }
-  
-  /* Ensure content inside the gradient stays above background */
-  .bg-radial-gradient > * {
+}
+
+/* Ensure children inside gradient stay above background */
+.bg-radial-gradient>* {
     position: relative;
     z-index: 1;
-  }
-  
-  /* Mobile responsiveness */
-  @media (max-width: 768px) {
+}
+
+/* ============================= */
+/* Responsiveness                */
+/* ============================= */
+@media (max-width: 768px) {
     .App {
-      margin: 20px auto;
-      padding: 16px;
+        padding: 16px;
     }
-  }
-
-
-
-
+}

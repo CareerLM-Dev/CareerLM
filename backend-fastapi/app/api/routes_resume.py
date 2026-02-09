@@ -1,10 +1,5 @@
-"""
-Resume Routes Module
-
-This module defines the API endpoints for resume-related operations including
-optimization, skill gap analysis, and study materials generation.
-"""
-
+# app/routes/resume.py (or wherever your router is)
+import io
 import json
 from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form
@@ -14,7 +9,7 @@ from fastapi.responses import JSONResponse
 from app.services.resume_parser import ResumeParser, get_parser
 
 # Import service modules
-from app.services.resume_optimizer import optimize_resume_logic
+from app.services.resume_optimizer import optimize_resume_logic, extract_text_from_pdf, parse_resume_sections
 from app.services.skill_gap_analyzer import analyze_skill_gap
 
 # Import Supabase client
@@ -30,60 +25,69 @@ async def optimize_resume(
     job_description: str = Form(...)
 ):
     """
-    Optimize a resume against a job description.
-    
-    This endpoint performs:
-    1. Text extraction from the resume PDF
-    2. Section parsing and analysis
-    3. Resume optimization suggestions via LLM
-    4. ATS scoring
-    5. Skill gap analysis
-    6. Persistence to Supabase
-    
-    Args:
-        user_id: The user's unique identifier.
-        resume: The uploaded resume file (PDF).
-        job_description: The target job description.
-        
-    Returns:
-        JSON response with optimization results, ATS score, and career analysis.
+    🤖 AGENTIC Resume Optimization Endpoint
+    Uses LangGraph multi-agent system to analyze and optimize resumes
     """
-    # 1️⃣ Read resume bytes once
+    
+    # 1️⃣ Extract raw text
     resume_bytes = await resume.read()
-    
-    # 2️⃣ Use centralized parser to extract text and sections
-    parser = get_parser()
-    resume_text, sections = parser.parse_resume(resume_bytes, filename=resume.filename)
-    
-    # 3️⃣ Run optimizer logic with pre-parsed text and sections
-    analysis_result = optimize_resume_logic(resume_text, sections, job_description)
-    
-    # 4️⃣ Run skill gap analysis with pre-parsed text
-    skill_gap_result = analyze_skill_gap(resume_text, filename=resume.filename)
+    resume_text = extract_text_from_pdf(resume_bytes)
 
-    # 5️⃣ Build response object
+    # 2️⃣ Parse structured sections
+    sections = parse_resume_sections(resume_text)
+
+    # 3️⃣ Run AGENTIC optimizer logic (this now uses LangGraph!)
+    print(f"📄 Processing resume: {resume.filename}")
+    print(f"👤 User ID: {user_id}")
+    print(f"📋 Job Description length: {len(job_description)} chars")
+    
+    analysis_result = optimize_resume_logic(
+        resume_bytes, 
+        job_description, 
+        filename=resume.filename
+    )
+    
+    print(f"✅ Analysis complete! ATS Score: {analysis_result.get('ats_score')}/100")
+    print(f"🤖 Agent iterations: {analysis_result.get('total_iterations')}")
+
+    # 4️⃣ Build comprehensive result
     result = {
+        # Original fields (backward compatible)
         "sections": sections,
-        "analysis": {
-            "gaps": analysis_result.get("gaps", []),
-            "alignment_suggestions": analysis_result.get("alignment_suggestions", []),
-            "prompt": analysis_result.get("prompt", "")
-        },
+        "filename": resume.filename,
+        
+        # ATS Analysis
         "ats_score": analysis_result.get("ats_score"),
         "ats_analysis": analysis_result.get("ats_analysis", {}),
+        
+        # Optimization Suggestions
+        "analysis": {
+            "gaps": analysis_result.get("gaps", []),  # Skill gaps
+            "alignment_suggestions": analysis_result.get("alignment_suggestions", []),
+            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # ✅ NEW - only if ATS < 60
+        },
+        
+        # Career Analysis (from agentic workflow)
         "careerAnalysis": {
-            "user_skills": skill_gap_result.get("user_skills", []),
-            "total_skills_found": skill_gap_result.get("total_skills_found", 0),
-            "career_matches": skill_gap_result.get("career_matches", []),
-            "top_3_careers": skill_gap_result.get("top_3_careers", []),
-            "ai_recommendations": skill_gap_result.get("ai_recommendations", ""),
-            "analysis_summary": skill_gap_result.get("analysis_summary", {})
-        } if "error" not in skill_gap_result else None,
-        "summary": "",
-        "filename": resume.filename,
+            "user_skills": analysis_result.get("user_skills", []),
+            "total_skills_found": len(analysis_result.get("user_skills", [])),
+            "career_matches": analysis_result.get("career_matches", []),
+            "top_3_careers": analysis_result.get("career_matches", [])[:3],
+        },
+        
+        # 🤖 Agentic Metadata (NEW - for debugging/UI)
+        "agentic_metadata": {
+            "agent_execution_log": analysis_result.get("agent_execution_log", []),
+            "total_iterations": analysis_result.get("total_iterations", 0),
+            "completed_steps": analysis_result.get("completed_steps", []),
+            "is_agentic": analysis_result.get("_agentic", False),
+            "version": analysis_result.get("_version", "1.0")
+        },
+        
+        "summary": "",  # Keep for backward compatibility
     }
 
-    # 6️⃣ Insert/Update Supabase
+    # 5️⃣ Insert/Update Supabase
     existing_resume = supabase.table("resumes").select("*").eq("user_id", user_id).execute()
 
     if existing_resume.data:
@@ -110,18 +114,21 @@ async def optimize_resume(
         "resume_id": resume_id,
         "version_number": new_version_number,
         "content": json.dumps(result),
+        "content": json.dumps(result),
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
-        "notes": ""
+        "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
     }).execute()
 
     return JSONResponse({
+        "success": True,  # ✅ Add success flag
         "optimization": result,
         "resume_id": resume_id,
         "version_stored": stored_version.data
     })
 
 
+# Keep your other endpoints as-is
 @router.post("/skill-gap-analysis")
 async def skill_gap_analysis(resume: UploadFile = File(...)):
     """
@@ -136,17 +143,11 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         JSON response with skill analysis and career recommendations.
     """
     try:
-        # Read resume file
         resume_bytes = await resume.read()
+        from app.services.skill_gap_analyzer import analyze_skill_gap
         
-        # Use centralized parser to extract text
-        parser = get_parser()
-        resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
+        analysis_result = analyze_skill_gap(resume_bytes, filename=resume.filename)
         
-        # Perform career clustering analysis with pre-parsed text
-        analysis_result = analyze_skill_gap(resume_text, filename=resume.filename)
-        
-        # Check for errors
         if "error" in analysis_result:
             return JSONResponse(
                 status_code=400,
@@ -198,16 +199,12 @@ async def generate_study_materials(
         JSON response with study materials and learning resources.
     """
     try:
-        # Read resume file
         resume_bytes = await resume.read()
-        
-        # Import the function
         from app.services.study_materials_generator import generate_learning_resources
         
-        # Parse missing skills if provided
+        import json
         skills_list = json.loads(missing_skills) if missing_skills else []
         
-        # Generate study materials
         study_result = generate_learning_resources(
             resume_bytes,
             job_description,

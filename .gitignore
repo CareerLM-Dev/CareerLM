@@ -40,6 +40,7 @@ docker-compose.override.yml
 .idea/
 *.bak
 *.tmp
+*.json
 
 # PDF/Resume uploads (if any temp storage)
 uploads/
