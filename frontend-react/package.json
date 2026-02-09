@@ -35,6 +35,7 @@
     ]
   },
   "devDependencies": {
+    "baseline-browser-mapping": "^2.9.19",
     "react-scripts": "^5.0.1"
   }
 }

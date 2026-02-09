@@ -1,16 +1,19 @@
 # app/routes/resume.py (or wherever your router is)
 import io
 import json
+import logging
 from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import JSONResponse
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 # Import centralized parser
 from app.services.resume_parser import ResumeParser, get_parser
 
 # Import service modules
 from app.services.resume_optimizer import optimize_resume_logic, extract_text_from_pdf, parse_resume_sections
-from app.services.skill_gap_analyzer import analyze_skill_gap
 
 # Import Supabase client
 from supabase_client import supabase
@@ -37,9 +40,7 @@ async def optimize_resume(
     sections = parse_resume_sections(resume_text)
 
     # 3️⃣ Run AGENTIC optimizer logic (this now uses LangGraph!)
-    print(f"📄 Processing resume: {resume.filename}")
-    print(f"👤 User ID: {user_id}")
-    print(f"📋 Job Description length: {len(job_description)} chars")
+    logger.info(f"Processing resume: {resume.filename}")
     
     analysis_result = optimize_resume_logic(
         resume_bytes, 
@@ -47,8 +48,14 @@ async def optimize_resume(
         filename=resume.filename
     )
     
-    print(f"✅ Analysis complete! ATS Score: {analysis_result.get('ats_score')}/100")
-    print(f"🤖 Agent iterations: {analysis_result.get('total_iterations')}")
+    logger.info(f"ATS Score: {analysis_result.get('ats_score')}/100")
+    
+    # 3.5️⃣ Run Skill Gap Analysis in parallel
+    logger.info("Running skill gap analysis...")
+    from app.agents.skill_gap import analyze_skill_gap
+    skill_gap_result = analyze_skill_gap(resume_text, filename=resume.filename)
+    
+    logger.info(f"Skill gap analysis complete. Found {skill_gap_result.get('total_skills_found', 0)} skills")
 
     # 4️⃣ Build comprehensive result
     result = {
@@ -64,18 +71,24 @@ async def optimize_resume(
         "analysis": {
             "gaps": analysis_result.get("gaps", []),  # Skill gaps
             "alignment_suggestions": analysis_result.get("alignment_suggestions", []),
-            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # ✅ NEW - only if ATS < 60
+            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # ✅ Only if ATS < 60
         },
         
-        # Career Analysis (from agentic workflow)
-        "careerAnalysis": {
-            "user_skills": analysis_result.get("user_skills", []),
-            "total_skills_found": len(analysis_result.get("user_skills", [])),
-            "career_matches": analysis_result.get("career_matches", []),
-            "top_3_careers": analysis_result.get("career_matches", [])[:3],
+        # Career & Skill Gap Analysis (auto-populated)
+        "careerAnalysis": skill_gap_result if "error" not in skill_gap_result else {
+            "user_skills": [],
+            "total_skills_found": 0,
+            "career_matches": [],
+            "top_3_careers": [],
+            "ai_recommendations": "",
+            "analysis_summary": {
+                "best_match": None,
+                "best_match_probability": 0,
+                "skills_to_focus": []
+            }
         },
         
-        # 🤖 Agentic Metadata (NEW - for debugging/UI)
+        # 🤖 Agentic Metadata (for debugging/UI)
         "agentic_metadata": {
             "agent_execution_log": analysis_result.get("agent_execution_log", []),
             "total_iterations": analysis_result.get("total_iterations", 0),
@@ -114,14 +127,13 @@ async def optimize_resume(
         "resume_id": resume_id,
         "version_number": new_version_number,
         "content": json.dumps(result),
-        "content": json.dumps(result),
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
     }).execute()
 
     return JSONResponse({
-        "success": True,  # ✅ Add success flag
+        "success": True,
         "optimization": result,
         "resume_id": resume_id,
         "version_stored": stored_version.data
@@ -143,12 +155,45 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         JSON response with skill analysis and career recommendations.
     """
     try:
+        logger.info(f"Starting skill gap analysis for file: {resume.filename}")
         resume_bytes = await resume.read()
-        from app.services.skill_gap_analyzer import analyze_skill_gap
         
-        analysis_result = analyze_skill_gap(resume_bytes, filename=resume.filename)
+        if not resume_bytes:
+            logger.error("Resume file is empty")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Resume file is empty"
+                }
+            )
+        
+        from app.services.resume_parser import ResumeParser
+        from app.agents.skill_gap import analyze_skill_gap
+        
+        # Parse resume to extract text
+        logger.info("Parsing resume text from PDF")
+        parser = ResumeParser()
+        resume_text = parser.extract_text_from_pdf(resume_bytes)
+        
+        if not resume_text or len(resume_text.strip()) < 10:
+            logger.error("Failed to extract meaningful text from resume")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Could not extract text from resume. Please ensure it's a valid PDF."
+                }
+            )
+        
+        logger.info(f"Extracted {len(resume_text)} characters from resume")
+        
+        # Analyze skill gaps using LangGraph workflow
+        logger.info("Running skill gap analysis workflow")
+        analysis_result = analyze_skill_gap(resume_text, filename=resume.filename)
         
         if "error" in analysis_result:
+            logger.warning(f"Analysis error: {analysis_result['error']}")
             return JSONResponse(
                 status_code=400,
                 content={
@@ -156,6 +201,8 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
                     "error": analysis_result["error"]
                 }
             )
+        
+        logger.info(f"Analysis complete. Found {analysis_result.get('total_skills_found', 0)} skills")
         
         return JSONResponse({
             "success": True,
@@ -169,6 +216,7 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         })
         
     except Exception as e:
+        logger.exception(f"Unexpected error in skill gap analysis: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={

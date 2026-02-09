@@ -17,7 +17,7 @@ function SkillGapAnalyzer({ resumeData }) {
     console.log("SkillGapAnalyzer - resumeData:", resumeData);
     console.log(
       "SkillGapAnalyzer - careerAnalysis:",
-      resumeData?.careerAnalysis
+      resumeData?.careerAnalysis,
     );
 
     if (resumeData?.careerAnalysis) {
@@ -69,6 +69,13 @@ function SkillGapAnalyzer({ resumeData }) {
         formData.append("resume", resumeFile);
       } else if (resumeData && resumeData.file) {
         formData.append("resume", resumeData.file);
+      } else if (resumeData) {
+        // Resume data exists but file object is not available (e.g., after page refresh)
+        setError(
+          "Original resume file not available. Please re-upload the resume to perform skill gap analysis.",
+        );
+        setLoading(false);
+        return;
       } else {
         throw new Error("No resume file available");
       }
@@ -80,7 +87,7 @@ function SkillGapAnalyzer({ resumeData }) {
           headers: {
             "Content-Type": "multipart/form-data",
           },
-        }
+        },
       );
 
       setAnalysisResult(result.data);
@@ -91,7 +98,8 @@ function SkillGapAnalyzer({ resumeData }) {
       console.error("Career analysis error:", err);
       setError(
         err.response?.data?.error ||
-          "Failed to analyze career matches. Please try again."
+          err.message ||
+          "Failed to analyze career matches. Please try again.",
       );
     } finally {
       setLoading(false);
@@ -126,64 +134,55 @@ function SkillGapAnalyzer({ resumeData }) {
         </p>
       </div>
 
-      {/* Input Section - Only show if no analysis loaded from Resume Optimizer */}
-      {!analysisResult && (
+      {/* Input Section - Only show if NO analysis is available */}
+      {!analysisResult && !resumeData?.careerAnalysis && (
         <div className="input-section">
           <div className="resume-status">
-            {resumeFile ? (
-              <div className="resume-uploaded">
-                <span>
-                  Resume: <strong>{resumeFile.name}</strong>
-                </span>
-              </div>
-            ) : resumeData ? (
-              <div className="resume-uploaded">
-                <span>
-                  Resume already analyzed:{" "}
-                  <strong>{resumeData.filename}</strong>
-                </span>
-              </div>
-            ) : (
-              <div className="resume-missing">
-                <span>
-                  No resume uploaded. Please upload in Resume Optimizer first.
-                </span>
-              </div>
-            )}
+            <div className="resume-missing">
+              <span>
+                No resume uploaded. Please upload in Resume Optimizer first.
+              </span>
+            </div>
           </div>
 
-          {!resumeData && (
-            <>
-              {/* Local File Upload */}
-              <div className="form-group">
-                <label htmlFor="resumeUpload">Upload Resume</label>
-                <input
-                  id="resumeUpload"
-                  type="file"
-                  accept=".pdf,.doc,.docx"
-                  onChange={handleFileUpload}
-                  className="file-input"
-                />
-                <p className="file-hint">
-                  {resumeFile
-                    ? `Selected: ${resumeFile.name}`
-                    : "Choose a PDF or DOCX file"}
-                </p>
-              </div>
+          {/* Local File Upload */}
+          <div className="form-group">
+            <label htmlFor="resumeUpload">Upload Resume</label>
+            <input
+              id="resumeUpload"
+              type="file"
+              accept=".pdf,.doc,.docx"
+              onChange={handleFileUpload}
+              className="file-input"
+            />
+            <p className="file-hint">
+              {resumeFile
+                ? `Selected: ${resumeFile.name}`
+                : "Choose a PDF or DOCX file"}
+            </p>
+          </div>
 
-              <button
-                onClick={handleAnalyze}
-                disabled={loading}
-                className="analyze-button"
-              >
-                {loading
-                  ? "Analyzing Your Skills..."
-                  : "Analyze Career Matches"}
-              </button>
-            </>
+          {/* Analyze Button */}
+          {resumeFile && (
+            <button
+              onClick={handleAnalyze}
+              disabled={loading}
+              className="analyze-button"
+            >
+              {loading ? "Analyzing Your Skills..." : "Analyze Career Matches"}
+            </button>
           )}
 
           {error && <div className="error-message">{error}</div>}
+        </div>
+      )}
+
+      {/* Show info banner when using pre-analyzed resume */}
+      {analysisResult && resumeData?.careerAnalysis && (
+        <div className="info-banner">
+          <span>
+            ✓ Analysis loaded from: <strong>{resumeData.filename}</strong>
+          </span>
         </div>
       )}
 
@@ -268,7 +267,7 @@ function SkillGapAnalyzer({ resumeData }) {
                       className="probability-badge"
                       style={{
                         backgroundColor: getProbabilityColor(
-                          career.probability
+                          career.probability,
                         ),
                       }}
                     >
@@ -301,7 +300,7 @@ function SkillGapAnalyzer({ resumeData }) {
                       style={{
                         width: `${career.probability}%`,
                         backgroundColor: getProbabilityColor(
-                          career.probability
+                          career.probability,
                         ),
                       }}
                     />
@@ -410,7 +409,7 @@ function SkillGapAnalyzer({ resumeData }) {
                         style={{
                           width: `${selectedCareer?.probability || 0}%`,
                           backgroundColor: getProbabilityColor(
-                            selectedCareer?.probability || 0
+                            selectedCareer?.probability || 0,
                           ),
                         }}
                       />
