@@ -32,11 +32,11 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
           // Provide user-friendly error messages
           if (error.message.includes("Invalid login credentials")) {
             throw new Error(
-              "Invalid email or password. Please check your credentials and try again."
+              "Invalid email or password. Please check your credentials and try again.",
             );
           } else if (error.message.includes("Email not confirmed")) {
             throw new Error(
-              "Please confirm your email address before logging in."
+              "Please confirm your email address before logging in.",
             );
           } else {
             throw error;
@@ -54,7 +54,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
           {
             email,
             password,
-          }
+          },
         );
 
         if (authError) {
@@ -67,7 +67,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
         // Check if email confirmation is required
         if (authData.user && !authData.session) {
           throw new Error(
-            "Registration successful! Please check your email to confirm your account before logging in."
+            "Registration successful! Please check your email to confirm your account before logging in.",
           );
         }
 
@@ -79,6 +79,8 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             password: hashedPassword,
             status,
             current_company: status === "professional" ? currentCompany : null,
+            questionnaire_answered: false,
+            questionnaire_answers: null,
           },
         ]);
 
@@ -90,10 +92,15 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
         // auto-login after registration (only if email confirmation is not required)
         if (authData.session) {
           onRegisterSuccess && onRegisterSuccess(authData);
-          navigate("/dashboard");
+          // Redirect to onboarding for students, dashboard for professionals
+          if (status === "student") {
+            navigate(`/onboarding/${authData.user.id}`);
+          } else {
+            navigate("/dashboard");
+          }
         } else {
           setError(
-            "Registration successful! Please check your email to confirm your account."
+            "Registration successful! Please check your email to confirm your account.",
           );
           setIsLogin(true); // Switch to login view
         }

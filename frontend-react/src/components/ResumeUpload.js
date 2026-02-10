@@ -30,8 +30,8 @@ function ResumeUpload({ onResult }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    if (!resumeFile || !jobDescription) {
-      setError("Please upload a resume and enter a job description.");
+    if (!resumeFile) {
+      setError("Please upload a resume to continue.");
       return;
     }
     setLoading(true);
@@ -45,7 +45,7 @@ function ResumeUpload({ onResult }) {
       // Step 1: Resume Optimization
       const optimizeResponse = await fetch(
         "http://localhost:8000/api/v1/resume/optimize",
-        { method: "POST", body: formData }
+        { method: "POST", body: formData },
       );
       const optimizeData = await optimizeResponse.json();
 
@@ -55,7 +55,7 @@ function ResumeUpload({ onResult }) {
 
       const skillGapResponse = await fetch(
         "http://localhost:8000/api/v1/resume/skill-gap-analysis",
-        { method: "POST", body: skillFormData }
+        { method: "POST", body: skillFormData },
       );
       const skillGapData = await skillGapResponse.json();
 
@@ -66,19 +66,19 @@ function ResumeUpload({ onResult }) {
       if (skillGapData.top_3_careers && skillGapData.top_3_careers.length > 0) {
         studyFormData.append(
           "target_career",
-          skillGapData.top_3_careers[0].career
+          skillGapData.top_3_careers[0].career,
         );
         studyFormData.append(
           "missing_skills",
           JSON.stringify(
-            skillGapData.top_3_careers[0].missing_skills.slice(0, 5)
-          )
+            skillGapData.top_3_careers[0].missing_skills.slice(0, 5),
+          ),
         );
       }
 
       const studyResponse = await fetch(
         "http://localhost:8000/api/v1/resume/generate-study-materials",
-        { method: "POST", body: studyFormData }
+        { method: "POST", body: studyFormData },
       );
       const studyData = await studyResponse.json();
 
@@ -194,9 +194,9 @@ function ResumeUpload({ onResult }) {
           {/* Job Description */}
           <div className="form-group">
             <label className="form-label">
-              <span className="label-text">Job Description</span>
+              <span className="label-text">Job Description (Optional)</span>
               <span className="label-subtitle">
-                Paste the complete job posting here
+                Paste the complete job posting here if you have one
               </span>
             </label>
             <div className="textarea-wrapper">
@@ -205,7 +205,7 @@ function ResumeUpload({ onResult }) {
                 onChange={handleJDChange}
                 rows={8}
                 className="job-description-input"
-                placeholder="Paste the job description here..."
+                placeholder="Paste the job description here (optional)..."
               />
               <div className="textarea-footer">
                 <span className="character-count">

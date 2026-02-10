@@ -1,0 +1,63 @@
+.resume-upload-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.resume-upload-header {
+  text-align: center;
+  color: white;
+  margin-bottom: 3rem;
+  max-width: 600px;
+}
+
+.resume-upload-header h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  line-height: 1.2;
+}
+
+.resume-upload-header p {
+  font-size: 1.1rem;
+  font-weight: 300;
+  opacity: 0.95;
+  line-height: 1.6;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .resume-upload-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .resume-upload-header h1 {
+    font-size: 1.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .resume-upload-header p {
+    font-size: 0.95rem;
+  }
+
+  .resume-upload-header {
+    margin-bottom: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .resume-upload-page {
+    padding: 1rem;
+  }
+
+  .resume-upload-header h1 {
+    font-size: 1.5rem;
+  }
+
+  .resume-upload-header p {
+    font-size: 0.9rem;
+  }
+}
