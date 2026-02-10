@@ -16,10 +16,12 @@ async def generate_cold_email(
     target_company: str,
     target_role: str,
     job_description: Optional[str] = None,
-    user_experience: Optional[str] = None
+    user_experience: Optional[str] = None,
+    resume_text: Optional[str] = None,
+    projects_section: Optional[str] = None
 ) -> Dict:
     """
-    Generate a personalized cold email
+    Generate a personalized cold email using actual resume content
     
     Args:
         user_name: User's name
@@ -28,6 +30,8 @@ async def generate_cold_email(
         target_role: Job role/title
         job_description: Optional job description
         user_experience: Optional brief experience summary
+        resume_text: Optional full resume text content
+        projects_section: Optional parsed projects section from resume
         
     Returns:
         Dictionary with subject, body, and metadata
@@ -42,6 +46,8 @@ async def generate_cold_email(
             "target_role": target_role,
             "job_description": job_description,
             "company_info": None,
+            "resume_text": resume_text,
+            "projects_section": projects_section,
             "email_subject": None,
             "email_body": None,
             "personalization_notes": None,

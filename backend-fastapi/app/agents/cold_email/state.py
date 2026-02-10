@@ -16,6 +16,8 @@ class ColdEmailState(TypedDict):
     target_role: str
     job_description: Optional[str]
     company_info: Optional[str]  # Info about the company
+    resume_text: Optional[str]  # Full resume text
+    projects_section: Optional[str]  # Parsed projects section
     
     # Output
     email_subject: Optional[str]

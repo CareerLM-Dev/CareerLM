@@ -62,6 +62,7 @@ async def optimize_resume(
         # Original fields (backward compatible)
         "sections": sections,
         "filename": resume.filename,
+        "resume_text": resume_text,  # Store full resume text for cold email generation
         
         # ATS Analysis
         "ats_score": analysis_result.get("ats_score"),
@@ -123,10 +124,23 @@ async def optimize_resume(
         resume_id = resp.data[0]["resume_id"]
         new_version_number = 1
 
+    # Separate resume text from analysis data
+    analysis_data = {
+        "sections": result["sections"],
+        "filename": result["filename"],
+        "ats_score": result["ats_score"],
+        "ats_analysis": result["ats_analysis"],
+        "analysis": result["analysis"],
+        "careerAnalysis": result["careerAnalysis"],
+        "agentic_metadata": result["agentic_metadata"],
+        "summary": result["summary"]
+    }
+    
     stored_version = supabase.table("resume_versions").insert({
         "resume_id": resume_id,
         "version_number": new_version_number,
-        "content": json.dumps(result),
+        "resume_text": resume_text,  # Store plain resume text separately
+        "content": json.dumps(analysis_data),  # Store only analysis data
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"

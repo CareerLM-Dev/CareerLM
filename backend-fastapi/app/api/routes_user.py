@@ -5,8 +5,10 @@ from typing import Optional, List
 from datetime import datetime
 from supabase_client import supabase
 import json
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Extract user from JWT token"""
@@ -134,6 +136,54 @@ async def get_history_item(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch history item: {str(e)}")
+
+@router.get("/resume-text/{version_id}")
+async def get_resume_text(
+    version_id: str,
+    user = Depends(get_current_user)
+):
+    """Get the full resume text and parsed sections for a specific version"""
+    try:
+        # Get the version from database
+        result = supabase.table("resume_versions")\
+            .select("resume_text, content, raw_file_path, resumes!inner(user_id)")\
+            .eq("version_id", version_id)\
+            .execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+        
+        item = result.data[0]
+        
+        # Verify user owns this resume
+        if item["resumes"]["user_id"] != user.id:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get resume text from dedicated column (new structure)
+        resume_text = item.get("resume_text", "")
+        
+        # Parse content for sections
+        content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
+        sections = content.get("sections", {})
+        
+        # Fallback to old structure if resume_text column is empty
+        if not resume_text and "resume_text" in content:
+            resume_text = content["resume_text"]
+        
+        return {
+            "success": True,
+            "data": {
+                "resume_text": resume_text,
+                "sections": sections,
+                "filename": item.get("raw_file_path", "Resume")
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch resume text: {str(e)}")
+
 
 @router.delete("/history/{version_id}")
 async def delete_history_item(

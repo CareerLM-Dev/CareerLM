@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 def writer_agent(state: ColdEmailState) -> Dict[str, Any]:
     """
-    Agent: Write cold email using user template with actual data
+    Agent: Write personalized cold email using actual resume content - NO GENERATION
     """
-    logger.info("Writer Agent: Writing cold email")
+    logger.info("Writer Agent: Writing cold email from resume content")
 
     user_name = state["user_name"]
     skills = state.get("user_skills", [])
@@ -20,53 +20,61 @@ def writer_agent(state: ColdEmailState) -> Dict[str, Any]:
     target_company = state["target_company"]
     target_role = state["target_role"]
     job_desc = state.get("job_description", "")
+    resume_text = state.get("resume_text", "")
+    projects_section = state.get("projects_section", "")
 
-    USER_PROVIDED_TEMPLATE = """
-Hello [NAME-OF-THE-INDIVIDUAL],
-
-I am [YOUR-NAME], a [YOUR-YEAR] undergraduate and Software Engineer Intern at [COMPANY-NAME] (if applicable), set to graduate in [GRADUATION-MONTH AND YEAR]. I am actively seeking internships and full-time opportunities. My expertise lies in Full-Stack Web Development, Data Science, Machine Learning, and DevOps. I have experience in product development and research.
-
-In software development, I have built and scaled systems and worked with multiple clients across domains. Below are some deployed projects I have worked on:
-
-Deployed Projects:
-- [Project Name] – [Link]
-- [Project Name] – [Link]
-
-I would appreciate any suitable openings or referrals you could consider me for.
-
-Best regards,
-[YOUR-NAME]
-"""
-
+    # Organize skills
+    skills_str = ', '.join(skills[:10]) if skills else 'various technical skills'
+    
+    # Build context-rich prompt using actual resume data
     prompt = f"""
-Write a professional cold email for a job application.
+Write a professional, personalized cold email using ONLY the information provided from the candidate's actual resume. DO NOT generate, invent, or create any fake projects, experiences, or details.
 
-USE THIS EXACT TEMPLATE STRUCTURE:
-{USER_PROVIDED_TEMPLATE}
-
-KNOWN INFORMATION (fill these in):
+CANDIDATE INFORMATION:
 - Name: {user_name}
-- Skills: {', '.join(skills[:6]) if skills else 'various technical skills'}
-- Experience: {experience if experience else 'relevant technical experience'}
-- Target Company: {target_company}
-- Target Role: {target_role}
+- Skills: {skills_str}
+- Experience Summary: {experience if experience else 'See resume text below'}
 
-RULES:
-1. Use the EXACT template structure above
-2. Fill in [YOUR-NAME] with {user_name}
-3. Fill in skills based on the provided list: {', '.join(skills) if skills else 'technical skills'}
-4. Keep [NAME-OF-THE-INDIVIDUAL], [YOUR-YEAR], [COMPANY-NAME], [GRADUATION-MONTH AND YEAR] as placeholders
-5. Keep project placeholders as [Project Name] – [Link]
-6. Adapt the experience line based on: {experience if experience else 'technical background'}
-7. Professional tone, concise, 200-250 words
+--- ACTUAL RESUME CONTENT ---
+{resume_text if resume_text else 'No full resume text provided'}
 
-Also create a subject line for {target_company} {target_role}.
+--- PROJECTS SECTION FROM RESUME ---
+{projects_section if projects_section else 'No projects section provided'}
+--- END RESUME CONTENT ---
 
-Format as:
-SUBJECT: [subject line under 60 chars]
+TARGET POSITION:
+- Company: {target_company}
+- Role: {target_role}
+- Job Description: {job_desc if job_desc else 'Not provided'}
+
+INSTRUCTIONS:
+1. Start with "Hello [Hiring Manager],"
+2. Opening paragraph: Introduce {user_name} as a professional expressing interest in the {target_role} role at {target_company}
+3. Skills paragraph: Mention 3-4 most relevant skills from the provided skills list that match the role
+4. Experience/Projects paragraph:
+   - Use ACTUAL projects and experiences from the resume text above
+   - Extract real project names, technologies used, and outcomes from the resume
+   - If specific projects are mentioned in the projects section, reference them directly
+   - Use exact details from the resume - don't make anything up
+   - If no projects section exists, extract work experience or achievements from the resume text
+5. Value proposition: Brief statement about interest in {target_company} and how skills align
+6. Closing: Professional call to action
+
+CRITICAL RULES:
+- Use ONLY information present in the resume text provided
+- Extract and use real project names and descriptions from the resume
+- DO NOT create fictional projects or experiences
+- If information is missing, keep that section brief and general
+- 200-250 words maximum
+- Professional tone
+
+Generate a subject line (under 60 chars) specific to {target_company} and {target_role}.
+
+Output format:
+SUBJECT: [your subject line]
 
 BODY:
-[email body]
+[complete email body using actual resume content]
 """
 
     response = EMAIL_LLM.invoke(prompt)
