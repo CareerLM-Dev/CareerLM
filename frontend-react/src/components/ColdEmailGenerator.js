@@ -4,11 +4,9 @@ import "./ColdEmailGenerator.css";
 
 function ColdEmailGenerator({ resumeData }) {
   const [formData, setFormData] = useState({
-    userName: "",
     targetCompany: "",
     targetRole: "",
     jobDescription: "",
-    userExperience: "",
   });
   const [generatedEmail, setGeneratedEmail] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -19,8 +17,8 @@ function ColdEmailGenerator({ resumeData }) {
   };
 
   const handleGenerate = async () => {
-    if (!formData.userName || !formData.targetCompany || !formData.targetRole) {
-      setError("Please fill in at least name, company, and role");
+    if (!formData.targetCompany || !formData.targetRole) {
+      setError("Please fill in company and role");
       return;
     }
 
@@ -37,9 +35,7 @@ function ColdEmailGenerator({ resumeData }) {
         return;
       }
       
-      // Extract skills from resume data if available
-      const userSkills = resumeData?.skills || ["Python", "JavaScript", "React"];
-
+      // Backend will automatically fetch user's latest resume from database
       const response = await fetch(
         "http://localhost:8000/api/v1/cold-email/generate",
         {
@@ -49,18 +45,16 @@ function ColdEmailGenerator({ resumeData }) {
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
-            user_name: formData.userName,
-            user_skills: userSkills,
             target_company: formData.targetCompany,
             target_role: formData.targetRole,
             job_description: formData.jobDescription || null,
-            user_experience: formData.userExperience || null,
           }),
         }
       );
 
       if (!response.ok) {
-        throw new Error("Failed to generate email");
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Failed to generate email");
       }
 
       const result = await response.json();
@@ -85,16 +79,6 @@ function ColdEmailGenerator({ resumeData }) {
       </p>
 
       <div className="email-form">
-        <div className="form-group">
-          <label>Your Name *</label>
-          <input
-            type="text"
-            placeholder="John Doe"
-            value={formData.userName}
-            onChange={(e) => handleInputChange("userName", e.target.value)}
-          />
-        </div>
-
         <div className="form-row">
           <div className="form-group">
             <label>Target Company *</label>
@@ -131,21 +115,14 @@ function ColdEmailGenerator({ resumeData }) {
           />
         </div>
 
-        <div className="form-group">
-          <label>Your Experience (Optional)</label>
-          <input
-            type="text"
-            placeholder="3 years in web development"
-            value={formData.userExperience}
-            onChange={(e) =>
-              handleInputChange("userExperience", e.target.value)
-            }
-          />
-        </div>
-
         {resumeData && (
           <div className="resume-info">
-            ℹ️ Using skills from: {resumeData.filename}
+            ℹ️ Using your latest resume: {resumeData.filename}
+          </div>
+        )}
+        {!resumeData && (
+          <div className="resume-info warning">
+            ⚠️ Please upload a resume first to generate personalized emails
           </div>
         )}
 

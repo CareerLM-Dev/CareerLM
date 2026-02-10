@@ -91,6 +91,8 @@ function Dashboard() {
               skills_to_focus: [],
             },
           },
+          // Extract skills for cold email generator
+          skills: content.careerAnalysis?.user_skills || [],
           gaps: content.analysis?.gaps || [],
           alignment_suggestions: content.analysis?.alignment_suggestions || [],
           jobDescription:

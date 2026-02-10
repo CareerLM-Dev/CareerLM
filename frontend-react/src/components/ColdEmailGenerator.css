@@ -70,6 +70,12 @@
   font-size: 14px;
 }
 
+.resume-info.warning {
+  background: #fff4e6;
+  color: #d97706;
+  border: 1px solid #fed7aa;
+}
+
 .generate-btn {
   width: 100%;
   padding: 14px;
