@@ -218,3 +218,137 @@ Be concise and specific."""
 
     except Exception as e:
         return f"Error generating recommendations: {str(e)}"
+
+
+def get_live_study_resources(missing_skills_list):
+    """
+    Use Gemini 2.0 Flash with Google Search grounding to fetch
+    live, verified learning resources for each missing skill.
+    Returns a structured study_plan with roadmap steps.
+    """
+    import json as _json
+    from google import genai
+    from google.genai import types
+
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_client = genai.Client(api_key=gemini_key)
+
+    skills_query = ", ".join(missing_skills_list)
+
+    prompt = f"""
+Role: Professional Resource Scout & Study Architect.
+
+Task: Convert the following identified skill gaps into a structured learning roadmap for a Study Planner: {skills_query}.
+
+Execution Steps:
+1. Search Grounding: Use live Google Search to find active 2025/2026 links for YouTube playlists, free platform courses (Udemy/Coursera), and official technical documentation.
+2. Verification: Verify that the YouTube links are "Playlists" or "Full Courses" (minimum 2+ hours of content).
+3. Actionable Output: For each skill, provide exactly three resources that represent a "Start to Finish" journey.
+
+Constraint: Output strictly JSON. No conversational preamble.
+
+JSON Schema:
+{{
+  "study_plan": [
+    {{
+      "skill": "Skill Name",
+      "roadmap": [
+        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Doc Title", "url": "verified_link", "est_time": "Duration"}},
+        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Playlist Name", "url": "verified_link", "est_time": "Duration"}},
+        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Course Name", "platform": "Platform Name", "url": "verified_link", "est_time": "Duration"}}
+      ]
+    }}
+  ]
+}}
+"""
+
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+                response_mime_type="application/json"
+            )
+        )
+
+        raw = response.text
+        print(f"[Gemini Study Planner] Raw response length: {len(raw)}")
+        data = _json.loads(raw)
+
+        # Normalise into the shape the frontend expects:
+        #   skill_gap_report[].learning_path[] (legacy) + study_plan[].roadmap[] (new)
+        study_plan = data.get("study_plan", [])
+
+        skill_gap_report = []
+        for item in study_plan:
+            learning_path = []
+            for step in item.get("roadmap", []):
+                learning_path.append({
+                    "step": step.get("step"),
+                    "label": step.get("label", ""),
+                    "type": step.get("type", "Resource"),
+                    "title": step.get("title", ""),
+                    "url": step.get("url", ""),
+                    "platform": step.get("platform", ""),
+                    "est_time": step.get("est_time", ""),
+                    "cost": "Free"
+                })
+            skill_gap_report.append({
+                "skill": item.get("skill", "Unknown"),
+                "learning_path": learning_path
+            })
+
+        return {
+            "study_plan": study_plan,
+            "skill_gap_report": skill_gap_report
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[Gemini Study Planner] Error: {e}")
+        return generate_fallback_resources(missing_skills_list)
+
+
+def generate_fallback_resources(missing_skills_list):
+    """Fallback when Gemini search grounding fails."""
+    skill_gap_report = []
+    for skill in missing_skills_list:
+        skill_gap_report.append({
+            "skill": skill,
+            "learning_path": [
+                {
+                    "step": 1,
+                    "label": "Read Basics",
+                    "type": "Documentation",
+                    "title": f"Official {skill} Documentation",
+                    "url": f"https://www.google.com/search?q={skill.replace(' ', '+')}+official+documentation",
+                    "est_time": "2-3 hours",
+                    "cost": "Free"
+                },
+                {
+                    "step": 2,
+                    "label": "Deep Dive",
+                    "type": "YouTube",
+                    "title": f"{skill} Full Course - YouTube",
+                    "url": f"https://www.youtube.com/results?search_query={skill.replace(' ', '+')}+full+course+2025",
+                    "est_time": "4-6 hours",
+                    "cost": "Free"
+                },
+                {
+                    "step": 3,
+                    "label": "Hands-on Practice",
+                    "type": "Course",
+                    "title": f"{skill} Course on Coursera",
+                    "platform": "Coursera",
+                    "url": f"https://www.coursera.org/search?query={skill.replace(' ', '+')}",
+                    "est_time": "2-4 weeks",
+                    "cost": "Free"
+                }
+            ]
+        })
+    return {
+        "study_plan": [],
+        "skill_gap_report": skill_gap_report
+    }

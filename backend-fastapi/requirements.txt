@@ -15,4 +15,5 @@ langgraph
 langchain_groq
 sentence-transformers
 beautifulsoup4
+google-genai
 

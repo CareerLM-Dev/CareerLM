@@ -241,6 +241,60 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         )
 
 
+@router.post("/generate-study-materials-simple")
+async def generate_study_materials_simple(
+    target_career: str = Form(...),
+    missing_skills: str = Form(...)
+):
+    """
+    🤖 AGENTIC Study Planner Endpoint (LangGraph + Gemini Search Grounding)
+    Generates a live learning roadmap for the given skill gaps.
+    No resume upload required – accepts career + skills directly.
+    """
+    try:
+        logger.info(f"Study planner request: career={target_career}")
+
+        skills_list = json.loads(missing_skills) if missing_skills else []
+        if not skills_list:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "No missing skills provided"},
+            )
+
+        from app.agents.study_planner import generate_study_plan
+
+        result = generate_study_plan(target_career, skills_list)
+
+        if result.get("error"):
+            logger.warning(f"Study planner error: {result['error']}")
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": result["error"]},
+            )
+
+        logger.info(
+            f"Study planner complete. {len(result.get('skill_gap_report', []))} skills covered"
+        )
+
+        return JSONResponse({
+            "success": True,
+            "target_career": result.get("target_career", target_career),
+            "skill_gap_report": result.get("skill_gap_report", []),
+            "study_plan": result.get("study_plan", []),
+        })
+
+    except Exception as e:
+        logger.exception(f"Unexpected error in study planner: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to generate study materials",
+            },
+        )
+
+
 @router.post("/generate-study-materials")
 async def generate_study_materials(
     resume: UploadFile = File(...),
