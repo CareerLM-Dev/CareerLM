@@ -1,7 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 import { UserProvider } from "./context/UserContext";
-import Navbar from "./components/Navbar";
+import Navbar from "./components/layout/Navbar";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -9,7 +9,7 @@ import History from "./components/History";
 import Onboarding from "./pages/Onboarding";
 import ResumeUploadPage from "./pages/ResumeUploadPage";
 import Profile from "./pages/Profile";
-import "./App.css";
+
 
 function App() {
   return (

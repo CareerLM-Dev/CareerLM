@@ -2,7 +2,7 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
 import { useUser } from "../context/UserContext";
-import "./Navbar.css";
+
 
 function Navbar() {
   const navigate = useNavigate();

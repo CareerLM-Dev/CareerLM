@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
 import ResumeUpload from "../components/ResumeUpload";
-import "./ResumeUploadPage.css";
+
 
 function ResumeUploadPage() {
   const navigate = useNavigate();

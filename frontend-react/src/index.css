@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 20 23.0769% 97.4510%;
+    --foreground: 3.1579 13.6691% 27.2549%;
+    --card: 0 0% 100%;
+    --card-foreground: 267.5000 21.8182% 21.5686%;
+    --popover: 230.7692 19.4030% 86.8627%;
+    --popover-foreground: 267.5000 21.8182% 21.5686%;
+    --primary: 267.5000 21.8182% 21.5686%;
+    --primary-foreground: 230.7692 19.4030% 86.8627%;
+    --secondary: 228 12.1951% 48.2353%;
+    --secondary-foreground: 230.7692 19.4030% 86.8627%;
+    --muted: 230.7692 19.4030% 86.8627%;
+    --muted-foreground: 266.6667 21.2598% 24.9020%;
+    --accent: 230.7692 19.4030% 86.8627%;
+    --accent-foreground: 267.5000 21.8182% 21.5686%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 20 23.0769% 97.4510%;
+    --border: 18.7500 17.3913% 81.9608%;
+    --input: 20.0000 23.0769% 92.3529%;
+    --ring: 267.5000 21.8182% 21.5686%;
+    --radius: 0.45rem;
+  }
+
+  .dark {
+    --background: 10.9091 18.6441% 11.5686%;
+    --foreground: 10.0000 36.0000% 90.1961%;
+    --card: 11.2500 20% 15.6863%;
+    --card-foreground: 10.0000 36.0000% 90.1961%;
+    --popover: 11.2500 20% 15.6863%;
+    --popover-foreground: 10.0000 36.0000% 90.1961%;
+    --primary: 23.0769 32.5000% 68.6275%;
+    --primary-foreground: 10.9091 18.6441% 11.5686%;
+    --secondary: 14.4828 14.8718% 38.2353%;
+    --secondary-foreground: 10.0000 36.0000% 90.1961%;
+    --muted: 14.1176 20.9877% 15.8824%;
+    --muted-foreground: 18.9474 10.3825% 64.1176%;
+    --accent: 31.7647 15.5963% 21.3725%;
+    --accent-foreground: 105.5172 69.0476% 83.5294%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 10.9091 18.6441% 11.5686%;
+    --border: 12 18.5185% 21.1765%;
+    --input: 9.4737 19.5876% 19.0196%;
+    --ring: 23.0769 32.5000% 68.6275%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-float-delayed {
+    animation: float 6s ease-in-out 2s infinite;
+  }
+  
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+  }
+}

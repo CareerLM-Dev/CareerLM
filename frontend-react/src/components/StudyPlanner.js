@@ -1,6 +1,8 @@
 // src/components/StudyPlanner.js
 import React, { useState, useEffect, useCallback } from "react";
-import "./StudyPlanner.css";
+import { Button } from "./ui/button";
+import { BookOpen, ExternalLink, Youtube, FileText, GraduationCap, ChevronDown, ChevronUp } from "lucide-react";
+
 
 function StudyPlanner({ resumeData }) {
   const [studyMaterials, setStudyMaterials] = useState(null);
@@ -8,7 +10,6 @@ function StudyPlanner({ resumeData }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch live resources via Gemini Google Search grounding
   const fetchStudyMaterials = useCallback(async () => {
     if (!resumeData?.careerAnalysis) {
       setError("No career analysis data available. Please run Skill Gap Analyzer first.");
@@ -43,7 +44,6 @@ function StudyPlanner({ resumeData }) {
 
       if (data.success) {
         setStudyMaterials(data);
-        // Expand first skill by default
         if (data.skill_gap_report?.length > 0) {
           setExpandedSkills({ 0: true });
         }
@@ -58,7 +58,6 @@ function StudyPlanner({ resumeData }) {
     }
   }, [resumeData]);
 
-  // Auto-load from resumeData if pre-fetched, otherwise prompt manual fetch
   useEffect(() => {
     if (studyMaterials) return;
     if (resumeData?.studyMaterials) {
@@ -85,11 +84,12 @@ function StudyPlanner({ resumeData }) {
 
   if (!resumeData) {
     return (
-      <div className="study-planner-container">
-        <div className="empty-state-card">
-          <h2>No Study Plan Available</h2>
-          <p>Please upload your resume and job description in Resume Optimizer first</p>
-          <p className="hint">The system will automatically generate personalized learning materials for you</p>
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-card border border-border rounded-lg p-8 text-center">
+          <GraduationCap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">No Study Plan Available</h2>
+          <p className="text-muted-foreground mb-2">Please upload your resume and job description in Resume Optimizer first</p>
+          <p className="text-sm text-muted-foreground/70">The system will automatically generate personalized learning materials for you</p>
         </div>
       </div>
     );
@@ -98,11 +98,12 @@ function StudyPlanner({ resumeData }) {
   if (!studyMaterials) {
     if (loading) {
       return (
-        <div className="study-planner-container">
-          <div className="empty-state-card">
-            <h2>Generating Study Materials...</h2>
-            <p>Searching for the best learning resources with Google Search Grounding...</p>
-            <p className="hint">This may take 5-10 seconds</p>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-card border border-border rounded-lg p-8 text-center">
+            <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Generating Study Materials...</h2>
+            <p className="text-muted-foreground mb-2">Searching for the best learning resources with Google Search Grounding...</p>
+            <p className="text-sm text-muted-foreground/70">This may take 5-10 seconds</p>
           </div>
         </div>
       );
@@ -110,36 +111,44 @@ function StudyPlanner({ resumeData }) {
 
     if (error) {
       return (
-        <div className="study-planner-container">
-          <div className="empty-state-card error">
-            <h2>Error</h2>
-            <p>{error}</p>
-            <button className="retry-button" onClick={fetchStudyMaterials}>Try Again</button>
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-8 text-center">
+            <h2 className="text-xl font-bold text-destructive mb-2">Error</h2>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={fetchStudyMaterials} variant="outline">Try Again</Button>
           </div>
         </div>
       );
     }
 
-    // Prompt user to generate
     const topCareer = resumeData?.careerAnalysis?.top_3_careers?.[0];
 
     return (
-      <div className="study-planner-container">
-        <div className="empty-state-card clickable" onClick={fetchStudyMaterials}>
-          <h2>Generate Study Materials</h2>
+      <div className="max-w-4xl mx-auto">
+        <div
+          className="bg-card border border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all"
+          onClick={fetchStudyMaterials}
+        >
+          <BookOpen className="w-12 h-12 text-primary mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Generate Study Materials</h2>
           {topCareer ? (
             <>
-              <p>Click to generate learning resources for <strong>{topCareer.career}</strong></p>
-              <p className="hint">
+              <p className="text-muted-foreground mb-2">
+                Click to generate learning resources for <strong className="text-foreground">{topCareer.career}</strong>
+              </p>
+              <p className="text-sm text-muted-foreground/70">
                 {topCareer.missing_skills?.length || 0} skills to learn:{" "}
                 {topCareer.missing_skills?.slice(0, 3).join(", ")}
                 {topCareer.missing_skills?.length > 3 ? "..." : ""}
               </p>
             </>
           ) : (
-            <p>Click to search for learning resources based on your skill gaps</p>
+            <p className="text-muted-foreground">Click to search for learning resources based on your skill gaps</p>
           )}
-          <button className="load-button" onClick={fetchStudyMaterials}>Load Study Materials</button>
+          <Button onClick={fetchStudyMaterials} className="mt-4">
+            <BookOpen className="w-4 h-4 mr-2" />
+            Load Study Materials
+          </Button>
         </div>
       </div>
     );
@@ -155,162 +164,143 @@ function StudyPlanner({ resumeData }) {
 
   const getStepIcon = (type) => {
     switch (type) {
-      case "Documentation": return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
-        </svg>
-      );
-      case "YouTube": return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-        </svg>
-      );
-      case "Course": return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M22 10v6M2 10l10-5 10 5-10 5z" /><path d="M6 12v5c0 1.1 2.7 3 6 3s6-1.9 6-3v-5" />
-        </svg>
-      );
-      default: return (
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-        </svg>
-      );
+      case "Documentation": return <FileText className="w-4 h-4" />;
+      case "YouTube": return <Youtube className="w-4 h-4" />;
+      case "Course": return <GraduationCap className="w-4 h-4" />;
+      default: return <BookOpen className="w-4 h-4" />;
     }
   };
 
-  const getTypeBadgeClass = (type) => {
+  const getTypeBadgeColor = (type) => {
     switch (type) {
-      case "Documentation": return "badge-docs";
-      case "YouTube": return "badge-youtube";
-      case "Course": return "badge-course";
-      default: return "badge-default";
+      case "Documentation": return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+      case "YouTube": return "bg-red-500/10 text-red-600 border-red-500/20";
+      case "Course": return "bg-green-500/10 text-green-600 border-green-500/20";
+      default: return "bg-muted text-muted-foreground border-border";
     }
   };
 
   return (
-    <div className="study-planner-container">
-      <div className="study-header">
-        <h2>Personalized Study Plan</h2>
-        <p>Your customized learning roadmap for {target_career || "career development"}</p>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <GraduationCap className="w-7 h-7 text-primary" />
+          <h2 className="text-2xl font-bold">Personalized Study Plan</h2>
+        </div>
+        <p className="text-muted-foreground">
+          Your customized learning roadmap for {target_career || "career development"}
+        </p>
       </div>
 
       {/* Summary Cards */}
-      <div className="summary-grid">
-        <div className="summary-item">
-          <div className="summary-content">
-            <h3>{skill_gap_report?.length || 0}</h3>
-            <p>Skills to Learn</p>
-          </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-card border border-border rounded-lg p-4 text-center">
+          <div className="text-2xl font-bold text-primary">{skill_gap_report?.length || 0}</div>
+          <div className="text-sm text-muted-foreground">Skills to Learn</div>
         </div>
-        <div className="summary-item">
-          <div className="summary-content">
-            <h3>{totalResources}</h3>
-            <p>Live Resources</p>
-          </div>
+        <div className="bg-card border border-border rounded-lg p-4 text-center">
+          <div className="text-2xl font-bold text-primary">{totalResources}</div>
+          <div className="text-sm text-muted-foreground">Live Resources</div>
         </div>
-        <div className="summary-item">
-          <div className="summary-content">
-            <h3>
-              {skill_gap_report?.reduce(
-                (sum, s) => sum + (s.learning_path?.filter((r) => r.type === "YouTube").length || 0), 0
-              ) || 0}
-            </h3>
-            <p>Video Courses</p>
+        <div className="bg-card border border-border rounded-lg p-4 text-center">
+          <div className="text-2xl font-bold text-red-500">
+            {skill_gap_report?.reduce(
+              (sum, s) => sum + (s.learning_path?.filter((r) => r.type === "YouTube").length || 0), 0
+            ) || 0}
           </div>
+          <div className="text-sm text-muted-foreground">Video Courses</div>
         </div>
-        <div className="summary-item">
-          <div className="summary-content">
-            <h3>
-              {skill_gap_report?.reduce(
-                (sum, s) => sum + (s.learning_path?.filter((r) => r.type === "Course").length || 0), 0
-              ) || 0}
-            </h3>
-            <p>Platform Courses</p>
+        <div className="bg-card border border-border rounded-lg p-4 text-center">
+          <div className="text-2xl font-bold text-green-500">
+            {skill_gap_report?.reduce(
+              (sum, s) => sum + (s.learning_path?.filter((r) => r.type === "Course").length || 0), 0
+            ) || 0}
           </div>
+          <div className="text-sm text-muted-foreground">Platform Courses</div>
         </div>
       </div>
 
       {/* Expand / Collapse Controls */}
-      <div className="expand-controls">
-        <button onClick={expandAll}>Expand All</button>
-        <button onClick={collapseAll}>Collapse All</button>
+      <div className="flex gap-2 justify-end">
+        <Button variant="outline" size="sm" onClick={expandAll}>
+          <ChevronDown className="w-4 h-4 mr-1" /> Expand All
+        </Button>
+        <Button variant="outline" size="sm" onClick={collapseAll}>
+          <ChevronUp className="w-4 h-4 mr-1" /> Collapse All
+        </Button>
       </div>
 
       {/* Skill Roadmap Cards */}
       {skill_gap_report && skill_gap_report.length > 0 ? (
-        <div className="roadmap-list">
+        <div className="space-y-4">
           {skill_gap_report.map((skillData, skillIdx) => (
-            <div key={skillIdx} className="roadmap-card">
-              {/* Skill Header (clickable) */}
-              <button className="roadmap-header" onClick={() => toggleSkill(skillIdx)}>
-                <div className="roadmap-header-left">
-                  <span className="skill-number">{skillIdx + 1}</span>
-                  <h4>{skillData.skill}</h4>
-                  <span className="step-count">
+            <div key={skillIdx} className="bg-card border border-border rounded-lg overflow-hidden">
+              <button
+                className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
+                onClick={() => toggleSkill(skillIdx)}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground text-sm font-bold">
+                    {skillIdx + 1}
+                  </span>
+                  <h4 className="font-semibold text-lg">{skillData.skill}</h4>
+                  <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
                     {skillData.learning_path?.length || 0} steps
                   </span>
                 </div>
-                <span className={`chevron ${expandedSkills[skillIdx] ? "open" : ""}`}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </span>
+                {expandedSkills[skillIdx] ? (
+                  <ChevronUp className="w-5 h-5 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-muted-foreground" />
+                )}
               </button>
 
-              {/* Expanded: Learning Path Steps */}
               {expandedSkills[skillIdx] && (
-                <div className="roadmap-steps">
+                <div className="border-t border-border p-4 space-y-3">
                   {skillData.learning_path?.map((resource, resIdx) => (
-                    <div key={resIdx} className="step-card">
-                      {/* Step connector line */}
+                    <div key={resIdx} className="flex gap-4 relative">
                       {resIdx < (skillData.learning_path.length - 1) && (
-                        <div className="step-connector" />
+                        <div className="absolute left-[18px] top-10 bottom-0 w-0.5 bg-border" />
                       )}
-
-                      <div className="step-indicator">
-                        <div className={`step-dot ${getTypeBadgeClass(resource.type)}`}>
+                      <div className="flex-shrink-0">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 ${getTypeBadgeColor(resource.type)}`}>
                           {resource.step || resIdx + 1}
                         </div>
                       </div>
-
-                      <div className="step-content">
-                        <div className="step-top-row">
-                          <span className={`type-badge ${getTypeBadgeClass(resource.type)}`}>
+                      <div className="flex-1 pb-3">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${getTypeBadgeColor(resource.type)}`}>
                             {getStepIcon(resource.type)}
                             {resource.type}
                           </span>
                           {resource.label && (
-                            <span className="step-label">{resource.label}</span>
+                            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{resource.label}</span>
                           )}
                         </div>
-
-                        <h5 className="step-title">{resource.title}</h5>
-
-                        <div className="step-meta">
+                        <h5 className="font-medium text-sm mb-2">{resource.title}</h5>
+                        <div className="flex flex-wrap gap-2 mb-2">
                           {resource.platform && (
-                            <span className="meta-chip">{resource.platform}</span>
+                            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">{resource.platform}</span>
                           )}
                           {resource.est_time && (
-                            <span className="meta-chip time-chip">{resource.est_time}</span>
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{resource.est_time}</span>
                           )}
                           {resource.cost && (
-                            <span className={`meta-chip ${resource.cost === "Free" ? "free-chip" : "paid-chip"}`}>
+                            <span className={`text-xs px-2 py-0.5 rounded ${resource.cost === "Free" ? "bg-green-500/10 text-green-600" : "bg-orange-500/10 text-orange-600"}`}>
                               {resource.cost}
                             </span>
                           )}
                         </div>
-
                         {resource.url && (
                           <a
                             href={resource.url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="step-link"
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                           >
                             Open Resource
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                            </svg>
+                            <ExternalLink className="w-3 h-3" />
                           </a>
                         )}
                       </div>
@@ -322,9 +312,10 @@ function StudyPlanner({ resumeData }) {
           ))}
         </div>
       ) : (
-        <div className="empty-state-card">
-          <h2>No resources found</h2>
-          <p>Try analyzing your skill gaps first</p>
+        <div className="bg-card border border-border rounded-lg p-8 text-center">
+          <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <h2 className="text-lg font-semibold mb-1">No resources found</h2>
+          <p className="text-muted-foreground text-sm">Try analyzing your skill gaps first</p>
         </div>
       )}
     </div>

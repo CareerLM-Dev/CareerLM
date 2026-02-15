@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
-import "./Profile.css";
+import { User, FileText, ClipboardList, Pencil, Save, X, Loader2 } from "lucide-react";
 
 const questions = [
   {
@@ -215,141 +215,206 @@ function Profile() {
 
   if (loading) {
     return (
-      <div className="profile-page">
-        <div className="profile-loading">
-          <div className="profile-spinner"></div>
-          <p>Loading your profile...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading your profile...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="profile-page">
-      <div className="profile-hero">
-        <div className="profile-hero-content">
-          <p className="profile-eyebrow">Profile</p>
-          <h1>Your profile, shaped around your goals</h1>
-          <p className="profile-subtitle">
+    <div className="min-h-screen bg-background">
+      {/* Hero */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-b border-border">
+        <div className="max-w-4xl mx-auto px-6 py-12">
+          <p className="text-sm font-semibold uppercase tracking-widest text-primary mb-2">
+            Profile
+          </p>
+          <h1 className="text-3xl font-bold text-foreground">
+            Your profile, shaped around your goals
+          </h1>
+          <p className="text-muted-foreground mt-2 max-w-xl">
             Review your basics and keep your questionnaire answers fresh as your
             plans evolve.
           </p>
         </div>
       </div>
 
-      <div className="profile-content">
-        {error && <div className="profile-error">{error}</div>}
+      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        {error && (
+          <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm">
+            {error}
+          </div>
+        )}
 
-        <section className="profile-card">
-          <div className="card-header">
-            <div>
-              <h2>Basic details</h2>
-              <p>Snapshot of your account details.</p>
+        {/* Basic Details */}
+        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <User className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Basic details</h2>
+                <p className="text-sm text-muted-foreground">Snapshot of your account details.</p>
+              </div>
             </div>
-            <span className="card-note">Read-only for now</span>
+            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+              Read-only for now
+            </span>
           </div>
 
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">Name</span>
-              <span className="detail-value">{profile?.name || "Not set"}</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Name</span>
+              <p className="text-sm font-medium text-foreground">{profile?.name || "Not set"}</p>
             </div>
-            <div className="detail-item">
-              <span className="detail-label">Email</span>
-              <span className="detail-value">{profile?.email || "Not set"}</span>
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</span>
+              <p className="text-sm font-medium text-foreground">{profile?.email || "Not set"}</p>
             </div>
-            <div className="detail-item">
-              <span className="detail-label">Status</span>
-              <span className="detail-value">{statusLabel}</span>
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</span>
+              <p className="text-sm font-medium text-foreground">{statusLabel}</p>
             </div>
             {(profile?.status === "professional" || profile?.status === "prof") && (
-              <div className="detail-item">
-                <span className="detail-label">Current company</span>
-                <span className="detail-value">
+              <div className="space-y-1">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Current company</span>
+                <p className="text-sm font-medium text-foreground">
                   {profile?.current_company || "Not set"}
-                </span>
+                </p>
               </div>
             )}
           </div>
         </section>
 
-        <section className="profile-card">
-          <div className="card-header">
+        {/* Latest Resume */}
+        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
             <div>
-              <h2>Latest resume</h2>
-              <p>Quick snapshot of your most recent upload.</p>
+              <h2 className="text-lg font-semibold text-foreground">Latest resume</h2>
+              <p className="text-sm text-muted-foreground">Quick snapshot of your most recent upload.</p>
             </div>
           </div>
 
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span className="detail-label">File name</span>
-              <span className="detail-value">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">File name</span>
+              <p className="text-sm font-medium text-foreground">
                 {latestResume?.filename || "No resume uploaded yet"}
-              </span>
+              </p>
             </div>
-            <div className="detail-item">
-              <span className="detail-label">Uploaded</span>
-              <span className="detail-value">
+            <div className="space-y-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Uploaded</span>
+              <p className="text-sm font-medium text-foreground">
                 {latestResume ? formatDate(latestResume.created_at) : "Not available"}
-              </span>
+              </p>
             </div>
           </div>
         </section>
 
-        <section className="profile-card">
-          <div className="card-header">
-            <div>
-              <h2>Questionnaire</h2>
-              <p>Edit answers to keep recommendations relevant.</p>
+        {/* Questionnaire */}
+        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <ClipboardList className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Questionnaire</h2>
+                <p className="text-sm text-muted-foreground">Edit answers to keep recommendations relevant.</p>
+              </div>
             </div>
-            <span className="card-note">Inline editing</span>
+            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+              Inline editing
+            </span>
           </div>
 
-          <div className="qa-list">
+          <div className="divide-y divide-border">
             {questions.map((question) => (
-              <div key={question.field} className="qa-item">
-                <div className="qa-header">
-                  <h3>{question.title}</h3>
+              <div key={question.field} className="px-6 py-5">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-foreground">{question.title}</h3>
                   {editingField !== question.field && (
                     <button
-                      className="qa-edit"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
                       onClick={() => startEdit(question.field)}
                     >
+                      <Pencil className="h-3.5 w-3.5" />
                       Edit
                     </button>
                   )}
                 </div>
 
                 {editingField === question.field ? (
-                  <div className="qa-edit-panel">
-                    <div className="qa-options">
+                  <div className="mt-3 space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {question.options.map((option) => (
-                        <label key={option.value} className="qa-option">
+                        <label
+                          key={option.value}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                            draftValues.includes(option.value)
+                              ? "border-primary bg-primary/5 text-foreground"
+                              : "border-border bg-background hover:border-primary/40 text-muted-foreground"
+                          }`}
+                        >
                           <input
                             type="checkbox"
                             checked={draftValues.includes(option.value)}
                             onChange={() => toggleDraftValue(option.value)}
+                            className="sr-only"
                           />
-                          <span>{option.label}</span>
+                          <div
+                            className={`h-4 w-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                              draftValues.includes(option.value)
+                                ? "border-primary bg-primary"
+                                : "border-muted-foreground/40"
+                            }`}
+                          >
+                            {draftValues.includes(option.value) && (
+                              <svg className="h-3 w-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className="text-sm">{option.label}</span>
                         </label>
                       ))}
                     </div>
-                    <div className="qa-actions">
+                    <div className="flex items-center gap-2">
                       <button
-                        className="qa-save"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                         onClick={() => saveAnswers(question.field)}
                         disabled={savingField === question.field}
                       >
-                        {savingField === question.field ? "Saving..." : "Save"}
+                        {savingField === question.field ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-3.5 w-3.5" />
+                            Save
+                          </>
+                        )}
                       </button>
-                      <button className="qa-cancel" onClick={cancelEdit}>
+                      <button
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                        onClick={cancelEdit}
+                      >
+                        <X className="h-3.5 w-3.5" />
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : (
-                  <p className="qa-answer">{formatAnswer(question.field)}</p>
+                  <p className="text-sm text-muted-foreground">{formatAnswer(question.field)}</p>
                 )}
               </div>
             ))}

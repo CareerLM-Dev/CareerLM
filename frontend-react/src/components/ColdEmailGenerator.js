@@ -1,6 +1,10 @@
 import React, { useState } from "react";
 import { supabase } from "../api/supabaseClient";
-import "./ColdEmailGenerator.css";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
+import { Mail, Copy, Sparkles, Building2, Briefcase, FileText, AlertCircle, CheckCircle } from "lucide-react";
 
 function ColdEmailGenerator({ resumeData }) {
   const [formData, setFormData] = useState({
@@ -11,6 +15,7 @@ function ColdEmailGenerator({ resumeData }) {
   const [generatedEmail, setGeneratedEmail] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(null);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -26,16 +31,14 @@ function ColdEmailGenerator({ resumeData }) {
     setError(null);
 
     try {
-      // Get session token
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       if (!session) {
         setError("Please login to generate emails");
         setLoading(false);
         return;
       }
-      
-      // Backend will automatically fetch user's latest resume from database
+
       const response = await fetch(
         "http://localhost:8000/api/v1/cold-email/generate",
         {
@@ -66,35 +69,45 @@ function ColdEmailGenerator({ resumeData }) {
     }
   };
 
-  const handleCopy = (text) => {
+  const handleCopy = (text, field) => {
     navigator.clipboard.writeText(text);
-    alert("Copied to clipboard!");
+    setCopied(field);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   return (
-    <div className="cold-email-container">
-      <h2>🎯 Cold Email Generator</h2>
-      <p className="subtitle">
-        Generate personalized cold emails for job applications
-      </p>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+        <div className="flex items-center gap-3 mb-2">
+          <Mail className="w-7 h-7 text-primary" />
+          <h2 className="text-2xl font-bold">Cold Email Generator</h2>
+        </div>
+        <p className="text-muted-foreground">Generate personalized cold emails for job applications</p>
+      </div>
 
-      <div className="email-form">
-        <div className="form-row">
-          <div className="form-group">
-            <label>Target Company *</label>
-            <input
+      {/* Form */}
+      <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-muted-foreground" />
+              Target Company <span className="text-destructive">*</span>
+            </Label>
+            <Input
               type="text"
               placeholder="Google"
               value={formData.targetCompany}
-              onChange={(e) =>
-                handleInputChange("targetCompany", e.target.value)
-              }
+              onChange={(e) => handleInputChange("targetCompany", e.target.value)}
             />
           </div>
 
-          <div className="form-group">
-            <label>Target Role *</label>
-            <input
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1.5">
+              <Briefcase className="w-4 h-4 text-muted-foreground" />
+              Target Role <span className="text-destructive">*</span>
+            </Label>
+            <Input
               type="text"
               placeholder="Software Engineer"
               value={formData.targetRole}
@@ -103,80 +116,107 @@ function ColdEmailGenerator({ resumeData }) {
           </div>
         </div>
 
-        <div className="form-group">
-          <label>Job Description (Optional)</label>
-          <textarea
+        <div className="space-y-2">
+          <Label className="flex items-center gap-1.5">
+            <FileText className="w-4 h-4 text-muted-foreground" />
+            Job Description (Optional)
+          </Label>
+          <Textarea
             placeholder="Paste the job description here..."
-            rows="4"
+            rows={4}
             value={formData.jobDescription}
-            onChange={(e) =>
-              handleInputChange("jobDescription", e.target.value)
-            }
+            onChange={(e) => handleInputChange("jobDescription", e.target.value)}
           />
         </div>
 
         {resumeData && (
-          <div className="resume-info">
-            ℹ️ Using your latest resume: {resumeData.filename}
+          <div className="flex items-center gap-2 text-sm bg-primary/10 text-primary px-3 py-2 rounded-lg">
+            <CheckCircle className="w-4 h-4" />
+            Using your latest resume: <strong>{resumeData.filename}</strong>
           </div>
         )}
         {!resumeData && (
-          <div className="resume-info warning">
-            ⚠️ Please upload a resume first to generate personalized emails
+          <div className="flex items-center gap-2 text-sm bg-amber-500/10 text-amber-600 px-3 py-2 rounded-lg">
+            <AlertCircle className="w-4 h-4" />
+            Please upload a resume first to generate personalized emails
           </div>
         )}
 
-        <button
-          className="generate-btn"
-          onClick={handleGenerate}
-          disabled={loading}
-        >
-          {loading ? "Generating..." : "✨ Generate Email"}
-        </button>
+        <Button onClick={handleGenerate} disabled={loading} className="w-full">
+          {loading ? (
+            <>
+              <div className="animate-spin w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full mr-2" />
+              Generating...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 mr-2" />
+              Generate Email
+            </>
+          )}
+        </Button>
 
-        {error && <div className="error-message">{error}</div>}
+        {error && (
+          <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
       </div>
 
+      {/* Generated Email Result */}
       {generatedEmail && (
-        <div className="email-result">
-          <h3>📧 Generated Email</h3>
-
-          <div className="email-section">
-            <div className="section-header">
-              <label>Subject Line</label>
-              <button
-                className="copy-btn"
-                onClick={() => handleCopy(generatedEmail.subject)}
-              >
-                📋 Copy
-              </button>
-            </div>
-            <div className="email-content">{generatedEmail.subject}</div>
-          </div>
-
-          <div className="email-section">
-            <div className="section-header">
-              <label>Email Body</label>
-              <button
-                className="copy-btn"
-                onClick={() => handleCopy(generatedEmail.body)}
-              >
-                📋 Copy
-              </button>
-            </div>
-            <div className="email-content email-body">
-              {generatedEmail.body}
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
+          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Mail className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">Generated Email</h3>
             </div>
           </div>
 
-          {/* {generatedEmail.research_notes && (
-            <div className="email-section notes">
-              <label>💡 Research Notes</label>
-              <div className="email-content">
-                {generatedEmail.research_notes}
+          <div className="p-6 space-y-4">
+            {/* Subject Line */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-muted-foreground">Subject Line</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleCopy(generatedEmail.subject, "subject")}
+                >
+                  {copied === "subject" ? (
+                    <><CheckCircle className="w-3 h-3 mr-1 text-green-500" /> Copied!</>
+                  ) : (
+                    <><Copy className="w-3 h-3 mr-1" /> Copy</>
+                  )}
+                </Button>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-3 text-sm font-medium">{generatedEmail.subject}</div>
+            </div>
+
+            {/* Email Body */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-muted-foreground">Email Body</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleCopy(generatedEmail.body, "body")}
+                >
+                  {copied === "body" ? (
+                    <><CheckCircle className="w-3 h-3 mr-1 text-green-500" /> Copied!</>
+                  ) : (
+                    <><Copy className="w-3 h-3 mr-1" /> Copy</>
+                  )}
+                </Button>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                {generatedEmail.body}
               </div>
             </div>
-          )} */}
+          </div>
         </div>
       )}
     </div>

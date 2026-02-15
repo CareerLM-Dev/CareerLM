@@ -3,7 +3,12 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../api/supabaseClient";
 import ResultBox from "./ResumeBox";
-import "./ResumeUpload.css";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
+import { Label } from "./ui/label";
+import { Alert, AlertDescription } from "./ui/alert";
+import { Upload, Zap, FileText } from "lucide-react";
+
 
 function ResumeUpload({ onResult }) {
   const [resumeFile, setResumeFile] = useState(null);
@@ -124,67 +129,50 @@ function ResumeUpload({ onResult }) {
   };
 
   return (
-    <div className="resume-upload">
-      <div className="upload-card">
-        <div className="header">
-          <div className="header-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
+    <div className="max-w-4xl mx-auto">
+      <div className="bg-card border border-border rounded-lg shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-6 border-b border-border">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="bg-primary/10 p-3 rounded-lg">
+              <FileText className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">Resume Optimizer</h2>
+              <p className="text-muted-foreground">
+                Upload your resume and job description to get personalized optimization suggestions
+              </p>
+            </div>
           </div>
-          <h2 className="title">Resume Optimizer</h2>
-          <p className="subtitle">
-            Upload your resume and job description to get personalized
-            optimization suggestions
-          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="upload-form">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {/* File Upload */}
-          <div className="form-group">
-            <label className="form-label">
-              <span className="label-text">Upload Resume</span>
-              <span className="label-subtitle">PDF or DOCX format</span>
-            </label>
-            <div className="file-input-wrapper">
+          <div className="space-y-2">
+            <Label htmlFor="resume-file">
+              <span className="text-base font-medium">Upload Resume</span>
+              <span className="block text-sm text-muted-foreground font-normal">PDF or DOCX format</span>
+            </Label>
+            <div className="relative">
               <input
                 type="file"
                 accept=".pdf,.doc,.docx"
                 onChange={handleResumeChange}
-                className="file-input"
+                className="hidden"
                 id="resume-file"
               />
-              <label htmlFor="resume-file" className="file-input-label">
-                <div className="file-input-content">
-                  <svg
-                    className="upload-icon"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                    />
-                  </svg>
-                  <div className="file-input-text">
-                    <span className="file-name">
-                      {resumeFile
-                        ? resumeFile.name
-                        : "Choose file or drag and drop"}
-                    </span>
-                    <span className="file-hint">
-                      {resumeFile
-                        ? "File selected"
-                        : "Drag your resume here or click to browse"}
-                    </span>
+              <label
+                htmlFor="resume-file"
+                className="flex flex-col items-center justify-center w-full h-32 px-4 transition bg-muted hover:bg-muted/80 border-2 border-dashed border-border rounded-lg cursor-pointer group"
+              >
+                <div className="flex flex-col items-center justify-center space-y-2">
+                  <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
+                  <div className="text-center">
+                    <p className="text-sm font-medium">
+                      {resumeFile ? resumeFile.name : "Choose file or drag and drop"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {resumeFile ? "File selected" : "Drag your resume here or click to browse"}
+                    </p>
                   </div>
                 </div>
               </label>
@@ -192,77 +180,57 @@ function ResumeUpload({ onResult }) {
           </div>
 
           {/* Job Description */}
-          <div className="form-group">
-            <label className="form-label">
-              <span className="label-text">Job Description (Optional)</span>
-              <span className="label-subtitle">
+          <div className="space-y-2">
+            <Label htmlFor="job-description">
+              <span className="text-base font-medium">Job Description (Optional)</span>
+              <span className="block text-sm text-muted-foreground font-normal">
                 Paste the complete job posting here if you have one
               </span>
-            </label>
-            <div className="textarea-wrapper">
-              <textarea
-                value={jobDescription}
-                onChange={handleJDChange}
-                rows={8}
-                className="job-description-input"
-                placeholder="Paste the job description here (optional)..."
-              />
-              <div className="textarea-footer">
-                <span className="character-count">
-                  {jobDescription.length} characters
-                </span>
-              </div>
+            </Label>
+            <Textarea
+              id="job-description"
+              value={jobDescription}
+              onChange={handleJDChange}
+              rows={8}
+              placeholder="Paste the job description here (optional)..."
+              className="resize-none"
+            />
+            <div className="flex justify-end">
+              <span className="text-xs text-muted-foreground">{jobDescription.length} characters</span>
             </div>
           </div>
 
           {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className={`submit-button ${loading ? "loading" : ""}`}
-          >
+          <Button type="submit" disabled={loading} className="w-full" size="lg">
             {loading ? (
               <>
-                <div className="spinner"></div>
+                <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
                 <span>Optimizing...</span>
               </>
             ) : (
               <>
-                <svg
-                  className="button-icon"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 10V3L4 14h7v7l9-11h-7z"
-                  />
-                </svg>
+                <Zap className="w-4 h-4 mr-2" />
                 <span>Optimize Resume</span>
               </>
             )}
-          </button>
+          </Button>
         </form>
 
         {/* Error Message */}
         {error && (
-          <div className="error-message">
-            <svg className="error-icon" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span>{error}</span>
+          <div className="px-6 pb-6">
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           </div>
         )}
 
         {/* Display Result */}
-        {result && <ResultBox result={result} />}
+        {result && (
+          <div className="px-6 pb-6">
+            <ResultBox result={result} />
+          </div>
+        )}
       </div>
     </div>
   );
