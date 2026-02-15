@@ -115,6 +115,22 @@ function Navbar() {
                 <div className="dropdown-divider"></div>
                 <button
                   className="dropdown-item"
+                  onClick={() => handleNavigate("/profile")}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                  >
+                    <circle cx="12" cy="7" r="4" />
+                    <path d="M4 21a8 8 0 0 1 16 0" />
+                  </svg>
+                  Profile
+                </button>
+                <button
+                  className="dropdown-item"
                   onClick={() => handleNavigate("/dashboard")}
                 >
                   <svg

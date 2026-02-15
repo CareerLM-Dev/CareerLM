@@ -1,7 +1,7 @@
 # app/api/v1/routes_user.py
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from supabase_client import supabase
 import json
@@ -9,6 +9,10 @@ import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class QuestionnaireUpdate(BaseModel):
+    questionnaire_answers: Dict[str, Any]
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Extract user from JWT token"""
@@ -230,3 +234,54 @@ async def get_user_profile(user = Depends(get_current_user)):
             "created_at": user.created_at
         }
     }
+
+
+@router.get("/profile-details")
+async def get_profile_details(user = Depends(get_current_user)):
+    """Get current user profile details stored in the user table."""
+    try:
+        result = supabase.table("user").select(
+            "id, name, email, status, current_company, questionnaire_answered, questionnaire_answers"
+        ).eq("id", user.id).single().execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {
+            "success": True,
+            "data": result.data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")
+
+
+@router.patch("/profile-questionnaire")
+async def update_profile_questionnaire(
+    payload: QuestionnaireUpdate,
+    user = Depends(get_current_user)
+):
+    """Update questionnaire answers for the current user."""
+    try:
+        if not isinstance(payload.questionnaire_answers, dict):
+            raise HTTPException(status_code=400, detail="Invalid questionnaire payload")
+
+        update_data = {
+            "questionnaire_answers": payload.questionnaire_answers,
+            "questionnaire_answered": bool(payload.questionnaire_answers)
+        }
+
+        result = supabase.table("user").update(update_data).eq("id", user.id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Failed to update questionnaire")
+
+        return {
+            "success": True,
+            "data": update_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update questionnaire: {str(e)}")

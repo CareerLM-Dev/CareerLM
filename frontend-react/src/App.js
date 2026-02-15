@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import History from "./components/History";
 import Onboarding from "./pages/Onboarding";
 import ResumeUploadPage from "./pages/ResumeUploadPage";
+import Profile from "./pages/Profile";
 import "./App.css";
 
 function App() {
@@ -24,6 +25,7 @@ function App() {
         <Route path="/upload-resume" element={<ResumeUploadPage />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/history" element={<History />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
     </UserProvider>
   );
