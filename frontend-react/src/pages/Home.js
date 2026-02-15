@@ -6,7 +6,7 @@ import { Zap, ArrowRight, BarChart3, Target, TrendingUp } from "lucide-react";
 function Home() {
   const navigate = useNavigate();
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+    <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center px-4 py-20" id="home">
         <div className="container mx-auto grid lg:grid-cols-2 gap-12 items-center">
@@ -17,7 +17,7 @@ function Home() {
             </div>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold leading-tight">
               Optimize your career with{" "}
-              <span className="bg-gradient-to-r from-primary via-primary to-secondary bg-clip-text text-transparent">
+              <span className="text-primary">
                 CareerLM
               </span>
             </h1>
@@ -217,7 +217,7 @@ function Home() {
       {/* Contact Section */}
       <section className="py-20 px-4 bg-muted/30" id="contact">
         <div className="container mx-auto">
-          <div className="bg-gradient-to-br from-primary/5 to-secondary/5 border border-border rounded-2xl p-8 md:p-12">
+          <div className="bg-primary/5 border border-border rounded-2xl p-8 md:p-12">
             <div className="max-w-4xl mx-auto">
               <div className="text-center mb-12">
                 <div className="inline-block px-4 py-2 bg-primary/10 border border-primary/20 rounded-full text-sm text-primary mb-4">

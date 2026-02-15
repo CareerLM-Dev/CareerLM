@@ -22,7 +22,7 @@ function ResultBox({ result }) {
         ) : (
           <>
             {/* Success Header */}
-            <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-4 border-b border-border">
+            <div className="bg-primary/10 p-4 border-b border-border">
               <div className="flex items-center gap-3">
                 <div className="bg-primary/10 p-2 rounded-lg">
                   <CheckCircle className="w-5 h-5 text-primary" />
@@ -91,11 +91,11 @@ function ResultBox({ result }) {
                 </div>
                 <div>
                   {result.alignment_suggestions && result.alignment_suggestions.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2">
                       {result.alignment_suggestions.map((suggestion, idx) => (
-                        <span
+                        <div
                           key={idx}
-                          className="inline-block px-3 py-1.5 bg-primary/10 text-primary text-sm rounded-lg border border-primary/20"
+                          className="px-4 py-3 bg-primary/10 text-sm text-foreground rounded-lg border border-primary/20 leading-relaxed break-words"
                           dangerouslySetInnerHTML={{ __html: formatText(suggestion) }}
                         />
                       ))}

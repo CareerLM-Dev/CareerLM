@@ -72,7 +72,7 @@ function Navbar() {
       <div className="navbar-logo">
         <Link 
           to="/" 
-          className="text-3xl font-extrabold bg-gradient-to-br from-primary to-primary/70 bg-clip-text text-transparent hover:scale-105 transition-transform duration-300 tracking-tight"
+          className="text-3xl font-extrabold text-primary hover:scale-105 transition-transform duration-300 tracking-tight"
         >
           CareerLM
         </Link>
@@ -113,7 +113,7 @@ function Navbar() {
               onClick={() => setShowDropdown(!showDropdown)}
               className="flex items-center gap-3 px-4 py-2 bg-primary/10 border-primary/20 hover:bg-primary/15 hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-300"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary/70 text-primary-foreground font-bold text-sm">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground font-bold text-sm">
                 {user?.email?.charAt(0).toUpperCase() || "U"}
               </div>
               <span className="max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-foreground text-sm">
@@ -191,7 +191,7 @@ function Navbar() {
             </Button>
             <Button
               onClick={() => navigate("/auth")}
-              className="ml-2 font-semibold bg-gradient-to-br from-primary to-primary/70 text-primary-foreground hover:opacity-90 hover:-translate-y-0.5 shadow-md shadow-primary/30 hover:shadow-lg hover:shadow-primary/40 transition-all duration-300"
+              className="ml-2 font-semibold bg-primary text-primary-foreground hover:opacity-90 hover:-translate-y-0.5 shadow-md shadow-primary/30 hover:shadow-lg hover:shadow-primary/40 transition-all duration-300"
             >
               Sign Up
             </Button>

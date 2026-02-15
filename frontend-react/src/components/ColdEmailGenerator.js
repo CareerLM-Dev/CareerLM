@@ -78,7 +78,7 @@ function ColdEmailGenerator({ resumeData }) {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+      <div className="bg-primary/10 border border-border rounded-lg p-6">
         <div className="flex items-center gap-3 mb-2">
           <Mail className="w-7 h-7 text-primary" />
           <h2 className="text-2xl font-bold">Cold Email Generator</h2>
@@ -167,7 +167,7 @@ function ColdEmailGenerator({ resumeData }) {
       {/* Generated Email Result */}
       {generatedEmail && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-4 border-b border-border">
+          <div className="bg-primary/10 p-4 border-b border-border">
             <div className="flex items-center gap-2">
               <Mail className="w-5 h-5 text-primary" />
               <h3 className="font-semibold">Generated Email</h3>

@@ -131,7 +131,7 @@ function ResumeUpload({ onResult }) {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="bg-card border border-border rounded-lg shadow-lg overflow-hidden">
-        <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-6 border-b border-border">
+        <div className="bg-primary/10 p-6 border-b border-border">
           <div className="flex items-center gap-4 mb-4">
             <div className="bg-primary/10 p-3 rounded-lg">
               <FileText className="w-6 h-6 text-primary" />

@@ -112,11 +112,11 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-primary to-primary/70">
+    <div className="min-h-screen flex items-center justify-center p-5 bg-primary">
       <div className="w-full max-w-md">
         <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_25px_50px_rgba(0,0,0,0.15)]">
           <CardHeader className="text-center space-y-2">
-            <CardTitle className="text-3xl font-bold bg-gradient-to-br from-primary to-primary/70 bg-clip-text text-transparent">
+            <CardTitle className="text-3xl font-bold text-primary">
               {isLogin ? "Welcome Back" : "Create Account"}
             </CardTitle>
             <CardDescription className="text-base text-muted-foreground">
@@ -216,7 +216,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
               <Button 
                 type="submit" 
-                className="w-full h-12 text-base font-semibold bg-gradient-to-br from-primary to-primary/70 hover:opacity-90 hover:-translate-y-0.5 shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all duration-300"
+                className="w-full h-12 text-base font-semibold bg-primary hover:opacity-90 hover:-translate-y-0.5 shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all duration-300"
               >
                 {isLogin ? "Sign In" : "Create Account"}
               </Button>

@@ -127,7 +127,7 @@ function SkillGapAnalyzer({ resumeData }) {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+      <div className="bg-primary/10 border border-border rounded-lg p-6">
         <h2 className="text-2xl font-bold mb-2">Skill Gap Analyzer</h2>
         <p className="text-muted-foreground">
           Discover which career paths match your skills and get personalized recommendations

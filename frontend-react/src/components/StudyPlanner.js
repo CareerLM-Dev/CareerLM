@@ -183,7 +183,7 @@ function StudyPlanner({ resumeData }) {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+      <div className="bg-primary/10 border border-border rounded-lg p-6">
         <div className="flex items-center gap-3 mb-2">
           <GraduationCap className="w-7 h-7 text-primary" />
           <h2 className="text-2xl font-bold">Personalized Study Plan</h2>

@@ -39,7 +39,7 @@ function ResumeOptimizer({ resumeData }) {
         </div>
       ) : (
         <>
-          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 border border-border rounded-lg p-6">
+          <div className="bg-primary/10 border border-border rounded-lg p-6">
             <div className="flex items-center gap-4">
               <div className="bg-primary/20 rounded-full p-3">
                 <CheckCircle className="w-6 h-6 text-primary" />

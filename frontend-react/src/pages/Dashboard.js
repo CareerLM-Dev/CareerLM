@@ -228,7 +228,7 @@ function Dashboard() {
                 {/* Left Column - Overview & Analysis */}
                 <div className="lg:col-span-2 space-y-6">
                   {/* ATS Score Overview */}
-                  <div className="bg-gradient-to-br from-primary to-primary/80 rounded-lg p-8 text-primary-foreground shadow-lg">
+                  <div className="bg-primary rounded-lg p-8 text-primary-foreground shadow-lg">
                     <div className="flex flex-col md:flex-row gap-8 items-center">
                       <div className="relative flex-shrink-0">
                         <svg width="160" height="160" viewBox="0 0 160 160" className="transform -rotate-90">

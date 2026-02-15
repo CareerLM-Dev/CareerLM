@@ -18,7 +18,7 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
       id: "upload",
       label: "Upload Resume",
       icon: Upload,
-      className: "bg-gradient-to-br from-primary/10 to-primary/5 hover:from-primary/20 hover:to-primary/10",
+      className: "bg-primary/10 hover:bg-primary/20",
     },
     {
       id: "dashboard",
@@ -86,7 +86,7 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
                   "group flex cursor-pointer items-center rounded-xl font-medium transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5",
                   collapsed ? "justify-center px-2 py-3" : "gap-3 px-6 py-4",
                   isActive
-                    ? "bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-lg shadow-primary/30"
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-md",
                   item.className && !isActive && item.className
                 )}
