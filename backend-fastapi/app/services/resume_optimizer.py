@@ -1,80 +1,53 @@
 # app/services/resume_optimizer.py
 """
 Resume optimization service using simplified 3-agent workflow
+Refactored to use centralized ResumeParser for all parsing operations.
 """
-import re
-import pdfplumber
-import io
 from app.agents.resume import resume_workflow
 from app.agents.resume.state import ResumeState
+from app.services.resume_parser import get_parser
 
+
+# ===== BACKWARD COMPATIBILITY WRAPPERS =====
+# These delegate to ResumeParser for centralized parsing logic
 
 def parse_resume_sections(resume_text):
-    """Parse resume into common sections"""
-    sections = {
-        "Contact": "",
-        "Summary": "", 
-        "Experience": "", 
-        "Education": "",
-        "Skills": "", 
-        "Projects": "",
-        "Certifications": "",
-        "Other": ""
-    }
+    """
+    Parse resume into common sections.
     
-    current = "Other"
-    for line in resume_text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-            
-        # Try to identify section headers
-        if re.match(r"contact|email|phone|address", line, re.I):
-            current = "Contact"
-        elif re.match(r"summary|objective|profile", line, re.I):
-            current = "Summary"
-        elif re.match(r"experience|work|employment|job", line, re.I):
-            current = "Experience"
-        elif re.match(r"education|degree|university|college|school", line, re.I):
-            current = "Education"
-        elif re.match(r"skills?|technologies|tools|languages", line, re.I):
-            current = "Skills"
-        elif re.match(r"projects?|portfolio", line, re.I):
-            current = "Projects"
-        elif re.match(r"certifications?|licenses", line, re.I):
-            current = "Certifications"
-            
-        # Add content to the current section
-        sections[current] += line + "\n"
+    DEPRECATED: This is a wrapper for backward compatibility.
+    Use ResumeParser.parse_sections() directly for new code.
     
-    return sections
+    Returns sections with lowercase keys as expected by ats_checker.py.
+    """
+    parser = get_parser()
+    return parser.parse_sections(resume_text)
 
 
 def extract_text_from_pdf(file_bytes):
-    """Extract text from PDF file bytes"""
-    text = ""
-    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
+    """
+    Extract text from PDF file bytes.
+    
+    DEPRECATED: This is a wrapper for backward compatibility.
+    Use ResumeParser.extract_text_from_pdf() directly for new code.
+    """
+    parser = get_parser()
+    return parser.extract_text_from_pdf(file_bytes)
 
 
 def optimize_resume_logic(resume_content, job_description, filename=None):
     """
-    Simplified 3-Agent Version - Uses LangGraph workflow with linear flow
+    Simplified 3-Agent Version - Uses LangGraph workflow with linear flow.
+    Uses centralized ResumeParser for all text extraction and parsing.
     """
     
-    # ===== EXTRACT TEXT =====
-    if filename and filename.lower().endswith('.pdf'):
-        resume_text = extract_text_from_pdf(resume_content)
-    else:
-        try:
-            resume_text = resume_content.decode("utf-8")
-        except Exception:
-            resume_text = str(resume_content)
+    # ===== EXTRACT TEXT USING RESUMEPARSER =====
+    parser = get_parser()
+    resume_text = parser.extract_text(resume_content, filename=filename)
     
-    # ===== PARSE SECTIONS =====
-    sections = parse_resume_sections(resume_text)
+    # ===== PARSE SECTIONS USING RESUMEPARSER =====
+    # Keep lowercase keys as expected by ats_checker.py
+    sections = parser.parse_sections(resume_text)
     
     # ===== INITIALIZE STATE (Simplified) =====
     initial_state: ResumeState = {

@@ -10,10 +10,10 @@ from fastapi.responses import JSONResponse
 logger = logging.getLogger(__name__)
 
 # Import centralized parser
-from app.services.resume_parser import ResumeParser, get_parser
+from app.services.resume_parser import get_parser
 
 # Import service modules
-from app.services.resume_optimizer import optimize_resume_logic, extract_text_from_pdf, parse_resume_sections
+from app.services.resume_optimizer import optimize_resume_logic
 
 # Import Supabase client
 from supabase_client import supabase
@@ -32,12 +32,13 @@ async def optimize_resume(
     Uses LangGraph multi-agent system to analyze and optimize resumes
     """
     
-    # 1️⃣ Extract raw text
+    # 1️⃣ Extract raw text using centralized parser
+    parser = get_parser()
     resume_bytes = await resume.read()
-    resume_text = extract_text_from_pdf(resume_bytes)
+    resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
 
-    # 2️⃣ Parse structured sections
-    sections = parse_resume_sections(resume_text)
+    # 2️⃣ Parse structured sections (lowercase keys for ATS compatibility)
+    sections = parser.parse_sections(resume_text)
 
     # 3️⃣ Run AGENTIC optimizer logic (this now uses LangGraph!)
     logger.info(f"Processing resume: {resume.filename}")
@@ -182,12 +183,11 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
                 }
             )
         
-        from app.services.resume_parser import ResumeParser
         from app.agents.skill_gap import analyze_skill_gap
         
-        # Parse resume to extract text
+        # Parse resume to extract text using centralized parser
         logger.info("Parsing resume text from PDF")
-        parser = ResumeParser()
+        parser = get_parser()
         resume_text = parser.extract_text_from_pdf(resume_bytes)
         
         if not resume_text or len(resume_text.strip()) < 10:
