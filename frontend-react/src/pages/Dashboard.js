@@ -14,7 +14,7 @@ import { formatText } from "../utils/textFormatter";
 
 
 function Dashboard() {
-  const { session } = useUser();
+  const { session, loading: authLoading } = useUser();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
@@ -23,6 +23,7 @@ function Dashboard() {
 
   // Fetch most recent resume data from Supabase
   const fetchLatestResumeData = useCallback(async () => {
+    if (authLoading) return; // Wait for auth to resolve
     if (!session) {
       setLoading(false);
       return;
@@ -108,7 +109,7 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, authLoading]);
 
   // Fetch data on mount and when session changes
   useEffect(() => {

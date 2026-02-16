@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Button } from "../components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { AlertCircle, ArrowLeft, ArrowRight, Check, SkipForward } from "lucide-react";
 
 
 function Onboarding() {
@@ -192,107 +203,155 @@ function Onboarding() {
   };
 
   return (
-    <div className="onboarding-container">
-      <div className="onboarding-card">
-        {/* Header */}
-        <div className="onboarding-header">
-          <h1>Let's Get to Know You! 👋</h1>
-          <p>
-            Just a few quick questions to personalize your learning experience
-          </p>
+    <div className="min-h-screen flex items-center justify-center p-5 bg-primary">
+      <div className="w-full max-w-2xl">
+        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
+          {/* Header */}
+          <CardHeader className="text-center space-y-3">
+            <CardTitle className="text-3xl font-bold text-primary">
+              Let's Get to Know You! 👋
+            </CardTitle>
+            <CardDescription className="text-base text-muted-foreground">
+              Just a few quick questions to personalize your learning experience
+            </CardDescription>
 
-          {/* Progress Bar */}
-          <div className="progress-bar-wrapper">
-            <div className="progress-bar">
-              <div
-                className="progress-fill"
-                style={{ width: `${(currentStep / 4) * 100}%` }}
-              />
-            </div>
-            <span className="progress-text">Question {currentStep} of 4</span>
-          </div>
-        </div>
-
-        {/* Question Content */}
-        <div className="onboarding-content">
-          <h2 className="question-title">{currentQuestion.title}</h2>
-          <p className="question-description">{currentQuestion.description}</p>
-
-          {/* Options */}
-          <div className="options-wrapper">
-            {currentQuestion.options.map((option) => (
-              <label key={option.value} className="option-label">
-                <input
-                  type="checkbox"
-                  name={currentQuestion.field}
-                  value={option.value}
-                  checked={answers[currentQuestion.field].includes(
-                    option.value,
-                  )}
-                  onChange={(e) => handleAnswerChange(e.target.value)}
-                  className="option-input"
+            {/* Progress Bar */}
+            <div className="pt-2 space-y-2">
+              <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
+                  style={{ width: `${(currentStep / 4) * 100}%` }}
                 />
-                <span className="option-text">{option.label}</span>
-              </label>
-            ))}
-          </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Question {currentStep} of 4
+              </p>
+            </div>
+          </CardHeader>
 
-          {/* Error Message */}
-          {error && <div className="error-message">{error}</div>}
-        </div>
+          {/* Question Content */}
+          <CardContent className="space-y-5">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-foreground">
+                {currentQuestion.title}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {currentQuestion.description}
+              </p>
+            </div>
 
-        {/* Navigation Buttons */}
-        <div className="onboarding-footer">
-          <div className="button-group">
-            {currentStep > 1 && (
-              <button
-                onClick={handlePrevious}
-                className="btn btn-secondary"
-                disabled={loading}
+            {/* Options */}
+            <div className="grid gap-2">
+              {currentQuestion.options.map((option) => {
+                const isChecked = answers[currentQuestion.field].includes(
+                  option.value,
+                );
+                return (
+                  <label
+                    key={option.value}
+                    className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                      isChecked
+                        ? "border-primary bg-primary/10 shadow-sm"
+                        : "border-border bg-background hover:border-primary/40 hover:bg-accent"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      name={currentQuestion.field}
+                      value={option.value}
+                      checked={isChecked}
+                      onChange={(e) => handleAnswerChange(e.target.value)}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`flex h-5 w-5 items-center justify-center rounded-md border-2 transition-colors flex-shrink-0 ${
+                        isChecked
+                          ? "border-primary bg-primary"
+                          : "border-muted-foreground/30"
+                      }`}
+                    >
+                      {isChecked && (
+                        <Check className="h-3 w-3 text-primary-foreground" />
+                      )}
+                    </div>
+                    <span className="text-sm font-medium text-foreground">
+                      {option.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <Alert
+                variant="destructive"
+                className="animate-in fade-in slide-in-from-top-2 duration-300"
               >
-                ← Previous
-              </button>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
             )}
+          </CardContent>
 
-            {currentStep < 4 && (
-              <>
-                <button
+          {/* Navigation Buttons */}
+          <CardFooter className="flex flex-col gap-3 border-t border-border pt-6">
+            <div className="flex w-full items-center justify-between gap-3">
+              {currentStep > 1 ? (
+                <Button
+                  variant="outline"
+                  onClick={handlePrevious}
+                  disabled={loading}
+                  className="gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+              ) : (
+                <div />
+              )}
+
+              {currentStep < 4 ? (
+                <Button
                   onClick={handleNext}
-                  className="btn btn-primary"
                   disabled={loading}
+                  className="gap-2 shadow-md shadow-primary/30"
                 >
-                  Next →
-                </button>
-                <button
-                  onClick={handleSkip}
-                  className="btn btn-ghost"
-                  disabled={loading}
-                >
-                  Skip for Now
-                </button>
-              </>
-            )}
-
-            {currentStep === 4 && (
-              <>
-                <button
+                  Next
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button
                   onClick={handleComplete}
-                  className="btn btn-primary complete-btn"
                   disabled={loading}
+                  className="gap-2 shadow-md shadow-primary/30"
                 >
-                  {loading ? "Saving..." : "Create My Profile"}
-                </button>
-                <button
-                  onClick={handleSkip}
-                  className="btn btn-ghost"
-                  disabled={loading}
-                >
-                  Skip Questionnaire
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+                  {loading ? (
+                    <>
+                      <div className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      Create My Profile
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+
+            <Button
+              variant="ghost"
+              onClick={handleSkip}
+              disabled={loading}
+              className="w-full text-muted-foreground hover:text-foreground gap-2"
+            >
+              <SkipForward className="h-4 w-4" />
+              {currentStep === 4 ? "Skip Questionnaire" : "Skip for Now"}
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     </div>
   );

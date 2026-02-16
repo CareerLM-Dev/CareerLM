@@ -9,13 +9,17 @@ import {
   LayoutDashboard, 
   Clock, 
   LogOut,
-  ChevronDown 
+  ChevronDown,
+  Sun,
+  Moon
 } from "lucide-react";
+import { useTheme } from "../../context/ThemeContext";
 
 function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, signOut, isAuthenticated } = useUser();
+  const { user, signOut, isAuthenticated, loading } = useUser();
+  const { theme, toggleTheme } = useTheme();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -69,7 +73,7 @@ function Navbar() {
 
   return (
     <nav className="sticky top-0 z-50 flex items-center justify-between px-10 py-5 bg-background/95 backdrop-blur-md border-b border-border/40 transition-all duration-300">
-      <div className="navbar-logo">
+      <div className="flex items-center">
         <Link 
           to="/" 
           className="text-3xl font-extrabold text-primary hover:scale-105 transition-transform duration-300 tracking-tight"
@@ -106,7 +110,28 @@ function Navbar() {
           </>
         )}
 
-        {isAuthenticated ? (
+        {/* Theme toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-9 w-9 text-foreground hover:text-primary hover:bg-primary/10"
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </Button>
+
+        {loading ? (
+          /* Skeleton placeholder while session is resolving */
+          <div className="ml-4 flex items-center gap-3 px-4 py-2 animate-pulse">
+            <div className="h-8 w-8 rounded-full bg-muted" />
+            <div className="h-4 w-24 rounded bg-muted" />
+          </div>
+        ) : isAuthenticated ? (
           <div className="relative ml-4" ref={dropdownRef}>
             <Button
               variant="outline"
@@ -181,21 +206,23 @@ function Navbar() {
             )}
           </div>
         ) : (
-          <>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/auth")}
-              className="ml-4 font-semibold bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 hover:border-primary/40 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/20 transition-all duration-300"
-            >
-              Login
-            </Button>
-            <Button
-              onClick={() => navigate("/auth")}
-              className="ml-2 font-semibold bg-primary text-primary-foreground hover:opacity-90 hover:-translate-y-0.5 shadow-md shadow-primary/30 hover:shadow-lg hover:shadow-primary/40 transition-all duration-300"
-            >
-              Sign Up
-            </Button>
-          </>
+          !loading && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/auth")}
+                className="ml-4 font-semibold bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 hover:border-primary/40 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/20 transition-all duration-300"
+              >
+                Login
+              </Button>
+              <Button
+                onClick={() => navigate("/auth?mode=signup")}
+                className="ml-2 font-semibold bg-primary text-primary-foreground hover:opacity-90 hover:-translate-y-0.5 shadow-md shadow-primary/30 hover:shadow-lg hover:shadow-primary/40 transition-all duration-300"
+              >
+                Sign Up
+              </Button>
+            </>
+          )
         )}
       </div>
     </nav>

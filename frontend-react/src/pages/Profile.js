@@ -62,7 +62,7 @@ const questions = [
 ];
 
 function Profile() {
-  const { session } = useUser();
+  const { session, loading: authLoading } = useUser();
   const [profile, setProfile] = useState(null);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState({});
   const [latestResume, setLatestResume] = useState(null);
@@ -84,6 +84,7 @@ function Profile() {
 
   useEffect(() => {
     const fetchProfile = async () => {
+      if (authLoading) return; // Wait for auth to resolve
       if (!session) {
         setLoading(false);
         return;
@@ -120,7 +121,7 @@ function Profile() {
     };
 
     fetchProfile();
-  }, [session]);
+  }, [session, authLoading]);
 
   const startEdit = (field) => {
     const current = questionnaireAnswers?.[field] || [];

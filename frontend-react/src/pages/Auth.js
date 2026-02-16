@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
 import bcrypt from "bcryptjs";
 import { Button } from "../components/ui/button";
@@ -10,7 +10,8 @@ import { Alert, AlertDescription } from "../components/ui/alert";
 import { AlertCircle } from "lucide-react";
 
 function Auth({ onLoginSuccess, onRegisterSuccess }) {
-  const [isLogin, setIsLogin] = useState(true);
+  const [searchParams] = useSearchParams();
+  const [isLogin, setIsLogin] = useState(searchParams.get("mode") !== "signup");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,6 +20,11 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   const [error, setError] = useState(null);
 
   const navigate = useNavigate();
+
+  // Sync form mode when URL query param changes (e.g. back/forward navigation)
+  useEffect(() => {
+    setIsLogin(searchParams.get("mode") !== "signup");
+  }, [searchParams]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

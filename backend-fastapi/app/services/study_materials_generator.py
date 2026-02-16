@@ -2,12 +2,10 @@ import re
 import pdfplumber
 import io
 import os
-from groq import Groq
 from dotenv import load_dotenv
+from app.agents.llm_config import GROQ_CLIENT as client, GROQ_DEFAULT_MODEL, GROQ_PLANNING_MODEL, GEMINI_CLIENT, GEMINI_MODEL
 
-# Load API key from .env
 load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 def extract_text_from_pdf(file_bytes):
@@ -104,7 +102,7 @@ Format each section clearly with headers. Be specific, practical, and prioritize
 
         # Use a different model for variety (mixtral for detailed planning)
         completion = client.chat.completions.create(
-            model="mixtral-8x7b-32768",  # Different model for detailed planning
+            model=GROQ_PLANNING_MODEL,
             messages=[
                 {"role": "system", "content": "You are an expert career development advisor specializing in creating personalized learning paths."},
                 {"role": "user", "content": prompt},
@@ -206,7 +204,7 @@ Format:
 Be concise and specific."""
 
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=GROQ_DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "You are a career advisor providing quick learning recommendations."},
                 {"role": "user", "content": prompt},
@@ -227,11 +225,11 @@ def get_live_study_resources(missing_skills_list):
     Returns a structured study_plan with roadmap steps.
     """
     import json as _json
-    from google import genai
     from google.genai import types
 
-    gemini_key = os.getenv("GEMINI_API_KEY")
-    gemini_client = genai.Client(api_key=gemini_key)
+    gemini_client = GEMINI_CLIENT
+    if not gemini_client:
+        return generate_fallback_resources(missing_skills_list)
 
     skills_query = ", ".join(missing_skills_list)
 
@@ -240,9 +238,16 @@ Role: Professional Resource Scout & Study Architect.
 
 Task: Convert the following identified skill gaps into a structured learning roadmap for a Study Planner: {skills_query}.
 
+CRITICAL URL RULES:
+- Every URL MUST be a direct link to the actual resource page, NOT a Google search link or search results page.
+- Documentation URLs must point to the official docs site (e.g. https://docs.python.org, https://react.dev, https://kubernetes.io/docs).
+- YouTube URLs must be direct video or playlist links (e.g. https://www.youtube.com/watch?v=... or https://www.youtube.com/playlist?list=...), NOT youtube.com/results search pages.
+- Course URLs must link to the specific course page (e.g. https://www.coursera.org/learn/machine-learning), NOT search/browse pages.
+- NEVER output google.com/search links, youtube.com/results links, or any search-results URL.
+
 Execution Steps:
-1. Search Grounding: Use live Google Search to find active 2025/2026 links for YouTube playlists, free platform courses (Udemy/Coursera), and official technical documentation.
-2. Verification: Verify that the YouTube links are "Playlists" or "Full Courses" (minimum 2+ hours of content).
+1. Search Grounding: Use live Google Search to discover the exact page URL for each resource.
+2. Verification: Confirm every URL is a direct page link, not a search or results page.
 3. Actionable Output: For each skill, provide exactly three resources that represent a "Start to Finish" journey.
 
 Constraint: Output strictly JSON. No conversational preamble.
@@ -253,9 +258,9 @@ JSON Schema:
     {{
       "skill": "Skill Name",
       "roadmap": [
-        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Doc Title", "url": "verified_link", "est_time": "Duration"}},
-        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Playlist Name", "url": "verified_link", "est_time": "Duration"}},
-        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Course Name", "platform": "Platform Name", "url": "verified_link", "est_time": "Duration"}}
+        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Exact Doc Page Title", "url": "https://exact-docs-site.com/path", "est_time": "Duration"}},
+        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Exact Video/Playlist Title", "url": "https://www.youtube.com/watch?v=XXXXX", "est_time": "Duration"}},
+        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Exact Course Title", "platform": "Platform Name", "url": "https://platform.com/learn/exact-course", "est_time": "Duration"}}
       ]
     }}
   ]
@@ -264,7 +269,7 @@ JSON Schema:
 
     try:
         response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],

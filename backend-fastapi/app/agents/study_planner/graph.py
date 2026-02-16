@@ -38,13 +38,15 @@ def build_study_planner_graph() -> StateGraph:
 study_planner_workflow = build_study_planner_graph().compile()
 
 
-def generate_study_plan(target_career: str, missing_skills: list[str]) -> dict:
+def generate_study_plan(target_career: str, missing_skills: list[str], questionnaire_answers: dict | None = None) -> dict:
     """
     Main entry-point: generate a learning roadmap for the given skill gaps.
 
     Args:
         target_career: The career the user is targeting.
         missing_skills: List of skills the user needs to learn.
+        questionnaire_answers: Optional onboarding questionnaire data
+            (target_role, primary_goal, learning_preference, time_commitment).
 
     Returns:
         Dictionary with ``skill_gap_report`` and ``study_plan``.
@@ -54,6 +56,9 @@ def generate_study_plan(target_career: str, missing_skills: list[str]) -> dict:
             "target_career": target_career,
             "missing_skills": missing_skills,
         }
+
+        if questionnaire_answers:
+            initial_state["questionnaire_answers"] = questionnaire_answers
 
         result = study_planner_workflow.invoke(initial_state)
 
