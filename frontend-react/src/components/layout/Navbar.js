@@ -9,13 +9,17 @@ import {
   LayoutDashboard, 
   Clock, 
   LogOut,
-  ChevronDown 
+  ChevronDown,
+  Sun,
+  Moon
 } from "lucide-react";
+import { useTheme } from "../../context/ThemeContext";
 
 function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut, isAuthenticated } = useUser();
+  const { theme, toggleTheme } = useTheme();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -105,6 +109,21 @@ function Navbar() {
             </Button>
           </>
         )}
+
+        {/* Theme toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-9 w-9 text-foreground hover:text-primary hover:bg-primary/10"
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4" />
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+        </Button>
 
         {isAuthenticated ? (
           <div className="relative ml-4" ref={dropdownRef}>

@@ -1,6 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 import { UserProvider } from "./context/UserContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import Navbar from "./components/layout/Navbar";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
@@ -13,6 +14,7 @@ import Profile from "./pages/Profile";
 
 function App() {
   return (
+    <ThemeProvider>
     <UserProvider>
       {/* Sticky Navbar on top */}
       <Navbar />
@@ -28,6 +30,7 @@ function App() {
         <Route path="/profile" element={<Profile />} />
       </Routes>
     </UserProvider>
+    </ThemeProvider>
   );
 }
 
