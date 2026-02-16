@@ -1,15 +1,20 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom"; // <-- only import Routes & Route
+import { Routes, Route } from "react-router-dom";
 import { UserProvider } from "./context/UserContext";
-import Navbar from "./components/Navbar";
+import { ThemeProvider } from "./context/ThemeContext";
+import Navbar from "./components/layout/Navbar";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import History from "./components/History";
-import "./App.css";
+import Onboarding from "./pages/Onboarding";
+import ResumeUploadPage from "./pages/ResumeUploadPage";
+import Profile from "./pages/Profile";
+
 
 function App() {
   return (
+    <ThemeProvider>
     <UserProvider>
       {/* Sticky Navbar on top */}
       <Navbar />
@@ -18,10 +23,14 @@ function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/auth" element={<Auth />} />
+        <Route path="/onboarding/:userId" element={<Onboarding />} />
+        <Route path="/upload-resume" element={<ResumeUploadPage />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/history" element={<History />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
     </UserProvider>
+    </ThemeProvider>
   );
 }
 

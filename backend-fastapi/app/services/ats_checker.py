@@ -7,12 +7,10 @@ calculating scores based on structure, keywords, content quality, and formatting
 
 import re
 import os
-from groq import Groq
 from dotenv import load_dotenv
+from app.agents.llm_config import GROQ_CLIENT as client, GROQ_DEFAULT_MODEL
 
-# Load API key from .env
 load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
 # Expanded stop words including corporate fluff
@@ -363,7 +361,7 @@ def generate_ats_feedback(resume_text: str, sections: dict, job_description: str
     
     try:
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=GROQ_DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "You are an expert resume analyst helping job seekers improve their ATS compatibility."},
                 {"role": "user", "content": prompt},

@@ -3,22 +3,35 @@ import io
 import json
 import logging
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import JSONResponse
+from typing import Optional
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 # Import centralized parser
-from app.services.resume_parser import ResumeParser, get_parser
+from app.services.resume_parser import get_parser
 
 # Import service modules
-from app.services.resume_optimizer import optimize_resume_logic, extract_text_from_pdf, parse_resume_sections
+from app.services.resume_optimizer import optimize_resume_logic
 
 # Import Supabase client
 from supabase_client import supabase
 
 router = APIRouter()
+
+
+async def get_current_user_optional(authorization: Optional[str] = Header(None)):
+    """Extract user from JWT token (returns None if not authenticated)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.replace("Bearer ", "")
+    try:
+        user = supabase.auth.get_user(token)
+        return user.user if user and user.user else None
+    except Exception:
+        return None
 
 
 @router.post("/optimize")
@@ -32,12 +45,13 @@ async def optimize_resume(
     Uses LangGraph multi-agent system to analyze and optimize resumes
     """
     
-    # 1️⃣ Extract raw text
+    # 1️⃣ Extract raw text using centralized parser
+    parser = get_parser()
     resume_bytes = await resume.read()
-    resume_text = extract_text_from_pdf(resume_bytes)
+    resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
 
-    # 2️⃣ Parse structured sections
-    sections = parse_resume_sections(resume_text)
+    # 2️⃣ Parse structured sections (lowercase keys for ATS compatibility)
+    sections = parser.parse_sections(resume_text)
 
     # 3️⃣ Run AGENTIC optimizer logic (this now uses LangGraph!)
     logger.info(f"Processing resume: {resume.filename}")
@@ -62,6 +76,7 @@ async def optimize_resume(
         # Original fields (backward compatible)
         "sections": sections,
         "filename": resume.filename,
+        "resume_text": resume_text,  # Store full resume text for cold email generation
         
         # ATS Analysis
         "ats_score": analysis_result.get("ats_score"),
@@ -123,10 +138,23 @@ async def optimize_resume(
         resume_id = resp.data[0]["resume_id"]
         new_version_number = 1
 
+    # Separate resume text from analysis data
+    analysis_data = {
+        "sections": result["sections"],
+        "filename": result["filename"],
+        "ats_score": result["ats_score"],
+        "ats_analysis": result["ats_analysis"],
+        "analysis": result["analysis"],
+        "careerAnalysis": result["careerAnalysis"],
+        "agentic_metadata": result["agentic_metadata"],
+        "summary": result["summary"]
+    }
+    
     stored_version = supabase.table("resume_versions").insert({
         "resume_id": resume_id,
         "version_number": new_version_number,
-        "content": json.dumps(result),
+        "resume_text": resume_text,  # Store plain resume text separately
+        "content": json.dumps(analysis_data),  # Store only analysis data
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
@@ -168,12 +196,11 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
                 }
             )
         
-        from app.services.resume_parser import ResumeParser
         from app.agents.skill_gap import analyze_skill_gap
         
-        # Parse resume to extract text
+        # Parse resume to extract text using centralized parser
         logger.info("Parsing resume text from PDF")
-        parser = ResumeParser()
+        parser = get_parser()
         resume_text = parser.extract_text_from_pdf(resume_bytes)
         
         if not resume_text or len(resume_text.strip()) < 10:
@@ -224,6 +251,141 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
                 "error": str(e),
                 "message": "Failed to analyze career matches"
             }
+        )
+
+
+@router.get("/study-materials-cache")
+async def get_study_materials_cache(
+    user=Depends(get_current_user_optional),
+):
+    """
+    Load cached study materials from Supabase for the current user.
+    Returns the most recent cached entry if available.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Not authenticated"},
+        )
+
+    try:
+        result = (
+            supabase.table("study_materials_cache")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if result.data:
+            row = result.data[0]
+            return JSONResponse({
+                "success": True,
+                "cached": True,
+                "target_career": row.get("target_career", ""),
+                "skill_gap_report": row.get("skill_gap_report", []),
+                "study_plan": row.get("study_plan", []),
+                "cached_at": row.get("created_at"),
+            })
+        else:
+            return JSONResponse({"success": True, "cached": False})
+
+    except Exception as e:
+        logger.warning(f"Failed to load study materials cache: {e}")
+        return JSONResponse({"success": True, "cached": False})
+
+
+@router.post("/generate-study-materials-simple")
+async def generate_study_materials_simple(
+    target_career: str = Form(...),
+    missing_skills: str = Form(...),
+    user=Depends(get_current_user_optional),
+):
+    """
+    🤖 AGENTIC Study Planner Endpoint (LangGraph + Gemini Search Grounding)
+    Generates a live learning roadmap for the given skill gaps.
+    No resume upload required – accepts career + skills directly.
+    Auto-saves results to Supabase for the authenticated user.
+    """
+    try:
+        logger.info(f"Study planner request: career={target_career}")
+
+        skills_list = json.loads(missing_skills) if missing_skills else []
+        if not skills_list:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "No missing skills provided"},
+            )
+
+        from app.agents.study_planner import generate_study_plan
+
+        # Fetch questionnaire answers if user is authenticated
+        questionnaire_answers = None
+        if user:
+            try:
+                q_result = (
+                    supabase.table("user")
+                    .select("questionnaire_answers")
+                    .eq("id", user.id)
+                    .limit(1)
+                    .execute()
+                )
+                if q_result.data and q_result.data[0].get("questionnaire_answers"):
+                    questionnaire_answers = q_result.data[0]["questionnaire_answers"]
+                    logger.info(f"Loaded questionnaire answers for user {user.id}")
+            except Exception as qa_err:
+                logger.warning(f"Failed to load questionnaire answers: {qa_err}")
+
+        result = generate_study_plan(target_career, skills_list, questionnaire_answers)
+
+        if result.get("error"):
+            logger.warning(f"Study planner error: {result['error']}")
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": result["error"]},
+            )
+
+        logger.info(
+            f"Study planner complete. {len(result.get('skill_gap_report', []))} skills covered"
+        )
+
+        # Auto-save to Supabase if user is authenticated
+        if user:
+            try:
+                # Delete old cache for this user (keep only latest)
+                supabase.table("study_materials_cache") \
+                    .delete() \
+                    .eq("user_id", user.id) \
+                    .execute()
+
+                # Insert new cache entry
+                supabase.table("study_materials_cache").insert({
+                    "user_id": user.id,
+                    "target_career": result.get("target_career", target_career),
+                    "skill_gap_report": result.get("skill_gap_report", []),
+                    "study_plan": result.get("study_plan", []),
+                }).execute()
+                logger.info(f"Study materials cached for user {user.id}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache study materials: {cache_err}")
+
+        return JSONResponse({
+            "success": True,
+            "target_career": result.get("target_career", target_career),
+            "skill_gap_report": result.get("skill_gap_report", []),
+            "study_plan": result.get("study_plan", []),
+        })
+
+    except Exception as e:
+        logger.exception(f"Unexpected error in study planner: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to generate study materials",
+            },
         )
 
 

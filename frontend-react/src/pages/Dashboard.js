@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
-import Sidebar from "../components/Sidebar";
+import Sidebar from "../components/layout/Sidebar";
 import ResumeUpload from "../components/ResumeUpload";
 import ResumeOptimizer from "../components/ResumeOptimizer";
 import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
@@ -11,17 +11,19 @@ import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
 import { formatText } from "../utils/textFormatter";
-import "./Dashboard.css";
+
 
 function Dashboard() {
-  const { session } = useUser();
+  const { session, loading: authLoading } = useUser();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Fetch most recent resume data from Supabase
   const fetchLatestResumeData = useCallback(async () => {
+    if (authLoading) return; // Wait for auth to resolve
     if (!session) {
       setLoading(false);
       return;
@@ -91,6 +93,8 @@ function Dashboard() {
               skills_to_focus: [],
             },
           },
+          // Extract skills for cold email generator
+          skills: content.careerAnalysis?.user_skills || [],
           gaps: content.analysis?.gaps || [],
           alignment_suggestions: content.analysis?.alignment_suggestions || [],
           jobDescription:
@@ -105,7 +109,7 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, authLoading]);
 
   // Fetch data on mount and when session changes
   useEffect(() => {
@@ -214,21 +218,21 @@ function Dashboard() {
         return <StudyPlanner resumeData={resumeData} />;
       default:
         return (
-          <div className="dashboard-overview">
+          <div className="w-full">
             {loading ? (
-              <div className="loading-state">
-                <div className="spinner-large"></div>
-                <p>Loading your resume data...</p>
+              <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+                <div className="w-12 h-12 border-4 border-primary/30 border-t-primary rounded-full animate-spin"></div>
+                <p className="text-muted-foreground">Loading your resume data...</p>
               </div>
             ) : (
-              <div className="dashboard-grid">
+              <div className="grid lg:grid-cols-3 gap-6">
                 {/* Left Column - Overview & Analysis */}
-                <div className="left-column">
+                <div className="lg:col-span-2 space-y-6">
                   {/* ATS Score Overview */}
-                  <div className="overview-card ats-overview">
-                    <div className="ats-score-display">
-                      <div className="score-circle-large">
-                        <svg width="160" height="160" viewBox="0 0 160 160">
+                  <div className="bg-primary rounded-lg p-8 text-primary-foreground shadow-lg">
+                    <div className="flex flex-col md:flex-row gap-8 items-center">
+                      <div className="relative flex-shrink-0">
+                        <svg width="160" height="160" viewBox="0 0 160 160" className="transform -rotate-90">
                           <circle
                             cx="80"
                             cy="80"
@@ -244,458 +248,220 @@ function Dashboard() {
                             fill="transparent"
                             stroke="white"
                             strokeWidth="12"
-                            strokeDasharray={`${
-                              (resumeData?.ats_score || 0) * 4.4
-                            } 440`}
+                            strokeDasharray={`${(resumeData?.ats_score || 0) * 4.4} 440`}
                             strokeLinecap="round"
-                            transform="rotate(-90 80 80)"
                           />
-                          <text
-                            x="80"
-                            y="75"
-                            textAnchor="middle"
-                            fontSize="14"
-                            fill="rgba(255, 255, 255, 0.8)"
-                            fontWeight="500"
-                            margin="8px"
-                          >
-                            Overall ATS Score
-                          </text>
-                          <text
-                            x="80"
-                            y="100"
-                            textAnchor="middle"
-                            fontSize="18"
-                            fill="white"
-                            fontWeight="bold"
-                          >
-                            {resumeData?.ats_score || "--"}/100
-                          </text>
                         </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                          <span className="text-sm opacity-80">Overall ATS Score</span>
+                          <span className="text-2xl font-bold">{resumeData?.ats_score || "--"}/100</span>
+                        </div>
                       </div>
-                      <div className="ats-info">
-                        <p className="target-job">
-                          {resumeData?.careerAnalysis?.analysis_summary
-                            ?.best_match
-                            ? `Target Job: ${resumeData.careerAnalysis.analysis_summary.best_match}`
-                            : resumeData?.careerAnalysis?.top_3_careers?.[0]
-                                ?.career
-                            ? `Target Job: ${resumeData.careerAnalysis.top_3_careers[0].career}`
-                            : resumeData?.jobDescription
-                            ? `Target Job: ${(() => {
-                                const lines = resumeData.jobDescription
-                                  .split("\n")
-                                  .filter((line) => line.trim());
-                                // Try to find a line that looks like a job title (usually short and at the beginning)
-                                const titleLine =
-                                  lines.find(
-                                    (line) =>
-                                      line.length < 80 &&
-                                      !line
-                                        .toLowerCase()
-                                        .includes("experience") &&
-                                      !line
-                                        .toLowerCase()
-                                        .includes("responsibilities") &&
-                                      !line
-                                        .toLowerCase()
-                                        .includes("requirements")
-                                  ) || lines[0];
-                                return (
-                                  titleLine.substring(0, 60) +
-                                  (titleLine.length > 60 ? "..." : "")
-                                );
-                              })()}`
-                            : "Target Job: Upload resume with job description"}
-                        </p>
-                        <p className="last-analysis">
-                          {resumeData?.filename
-                            ? `Last Analysis: ${resumeData.filename}`
-                            : "Last Analysis: No resume analyzed yet"}
-                        </p>
+                      <div className="flex-1 space-y-4">
+                        <div>
+                          <p className="text-sm opacity-90 mb-1">Target Job</p>
+                          <p className="font-medium">
+                            {resumeData?.careerAnalysis?.analysis_summary?.best_match
+                              ? resumeData.careerAnalysis.analysis_summary.best_match
+                              : resumeData?.careerAnalysis?.top_3_careers?.[0]?.career
+                              ? resumeData.careerAnalysis.top_3_careers[0].career
+                              : resumeData?.jobDescription
+                              ? (() => {
+                                  const lines = resumeData.jobDescription.split("\n").filter((line) => line.trim());
+                                  const titleLine = lines.find((line) => line.length < 80 && !line.toLowerCase().includes("experience") && !line.toLowerCase().includes("responsibilities") && !line.toLowerCase().includes("requirements")) || lines[0];
+                                  return titleLine.substring(0, 60) + (titleLine.length > 60 ? "..." : "");
+                                })()
+                              : "Upload resume with job description"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm opacity-90 mb-1">Last Analysis</p>
+                          <p className="font-medium">{resumeData?.filename || "No resume analyzed yet"}</p>
+                        </div>
+                        <button
+                          onClick={() => setCurrentPage("upload")}
+                          className="bg-primary-foreground text-primary px-6 py-2 rounded-md font-medium hover:opacity-90 transition-opacity"
+                        >
+                          {resumeData ? "Upload New Resume" : "Upload Resume Now"}
+                        </button>
                       </div>
-                      <button
-                        className="optimize-btn"
-                        onClick={() => setCurrentPage("upload")}
-                      >
-                        {resumeData ? "Upload New Resume" : "Upload Resume Now"}
-                      </button>
                     </div>
                   </div>
 
                   {/* Score Breakdown */}
-                  <div className="overview-card score-breakdown">
-                    <h3 className="card-title">Score Breakdown</h3>
-                    <div className="metrics-grid">
-                      <div className="metric-item">
-                        <div className="metric-circle">
-                          <svg width="80" height="80" viewBox="0 0 80 80">
+                  <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+                    <h3 className="text-xl font-semibold mb-6">Score Breakdown</h3>
+                    <div className="grid grid-cols-3 gap-6">
+                      <div className="flex flex-col items-center">
+                        <div className="relative w-20 h-20 mb-3">
+                          <svg width="80" height="80" viewBox="0 0 80 80" className="transform -rotate-90">
+                            <circle cx="40" cy="40" r="32" fill="transparent" stroke="hsl(var(--muted))" strokeWidth="6" />
                             <circle
                               cx="40"
                               cy="40"
                               r="32"
                               fill="transparent"
-                              stroke="#e2e8f0"
+                              stroke="hsl(var(--primary))"
                               strokeWidth="6"
-                            />
-                            <circle
-                              cx="40"
-                              cy="40"
-                              r="32"
-                              fill="transparent"
-                              stroke="#3b82f6"
-                              strokeWidth="6"
-                              strokeDasharray={`${
-                                (resumeData?.ats_analysis?.component_scores
-                                  ?.structure_score || 0) * 2
-                              } 200`}
+                              strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.structure_score || 0) * 2} 200`}
                               strokeLinecap="round"
-                              transform="rotate(-90 40 40)"
                             />
-                            <text
-                              x="40"
-                              y="45"
-                              textAnchor="middle"
-                              fontSize="18"
-                              fill="#1e293b"
-                              fontWeight="bold"
-                            >
-                              {resumeData?.ats_analysis?.component_scores
-                                ?.structure_score || 0}
-                              %
-                            </text>
                           </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-lg font-bold">{resumeData?.ats_analysis?.component_scores?.structure_score || 0}%</span>
+                          </div>
                         </div>
-                        <p className="metric-label">
-                          Structure:{" "}
-                          {resumeData?.ats_analysis?.component_scores
-                            ?.structure_score || 0}
-                          /100
-                        </p>
+                        <p className="text-sm text-muted-foreground text-center">Structure: {resumeData?.ats_analysis?.component_scores?.structure_score || 0}/100</p>
                       </div>
-                      <div className="metric-item">
-                        <div className="metric-circle">
-                          <svg width="80" height="80" viewBox="0 0 80 80">
+                      <div className="flex flex-col items-center">
+                        <div className="relative w-20 h-20 mb-3">
+                          <svg width="80" height="80" viewBox="0 0 80 80" className="transform -rotate-90">
+                            <circle cx="40" cy="40" r="32" fill="transparent" stroke="hsl(var(--muted))" strokeWidth="6" />
                             <circle
                               cx="40"
                               cy="40"
                               r="32"
                               fill="transparent"
-                              stroke="#e2e8f0"
+                              stroke="hsl(var(--primary))"
                               strokeWidth="6"
-                            />
-                            <circle
-                              cx="40"
-                              cy="40"
-                              r="32"
-                              fill="transparent"
-                              stroke="#3b82f6"
-                              strokeWidth="6"
-                              strokeDasharray={`${
-                                (resumeData?.ats_analysis?.component_scores
-                                  ?.content_score || 0) * 2
-                              } 200`}
+                              strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.content_score || 0) * 2} 200`}
                               strokeLinecap="round"
-                              transform="rotate(-90 40 40)"
                             />
-                            <text
-                              x="40"
-                              y="45"
-                              textAnchor="middle"
-                              fontSize="18"
-                              fill="#1e293b"
-                              fontWeight="bold"
-                            >
-                              {resumeData?.ats_analysis?.component_scores
-                                ?.content_score || 0}
-                              %
-                            </text>
                           </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-lg font-bold">{resumeData?.ats_analysis?.component_scores?.content_score || 0}%</span>
+                          </div>
                         </div>
-                        <p className="metric-label">
-                          Content:{" "}
-                          {resumeData?.ats_analysis?.component_scores
-                            ?.content_score || 0}
-                          /100
-                        </p>
+                        <p className="text-sm text-muted-foreground text-center">Content: {resumeData?.ats_analysis?.component_scores?.content_score || 0}/100</p>
                       </div>
-                      <div className="metric-item">
-                        <div className="metric-circle">
-                          <svg width="80" height="80" viewBox="0 0 80 80">
+                      <div className="flex flex-col items-center">
+                        <div className="relative w-20 h-20 mb-3">
+                          <svg width="80" height="80" viewBox="0 0 80 80" className="transform -rotate-90">
+                            <circle cx="40" cy="40" r="32" fill="transparent" stroke="hsl(var(--muted))" strokeWidth="6" />
                             <circle
                               cx="40"
                               cy="40"
                               r="32"
                               fill="transparent"
-                              stroke="#e2e8f0"
+                              stroke="hsl(var(--primary))"
                               strokeWidth="6"
-                            />
-                            <circle
-                              cx="40"
-                              cy="40"
-                              r="32"
-                              fill="transparent"
-                              stroke="#3b82f6"
-                              strokeWidth="6"
-                              strokeDasharray={`${
-                                (resumeData?.ats_analysis?.component_scores
-                                  ?.formatting_score || 0) * 2
-                              } 200`}
+                              strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.formatting_score || 0) * 2} 200`}
                               strokeLinecap="round"
-                              transform="rotate(-90 40 40)"
                             />
-                            <text
-                              x="40"
-                              y="45"
-                              textAnchor="middle"
-                              fontSize="18"
-                              fill="#1e293b"
-                              fontWeight="bold"
-                            >
-                              {resumeData?.ats_analysis?.component_scores
-                                ?.formatting_score || 0}
-                              %
-                            </text>
                           </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-lg font-bold">{resumeData?.ats_analysis?.component_scores?.formatting_score || 0}%</span>
+                          </div>
                         </div>
-                        <p className="metric-label">
-                          Formatting:{" "}
-                          {resumeData?.ats_analysis?.component_scores
-                            ?.formatting_score || 0}
-                          /100
-                        </p>
+                        <p className="text-sm text-muted-foreground text-center">Formatting: {resumeData?.ats_analysis?.component_scores?.formatting_score || 0}/100</p>
                       </div>
                     </div>
                   </div>
 
-                  {/* AI Agent Tools - Commented Out */}
-                  {/* <div className="overview-card ai-tools">
-                  <h3 className="card-title">AI Agent Tools</h3>
-
-                  <div
-                    className="tool-card"
-                    onClick={() => setCurrentPage("mock_interview")}
-                  >
-                    <h4 className="tool-title">Mock Interview Agent</h4>
-                    <div className="tool-actions">
-                      <span className="tool-info">Last Score: 7.8/10</span>
-                      <button className="tool-btn">
-                        Start Practice Session
-                      </button>
-                    </div>
-                  </div>
-
-                  <div
-                    className="tool-card"
-                    onClick={() => setCurrentPage("study_planner")}
-                  >
-                    <h4 className="tool-title">Study Planner Agent</h4>
-                    <div className="tool-actions">
-                      <span className="tool-info">Next Focus: PyTorch</span>
-                      <button className="tool-btn">View Learning Plan</button>
-                    </div>
-                  </div>
-
-                  <div
-                    className="tool-card"
-                    onClick={() => setCurrentPage("cold_email")}
-                  >
-                    <h4 className="tool-title">Cold Email Agent</h4>
-                    <div className="tool-actions">
-                      <span className="tool-info">Draft for InnovatEX</span>
-                      <button className="tool-btn">Draft New Outreach</button>
-                    </div>
-                  </div>
-                </div> */}
                 </div>
 
                 {/* Right Column - Actions & Progress */}
-                <div className="right-column">
+                <div className="space-y-6">
                   {/* Action & Progress */}
-                  <div className="overview-card action-progress">
-                    <h3 className="card-title">Action & Progress</h3>
+                  <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+                    <h3 className="text-xl font-semibold mb-6">Action & Progress</h3>
 
                     {/* ATS Score Trend */}
-                    <div className="progress-section">
-                      <h4 className="section-subtitle">ATS Score Trend</h4>
-                      <div className="chart-placeholder">
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-muted-foreground mb-3">ATS Score Trend</h4>
+                      <div className="bg-muted/30 rounded-lg p-4">
                         {scoreHistory && scoreHistory.length > 0 ? (
-                          <svg
-                            width="100%"
-                            height="120"
-                            viewBox="0 0 300 120"
-                            preserveAspectRatio="none"
-                          >
+                          <svg width="100%" height="120" viewBox="0 0 300 120" preserveAspectRatio="none">
                             <defs>
-                              <linearGradient
-                                id="chartGradient"
-                                x1="0%"
-                                y1="0%"
-                                x2="0%"
-                                y2="100%"
-                              >
-                                <stop
-                                  offset="0%"
-                                  stopColor="#3b82f6"
-                                  stopOpacity="0.3"
-                                />
-                                <stop
-                                  offset="100%"
-                                  stopColor="#3b82f6"
-                                  stopOpacity="0.05"
-                                />
+                              <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.3" />
+                                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.05" />
                               </linearGradient>
                             </defs>
-                            <path
-                              d={generateFilledPath()}
-                              fill="url(#chartGradient)"
-                            />
-                            <path
-                              d={generateChartPath()}
-                              fill="none"
-                              stroke="#3b82f6"
-                              strokeWidth="3"
-                            />
+                            <path d={generateFilledPath()} fill="url(#chartGradient)" />
+                            <path d={generateChartPath()} fill="none" stroke="hsl(var(--primary))" strokeWidth="3" />
                           </svg>
                         ) : (
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              height: "120px",
-                              color: "#94a3b8",
-                              fontSize: "14px",
-                            }}
-                          >
-                            No history data available yet. Upload a resume to
-                            start tracking!
+                          <div className="flex items-center justify-center h-[120px] text-sm text-muted-foreground">
+                            No history data available yet. Upload a resume to start tracking!
                           </div>
                         )}
                       </div>
                     </div>
 
                     {/* Resume Versions */}
-                    <div className="progress-section">
-                      <h4 className="section-subtitle">Resume Status</h4>
-                      <div className="version-cards">
-                        <div className="version-card">
-                          <div className="version-row">
-                            <span className="version-name">Current Resume</span>
-                            <span className="version-score">
-                              {resumeData?.ats_score || "--"}/100
-                            </span>
-                          </div>
-                          <div className="version-row">
-                            <span className="version-name">
-                              {resumeData?.filename || "No resume uploaded"}
-                            </span>
-                            <span className="version-score">
-                              {resumeData?.ats_analysis?.component_scores
-                                ?.keyword_score
-                                ? `Keywords: ${resumeData.ats_analysis.component_scores.keyword_score}%`
-                                : "N/A"}
-                            </span>
-                          </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-3">Resume Status</h4>
+                      <div className="bg-muted/30 rounded-lg p-4 space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm">Current Resume</span>
+                          <span className="text-sm font-semibold">{resumeData?.ats_score || "--"}/100</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm text-muted-foreground">
+                          <span>{resumeData?.filename || "No resume uploaded"}</span>
+                          <span>
+                            {resumeData?.ats_analysis?.component_scores?.keyword_score
+                              ? `Keywords: ${resumeData.ats_analysis.component_scores.keyword_score}%`
+                              : "N/A"}
+                          </span>
                         </div>
                       </div>
                     </div>
                   </div>
 
                   {/* Skill Gap Analysis */}
-                  <div className="overview-card skill-gap">
-                    <h3 className="card-title">Skill Gap Analysis</h3>
-                    <div className="skill-section">
-                      <h4 className="skill-subtitle">
-                        {resumeData?.careerAnalysis?.analysis_summary
-                          ?.best_match
+                  <div className="bg-card border border-border rounded-lg p-6 shadow-sm">
+                    <h3 className="text-xl font-semibold mb-4">Skill Gap Analysis</h3>
+                    <div className="space-y-4">
+                      <h4 className="text-sm font-medium">
+                        {resumeData?.careerAnalysis?.analysis_summary?.best_match
                           ? `Best Match: ${resumeData.careerAnalysis.analysis_summary.best_match}`
                           : "Skills Analysis"}
                       </h4>
-                      <div className="skills-comparison">
-                        <div className="skills-column">
-                          <p className="column-label">Missing Skills</p>
-                          <div className="skill-tags">
-                            {resumeData?.careerAnalysis?.top_3_careers?.[0]
-                              ?.missing_skills &&
-                            resumeData.careerAnalysis.top_3_careers[0]
-                              .missing_skills.length > 0 ? (
-                              resumeData.careerAnalysis.top_3_careers[0].missing_skills
-                                .slice(0, 6)
-                                .map((skill, idx) => {
-                                  // Clean up markdown formatting
-                                  const cleanSkill = skill
-                                    .replace(/\*\*/g, "")
-                                    .replace(/\*/g, "")
-                                    .trim();
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className="skill-tag missing"
-                                    >
-                                      {cleanSkill}
-                                    </span>
-                                  );
-                                })
-                            ) : resumeData?.gaps &&
-                              resumeData.gaps.length > 0 ? (
-                              resumeData.gaps.slice(0, 6).map((gap, idx) => {
+                      <div className="space-y-4">
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-2">Missing Skills</p>
+                          <div className="flex flex-wrap gap-2">
+                            {resumeData?.careerAnalysis?.top_3_careers?.[0]?.missing_skills &&
+                            resumeData.careerAnalysis.top_3_careers[0].missing_skills.length > 0 ? (
+                              resumeData.careerAnalysis.top_3_careers[0].missing_skills.slice(0, 6).map((skill, idx) => {
+                                const cleanSkill = skill.replace(/\*\*/g, "").replace(/\*/g, "").trim();
                                 return (
-                                  <span 
-                                    key={idx} 
-                                    className="skill-tag missing"
-                                    dangerouslySetInnerHTML={{ __html: formatText(gap) }}
-                                  />
+                                  <span key={idx} className="inline-block px-3 py-1 bg-destructive/10 text-destructive text-sm rounded-full border border-destructive/20">
+                                    {cleanSkill}
+                                  </span>
                                 );
                               })
+                            ) : resumeData?.gaps && resumeData.gaps.length > 0 ? (
+                              resumeData.gaps.slice(0, 6).map((gap, idx) => (
+                                <span key={idx} className="inline-block px-3 py-1 bg-destructive/10 text-destructive text-sm rounded-full border border-destructive/20" dangerouslySetInnerHTML={{ __html: formatText(gap) }} />
+                              ))
                             ) : (
-                              <span className="skill-tag existing">
+                              <span className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
                                 No missing skills!
                               </span>
                             )}
                           </div>
                         </div>
-                        <div className="skills-column">
-                          <p className="column-label">Matched Skills</p>
-                          <div className="skill-tags">
-                            {resumeData?.careerAnalysis?.top_3_careers?.[0]
-                              ?.matched_skills &&
-                            resumeData.careerAnalysis.top_3_careers[0]
-                              .matched_skills.length > 0 ? (
-                              resumeData.careerAnalysis.top_3_careers[0].matched_skills
-                                .slice(0, 6)
-                                .map((skill, idx) => {
-                                  // Clean up markdown formatting
-                                  const cleanSkill = skill
-                                    .replace(/\*\*/g, "")
-                                    .replace(/\*/g, "")
-                                    .trim();
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className="skill-tag existing"
-                                    >
-                                      {cleanSkill}
-                                    </span>
-                                  );
-                                })
-                            ) : resumeData?.alignment_suggestions &&
-                              resumeData.alignment_suggestions.length > 0 ? (
-                              resumeData.alignment_suggestions
-                                .slice(0, 4)
-                                .map((suggestion, idx) => {
-                                  return (
-                                    <span
-                                      key={idx}
-                                      className="skill-tag existing"
-                                      dangerouslySetInnerHTML={{
-                                        __html: formatText(suggestion),
-                                      }}
-                                    />
-                                  );
-                                })
+                        <div>
+                          <p className="text-sm text-muted-foreground mb-2">Matched Skills</p>
+                          <div className="flex flex-wrap gap-2">
+                            {resumeData?.careerAnalysis?.top_3_careers?.[0]?.matched_skills &&
+                            resumeData.careerAnalysis.top_3_careers[0].matched_skills.length > 0 ? (
+                              resumeData.careerAnalysis.top_3_careers[0].matched_skills.slice(0, 6).map((skill, idx) => {
+                                const cleanSkill = skill.replace(/\*\*/g, "").replace(/\*/g, "").trim();
+                                return (
+                                  <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
+                                    {cleanSkill}
+                                  </span>
+                                );
+                              })
+                            ) : resumeData?.alignment_suggestions && resumeData.alignment_suggestions.length > 0 ? (
+                              resumeData.alignment_suggestions.slice(0, 4).map((suggestion, idx) => (
+                                <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20" dangerouslySetInnerHTML={{ __html: formatText(suggestion) }} />
+                              ))
                             ) : (
-                              <span className="skill-tag existing">
+                              <span className="inline-block px-3 py-1 bg-muted text-muted-foreground text-sm rounded-full">
                                 Upload resume to analyze
                               </span>
                             )}
@@ -703,8 +469,8 @@ function Dashboard() {
                         </div>
                       </div>
                       <button
-                        className="generate-plan-btn"
                         onClick={() => setCurrentPage("study_planner")}
+                        className="w-full bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium hover:opacity-90 transition-opacity"
                       >
                         Generate Study Plan
                       </button>
@@ -719,11 +485,16 @@ function Dashboard() {
   };
 
   return (
-    <div className="dashboard-container">
-      <Sidebar setCurrentPage={setCurrentPage} currentPage={currentPage} />
-      <div className="main-content">
-        <div className="content-wrapper">{renderPage()}</div>
-      </div>
+    <div className="flex h-[calc(100vh-4rem)] bg-background">
+      <Sidebar
+        setCurrentPage={setCurrentPage}
+        currentPage={currentPage}
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((prev) => !prev)}
+      />
+      <main className="flex-1 overflow-auto transition-all duration-300">
+        <div className="max-w-7xl mx-auto p-6">{renderPage()}</div>
+      </main>
     </div>
   );
 }

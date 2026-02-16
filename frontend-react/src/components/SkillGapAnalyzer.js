@@ -1,8 +1,9 @@
 // src/components/SkillGapAnalyzer.js
 import React, { useState } from "react";
 import axios from "axios";
-import "./SkillGapAnalyzer.css";
 import { cleanMarkdown } from "../utils/textFormatter";
+import { Button } from "./ui/button";
+import { Upload, TrendingUp, Target, Briefcase, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
 function SkillGapAnalyzer({ resumeData }) {
   const [resumeFile, setResumeFile] = useState(null);
@@ -125,183 +126,175 @@ function SkillGapAnalyzer({ resumeData }) {
     : analysisResult?.top_3_careers;
 
   return (
-    <div className="skill-gap-container">
-      <div className="skill-gap-header">
-        <h2>Skill Gap Analyzer</h2>
-        <p>
-          Discover which career paths match your skills and get personalized
-          recommendations
+    <div className="max-w-7xl mx-auto space-y-6">
+      <div className="bg-primary/10 border border-border rounded-lg p-6">
+        <h2 className="text-2xl font-bold mb-2">Skill Gap Analyzer</h2>
+        <p className="text-muted-foreground">
+          Discover which career paths match your skills and get personalized recommendations
         </p>
       </div>
 
-      {/* Input Section - Only show if NO analysis is available */}
+      {/* Input Section */}
       {!analysisResult && !resumeData?.careerAnalysis && (
-        <div className="input-section">
-          <div className="resume-status">
-            <div className="resume-missing">
-              <span>
-                No resume uploaded. Please upload in Resume Optimizer first.
-              </span>
-            </div>
-          </div>
-
-          {/* Local File Upload */}
-          <div className="form-group">
-            <label htmlFor="resumeUpload">Upload Resume</label>
-            <input
-              id="resumeUpload"
-              type="file"
-              accept=".pdf,.doc,.docx"
-              onChange={handleFileUpload}
-              className="file-input"
-            />
-            <p className="file-hint">
-              {resumeFile
-                ? `Selected: ${resumeFile.name}`
-                : "Choose a PDF or DOCX file"}
+        <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+          <div className="bg-muted/50 border border-border rounded-lg p-4">
+            <p className="text-sm text-muted-foreground">
+              No resume uploaded. Please upload in Resume Optimizer first.
             </p>
           </div>
 
-          {/* Analyze Button */}
+          <div className="space-y-2">
+            <label htmlFor="resumeUpload" className="text-sm font-medium">Upload Resume</label>
+            <div className="relative">
+              <input
+                id="resumeUpload"
+                type="file"
+                accept=".pdf,.doc,.docx"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <label
+                htmlFor="resumeUpload"
+                className="flex items-center justify-center w-full h-20 px-4 transition bg-muted hover:bg-muted/80 border-2 border-dashed border-border rounded-lg cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  <Upload className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm">{resumeFile ? resumeFile.name : "Choose a PDF or DOCX file"}</span>
+                </div>
+              </label>
+            </div>
+          </div>
+
           {resumeFile && (
-            <button
-              onClick={handleAnalyze}
-              disabled={loading}
-              className="analyze-button"
-            >
+            <Button onClick={handleAnalyze} disabled={loading} className="w-full">
               {loading ? "Analyzing Your Skills..." : "Analyze Career Matches"}
-            </button>
+            </Button>
           )}
 
-          {error && <div className="error-message">{error}</div>}
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/50 text-destructive px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Show info banner when using pre-analyzed resume */}
+      {/* Info Banner */}
       {analysisResult && resumeData?.careerAnalysis && (
-        <div className="info-banner">
-          <span>
-            ✓ Analysis loaded from: <strong>{resumeData.filename}</strong>
-          </span>
+        <div className="bg-primary/10 border border-primary/20 text-primary px-4 py-3 rounded-lg flex items-center gap-2">
+          <CheckCircle className="w-4 h-4" />
+          <span className="text-sm">Analysis loaded from: <strong>{resumeData.filename}</strong></span>
         </div>
       )}
 
-      {/* Results Section */}
+      {/* Results */}
       {analysisResult && (
-        <div className="results-section">
+        <div className="space-y-6">
           {/* Summary Cards */}
-          <div className="summary-cards">
-            <div className="summary-card skills-card">
-              <div className="card-content">
-                <h3>{analysisResult.total_skills_found || 0}</h3>
-                <p>Skills Detected</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-card border border-border rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <Target className="w-8 h-8 text-primary" />
+                <div>
+                  <div className="text-2xl font-bold">{analysisResult.total_skills_found || 0}</div>
+                  <div className="text-sm text-muted-foreground">Skills Detected</div>
+                </div>
               </div>
             </div>
-
-            <div className="summary-card match-card">
-              <div className="card-content">
-                <h3>{analysisResult.analysis_summary?.best_match || "N/A"}</h3>
-                <p>Best Match</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <Briefcase className="w-8 h-8 text-secondary" />
+                <div>
+                  <div className="text-sm font-medium line-clamp-2">{analysisResult.analysis_summary?.best_match || "N/A"}</div>
+                  <div className="text-xs text-muted-foreground">Best Match</div>
+                </div>
               </div>
             </div>
-
-            <div className="summary-card probability-card">
-              <div className="card-content">
-                <h3>
-                  {analysisResult.analysis_summary?.best_match_probability || 0}
-                  %
-                </h3>
-                <p>Match Score</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <TrendingUp className="w-8 h-8 text-primary" />
+                <div>
+                  <div className="text-2xl font-bold">{analysisResult.analysis_summary?.best_match_probability || 0}%</div>
+                  <div className="text-sm text-muted-foreground">Match Score</div>
+                </div>
               </div>
             </div>
-
-            <div className="summary-card careers-card">
-              <div className="card-content">
-                <h3>{analysisResult.career_matches?.length || 0}</h3>
-                <p>Career Paths</p>
+            <div className="bg-card border border-border rounded-lg p-4">
+              <div className="flex items-center gap-3">
+                <Briefcase className="w-8 h-8 text-accent-foreground" />
+                <div>
+                  <div className="text-2xl font-bold">{analysisResult.career_matches?.length || 0}</div>
+                  <div className="text-sm text-muted-foreground">Career Paths</div>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Your Skills */}
-          {analysisResult?.user_skills &&
-            analysisResult.user_skills.length > 0 && (
-              <div className="user-skills-section">
-                <h3>Your Detected Skills</h3>
-                <div className="skills-tags">
-                  {analysisResult.user_skills.map((skill, idx) => {
-                    return (
-                      <span key={idx} className="skill-tag">
-                        {cleanMarkdown(skill)}
-                      </span>
-                    );
-                  })}
-                </div>
+          {analysisResult?.user_skills && analysisResult.user_skills.length > 0 && (
+            <div className="bg-card border border-border rounded-lg p-6">
+              <h3 className="text-lg font-semibold mb-4">Your Detected Skills</h3>
+              <div className="flex flex-wrap gap-2">
+                {analysisResult.user_skills.map((skill, idx) => (
+                  <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
+                    {cleanMarkdown(skill)}
+                  </span>
+                ))}
               </div>
-            )}
+            </div>
+          )}
 
           {/* Career Matches */}
-          <div className="career-matches-section">
-            <div className="section-header">
-              <h3>Career Path Recommendations</h3>
-              <button
-                className="toggle-button"
-                onClick={() => setShowAllCareers(!showAllCareers)}
-              >
+          <div className="bg-card border border-border rounded-lg p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold">Career Path Recommendations</h3>
+              <Button variant="outline" size="sm" onClick={() => setShowAllCareers(!showAllCareers)}>
                 {showAllCareers ? "Show Top 3" : "Show All Careers"}
-              </button>
+              </Button>
             </div>
 
-            <div className="careers-grid">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
               {careersToDisplay?.map((career, idx) => (
                 <div
                   key={idx}
-                  className={`career-card ${
-                    selectedCareer?.career === career.career ? "selected" : ""
+                  className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                    selectedCareer?.career === career.career
+                      ? "border-primary bg-primary/5 shadow-md"
+                      : "border-border hover:border-primary/50"
                   }`}
                   onClick={() => setSelectedCareer(career)}
                 >
-                  <div className="career-header">
-                    <h4>{career.career}</h4>
-                    <div
-                      className="probability-badge"
-                      style={{
-                        backgroundColor: getProbabilityColor(
-                          career.probability,
-                        ),
-                      }}
+                  <div className="flex items-start justify-between mb-3">
+                    <h4 className="font-semibold text-sm">{career.career}</h4>
+                    <span
+                      className="px-2 py-1 text-xs font-medium rounded-full text-white"
+                      style={{ backgroundColor: getProbabilityColor(career.probability) }}
                     >
                       {career.probability}%
+                    </span>
+                  </div>
+
+                  <p className="text-sm text-muted-foreground mb-3">{getProbabilityLabel(career.probability)}</p>
+
+                  <div className="flex gap-4 mb-3">
+                    <div className="flex items-center gap-1">
+                      <CheckCircle className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium">{career.matched_skills_count}</span>
+                      <span className="text-xs text-muted-foreground">Matched</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <XCircle className="w-4 h-4 text-destructive" />
+                      <span className="text-sm font-medium">{career.missing_skills.length}</span>
+                      <span className="text-xs text-muted-foreground">Missing</span>
                     </div>
                   </div>
 
-                  <p className="match-label">
-                    {getProbabilityLabel(career.probability)}
-                  </p>
-
-                  <div className="career-stats">
-                    <div className="stat">
-                      <span className="stat-value">
-                        {career.matched_skills_count}
-                      </span>
-                      <span className="stat-label">Matched</span>
-                    </div>
-                    <div className="stat">
-                      <span className="stat-value">
-                        {career.missing_skills.length}
-                      </span>
-                      <span className="stat-label">Missing</span>
-                    </div>
-                  </div>
-
-                  <div className="progress-bar">
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
                     <div
-                      className="progress-fill"
+                      className="h-full rounded-full transition-all"
                       style={{
                         width: `${career.probability}%`,
-                        backgroundColor: getProbabilityColor(
-                          career.probability,
-                        ),
+                        backgroundColor: getProbabilityColor(career.probability),
                       }}
                     />
                   </div>
@@ -312,110 +305,90 @@ function SkillGapAnalyzer({ resumeData }) {
 
           {/* Selected Career Details */}
           {selectedCareer && (
-            <div className="career-details">
-              <h3>{selectedCareer.career} - Detailed Analysis</h3>
+            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
+              <h3 className="text-xl font-semibold">{selectedCareer.career} - Detailed Analysis</h3>
 
-              <div className="details-grid">
+              <div className="grid md:grid-cols-2 gap-6">
                 {/* Matched Skills */}
-                <div className="detail-section">
-                  <h4>
-                    Your Matching Skills (
-                    {selectedCareer?.matched_skills?.length || 0})
+                <div>
+                  <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-primary" />
+                    Your Matching Skills ({selectedCareer?.matched_skills?.length || 0})
                   </h4>
-                  <div className="skills-list-compact">
-                    {selectedCareer?.matched_skills &&
-                    selectedCareer.matched_skills.length > 0 ? (
-                      selectedCareer.matched_skills.map((skill, idx) => {
-                        return (
-                          <span key={idx} className="skill-badge matched">
-                            {cleanMarkdown(skill)}
-                          </span>
-                        );
-                      })
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCareer?.matched_skills && selectedCareer.matched_skills.length > 0 ? (
+                      selectedCareer.matched_skills.map((skill, idx) => (
+                        <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
+                          {cleanMarkdown(skill)}
+                        </span>
+                      ))
                     ) : (
-                      <p className="no-skills-message">
-                        No matching skills found
-                      </p>
+                      <p className="text-sm text-muted-foreground">No matching skills found</p>
                     )}
                   </div>
                 </div>
 
                 {/* Missing Skills */}
-                <div className="detail-section">
-                  <h4>
-                    Skills to Learn (
-                    {selectedCareer?.missing_skills?.length || 0})
+                <div>
+                  <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5 text-destructive" />
+                    Skills to Learn ({selectedCareer?.missing_skills?.length || 0})
                   </h4>
-                  <div className="skills-list-compact">
-                    {selectedCareer?.missing_skills &&
-                    selectedCareer.missing_skills.length > 0 ? (
-                      selectedCareer.missing_skills.map((skill, idx) => {
-                        return (
-                          <span key={idx} className="skill-badge missing">
-                            {cleanMarkdown(skill)}
-                          </span>
-                        );
-                      })
+                  <div className="flex flex-wrap gap-2">
+                    {selectedCareer?.missing_skills && selectedCareer.missing_skills.length > 0 ? (
+                      selectedCareer.missing_skills.map((skill, idx) => (
+                        <span key={idx} className="inline-block px-3 py-1 bg-destructive/10 text-destructive text-sm rounded-full border border-destructive/20">
+                          {cleanMarkdown(skill)}
+                        </span>
+                      ))
                     ) : (
-                      <p className="no-skills-message">
-                        No missing skills identified
-                      </p>
+                      <p className="text-sm text-muted-foreground">No missing skills identified</p>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Match Breakdown */}
-              <div className="match-breakdown">
-                <h4>Match Breakdown</h4>
-                <div className="breakdown-bars">
-                  <div className="breakdown-item">
-                    <span className="breakdown-label">Skill Match</span>
-                    <div className="breakdown-bar">
+              <div>
+                <h4 className="text-base font-semibold mb-4">Match Breakdown</h4>
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span>Skill Match</span>
+                      <span className="font-medium">{selectedCareer?.skill_match_percentage || 0}%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
-                        className="breakdown-fill skill-match"
-                        style={{
-                          width: `${
-                            selectedCareer?.skill_match_percentage || 0
-                          }%`,
-                        }}
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${selectedCareer?.skill_match_percentage || 0}%` }}
                       />
-                      <span className="breakdown-value">
-                        {selectedCareer?.skill_match_percentage || 0}%
-                      </span>
                     </div>
                   </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-label">Semantic Match</span>
-                    <div className="breakdown-bar">
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span>Semantic Match</span>
+                      <span className="font-medium">{selectedCareer?.semantic_match_percentage || 0}%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
-                        className="breakdown-fill semantic-match"
-                        style={{
-                          width: `${
-                            selectedCareer?.semantic_match_percentage || 0
-                          }%`,
-                        }}
+                        className="h-full bg-secondary rounded-full transition-all"
+                        style={{ width: `${selectedCareer?.semantic_match_percentage || 0}%` }}
                       />
-                      <span className="breakdown-value">
-                        {selectedCareer?.semantic_match_percentage || 0}%
-                      </span>
                     </div>
                   </div>
-                  <div className="breakdown-item">
-                    <span className="breakdown-label">Overall Probability</span>
-                    <div className="breakdown-bar">
+                  <div>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span>Overall Probability</span>
+                      <span className="font-medium">{selectedCareer?.probability || 0}%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
                       <div
-                        className="breakdown-fill overall-match"
+                        className="h-full rounded-full transition-all"
                         style={{
                           width: `${selectedCareer?.probability || 0}%`,
-                          backgroundColor: getProbabilityColor(
-                            selectedCareer?.probability || 0,
-                          ),
+                          backgroundColor: getProbabilityColor(selectedCareer?.probability || 0),
                         }}
                       />
-                      <span className="breakdown-value">
-                        {selectedCareer?.probability || 0}%
-                      </span>
                     </div>
                   </div>
                 </div>

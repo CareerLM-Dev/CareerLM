@@ -36,7 +36,7 @@ def resume_analyzer_agent(state: ResumeState) -> ResumeState:
         state.get("resume_sections", {}),
         state["job_description"]
     )
-
+    #hello hello
     ats_score = ats_result["overall_score"]
     components = ats_result["component_scores"]
     
@@ -377,3 +377,4 @@ Be direct, actionable, ETHICAL. Never fabricate experience."""
         "completed_steps": completed,
         "messages": messages
     }
+# hello hello

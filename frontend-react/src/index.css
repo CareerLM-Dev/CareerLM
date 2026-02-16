@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 270 50% 99.2157%;
+    --foreground: 277.5 44.4444% 3.5294%;
+    --card: 0 0% 100%;
+    --card-foreground: 277.5 44.4444% 3.5294%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 277.5 44.4444% 3.5294%;
+    --primary: 240 93.8144% 19.0196%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 87.0968% 93.9216%;
+    --secondary-foreground: 220 98.1308% 41.9608%;
+    --muted: 270 13.3333% 94.1176%;
+    --muted-foreground: 270 6.0606% 38.8235%;
+    --accent: 233.0769 100% 94.902%;
+    --accent-foreground: 220 98.1308% 41.9608%;
+    --destructive: 346.8367 77.1654% 49.8039%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 277.5 15.3846% 89.8039%;
+    --input: 277.5 15.3846% 89.8039%;
+    --ring: 219.8969 100% 61.9608%;
+    --radius: 1.25rem;
+  }
+
+  .dark {
+    --background: 222.8571 63.6364% 2.1569%;
+    --foreground: 270 50% 99.2157%;
+    --card: 221.5385 52% 4.902%;
+    --card-foreground: 270 50% 99.2157%;
+    --popover: 226.1538 52% 4.902%;
+    --popover-foreground: 270 50% 99.2157%;
+    --primary: 227.9221 83.6957% 36.0784%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 226.6667 44.2623% 11.9608%;
+    --secondary-foreground: 270 50% 99.2157%;
+    --muted: 229.0909 47.8261% 9.0196%;
+    --muted-foreground: 240 7.9365% 62.9412%;
+    --accent: 232.5 43.4783% 18.0392%;
+    --accent-foreground: 270 50% 99.2157%;
+    --destructive: 346.8 63.2911% 30.9804%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 241.5 43.4783% 18.0392%;
+    --input: 229.5 43.4783% 18.0392%;
+    --ring: 238.1818 58.5799% 33.1373%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-float-delayed {
+    animation: float 6s ease-in-out 2s infinite;
+  }
+  
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+  }
+}

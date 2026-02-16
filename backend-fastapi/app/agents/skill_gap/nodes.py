@@ -5,18 +5,16 @@ Implements individual steps in the skill gap analysis workflow.
 
 import os
 import logging
-from groq import Groq
 from dotenv import load_dotenv
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from .state import SkillGapState, CareerMatch
+from app.agents.llm_config import GROQ_CLIENT as client, GROQ_DEFAULT_MODEL
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
-# Load API key from .env
 load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # Predefined career clusters with required skills
 CAREER_CLUSTERS = {
@@ -367,7 +365,7 @@ Keep the response structured and practical."""
 
         logger.info("Generating AI recommendations")
         completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=GROQ_DEFAULT_MODEL,
             messages=[
                 {"role": "system", "content": "You are an expert career counselor and skill development advisor."},
                 {"role": "user", "content": prompt},
