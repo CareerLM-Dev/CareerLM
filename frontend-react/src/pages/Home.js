@@ -1,10 +1,12 @@
 "use client";
 import { useNavigate } from "react-router-dom";
+import { useUser } from "../context/UserContext";
 import { Button } from "../components/ui/button";
 import { Zap, ArrowRight, BarChart3, Target, TrendingUp } from "lucide-react";
 
 function Home() {
   const navigate = useNavigate();
+  const { isAuthenticated, loading } = useUser();
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
@@ -26,13 +28,22 @@ function Home() {
               generator, study planner, and dashboard — all in one platform.
             </p>
             <div className="flex flex-wrap gap-4">
-              <Button size="lg" onClick={() => navigate("/auth")} className="group">
-                <span>Get Started</span>
-                <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => navigate("/auth")}>
-                <span>Sign In</span>
-              </Button>
+              {!loading && isAuthenticated ? (
+                <Button size="lg" onClick={() => navigate("/dashboard")} className="group">
+                  <span>Go to Dashboard</span>
+                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </Button>
+              ) : (
+                <>
+                  <Button size="lg" onClick={() => navigate("/auth?mode=signup")} className="group">
+                    <span>Get Started</span>
+                    <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                  <Button size="lg" variant="outline" onClick={() => navigate("/auth")}>
+                    <span>Sign In</span>
+                  </Button>
+                </>
+              )}
             </div>
             <div className="flex flex-wrap gap-8 pt-8">
               <div className="space-y-1">

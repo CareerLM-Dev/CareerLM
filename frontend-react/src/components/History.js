@@ -28,13 +28,14 @@ import { Alert, AlertDescription } from "./ui/alert";
 
 
 function History() {
-  const { session } = useUser();
+  const { session, loading: authLoading } = useUser();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
+      if (authLoading) return; // Wait for auth to resolve
       if (!session) {
         setError("Please log in to view your history");
         setLoading(false);
@@ -63,7 +64,7 @@ function History() {
     };
 
     fetchHistory();
-  }, [session]);
+  }, [session, authLoading]);
 
   const deleteHistoryItem = async (id) => {
     if (!window.confirm("Are you sure you want to delete this item?")) {

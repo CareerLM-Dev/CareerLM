@@ -48,6 +48,7 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     """
     Call Gemini 2.0 Flash with Google Search grounding to get
     live learning resources for each missing skill.
+    Incorporates questionnaire answers for personalisation.
     """
     if state.get("error"):
         return {}
@@ -63,11 +64,79 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     target_career = state["target_career"]
     skills_query = ", ".join(missing_skills)
 
+    # ── Build personalisation context from questionnaire ──
+    qa = state.get("questionnaire_answers") or {}
+
+    personalisation_block = ""
+    if qa:
+        parts = []
+
+        # Target role
+        roles = qa.get("target_role", [])
+        if roles:
+            readable = [r.replace("_", " ").title() for r in roles]
+            parts.append(f"- **Target Role(s):** {', '.join(readable)}")
+
+        # Primary goal
+        goals = qa.get("primary_goal", [])
+        goal_map = {
+            "get_first_job": "Land their first job — focus on fundamentals, portfolio-ready projects, and interview prep",
+            "switch_careers": "Switch careers — bridge transferable skills, emphasise practical projects",
+            "upskill": "Upskill in current role — intermediate/advanced resources, real-world depth",
+            "freelance": "Freelance — practical, client-ready skills and portfolio pieces",
+            "build_projects": "Build projects — hands-on, project-based learning",
+            "interview_prep": "Interview prep — algorithmic practice, system design, mock interviews",
+            "learn_technology": "Learn a new technology — structured beginner-to-advanced path",
+        }
+        if goals:
+            goal_descs = [goal_map.get(g, g.replace("_", " ").title()) for g in goals]
+            parts.append(f"- **Primary Goal(s):** {'; '.join(goal_descs)}")
+
+        # Learning preference
+        prefs = qa.get("learning_preference", [])
+        pref_map = {
+            "video_tutorials": "Video tutorials (prioritise YouTube playlists & video courses)",
+            "hands_on": "Hands-on / project-based (prioritise interactive labs, coding challenges, build-along projects)",
+            "reading": "Reading & documentation (prioritise official docs, books, written tutorials)",
+            "interactive": "Interactive platforms (prioritise Codecademy, freeCodeCamp, LeetCode-style sites)",
+            "mentor": "Mentorship / community (include Discord/community links, mentorship platforms)",
+            "mixed": "Mixed / no strong preference",
+        }
+        if prefs:
+            pref_descs = [pref_map.get(p, p.replace("_", " ").title()) for p in prefs]
+            parts.append(f"- **Learning Style:** {'; '.join(pref_descs)}")
+
+        # Time commitment
+        time = qa.get("time_commitment", [])
+        time_map = {
+            "5_hours_week": "~5 hours/week — keep each step concise (micro-learning, short videos, bite-sized docs)",
+            "10_hours_week": "~10 hours/week — moderate depth, one skill at a time",
+            "20_hours_week": "~20 hours/week — immersive roadmap, can handle longer courses",
+            "30_hours_week": "~30 hours/week — intensive bootcamp-style pace",
+            "flexible": "Flexible schedule — provide estimated durations but no strict pacing",
+        }
+        if time:
+            time_descs = [time_map.get(t, t.replace("_", " ")) for t in time]
+            parts.append(f"- **Time Commitment:** {'; '.join(time_descs)}")
+
+        if parts:
+            personalisation_block = (
+                "\n\nUser Profile (from onboarding questionnaire — use this to tailor resource selection, "
+                "difficulty level, resource types, and estimated durations):\n"
+                + "\n".join(parts)
+                + "\n\nIMPORTANT personalisation rules:\n"
+                "• If the user prefers VIDEO learning, make at least 2 out of 3 resources per skill video-based (YouTube, Udemy, Coursera video).\n"
+                "• If the user prefers READING, make at least 2 out of 3 resources documentation or article-based.\n"
+                "• If the user prefers HANDS-ON, include interactive labs, coding challenges, or project-based resources.\n"
+                "• Match est_time values to the user's weekly time commitment (e.g. shorter for 5 hrs/week).\n"
+                "• Adjust difficulty to match the user's goal (beginner-friendly for first-job seekers, advanced for upskill).\n"
+            )
+
     prompt = f"""
 Role: Professional Resource Scout & Study Architect.
 
 Context: The user wants to become a **{target_career}** and is missing the following skills: {skills_query}.
-
+{personalisation_block}
 Task: Convert the skill gaps into a structured learning roadmap with EXACT, DIRECT resource URLs.
 
 CRITICAL URL RULES:

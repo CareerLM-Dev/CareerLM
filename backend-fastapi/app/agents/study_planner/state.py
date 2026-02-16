@@ -28,6 +28,7 @@ class StudyPlannerState(TypedDict):
     """State for the study planner workflow."""
     target_career: str
     missing_skills: list[str]
+    questionnaire_answers: NotRequired[Optional[dict]]
     skill_gap_report: NotRequired[list[SkillRoadmap]]
     study_plan: NotRequired[list[dict]]
     error: NotRequired[Optional[str]]

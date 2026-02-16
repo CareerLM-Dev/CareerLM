@@ -320,7 +320,24 @@ async def generate_study_materials_simple(
 
         from app.agents.study_planner import generate_study_plan
 
-        result = generate_study_plan(target_career, skills_list)
+        # Fetch questionnaire answers if user is authenticated
+        questionnaire_answers = None
+        if user:
+            try:
+                q_result = (
+                    supabase.table("user")
+                    .select("questionnaire_answers")
+                    .eq("id", user.id)
+                    .limit(1)
+                    .execute()
+                )
+                if q_result.data and q_result.data[0].get("questionnaire_answers"):
+                    questionnaire_answers = q_result.data[0]["questionnaire_answers"]
+                    logger.info(f"Loaded questionnaire answers for user {user.id}")
+            except Exception as qa_err:
+                logger.warning(f"Failed to load questionnaire answers: {qa_err}")
+
+        result = generate_study_plan(target_career, skills_list, questionnaire_answers)
 
         if result.get("error"):
             logger.warning(f"Study planner error: {result['error']}")
