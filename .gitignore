@@ -53,3 +53,6 @@ Dockerfile
 #Package-lock.json
 package-lock.json
 package.json
+
+# Documentation
+MOCK_INTERVIEW_IMPLEMENTATION.md
