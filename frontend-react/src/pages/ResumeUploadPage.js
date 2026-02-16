@@ -33,20 +33,31 @@ function ResumeUploadPage() {
   };
 
   if (!session) {
-    return <div className="resume-upload-page">Loading...</div>;
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="resume-upload-page">
-      <div className="resume-upload-header">
-        <h1>{isOnboardingFlow ? "Complete Your Profile" : "Upload Resume"}</h1>
-        <p>
-          {isOnboardingFlow
-            ? "Upload your resume to get personalized career guidance"
-            : "Upload and optimize your resume against job descriptions"}
-        </p>
+    <div className="min-h-[calc(100vh-4rem)] bg-background">
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <div className="space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+            {isOnboardingFlow ? "Complete Your Profile" : "Upload Resume"}
+          </h1>
+          <p className="text-muted-foreground">
+            {isOnboardingFlow
+              ? "Upload your resume to get personalized career guidance"
+              : "Upload and optimize your resume against job descriptions"}
+          </p>
+        </div>
+        <ResumeUpload onResult={handleResumeAnalysisComplete} />
       </div>
-      <ResumeUpload onResult={handleResumeAnalysisComplete} />
     </div>
   );
 }
