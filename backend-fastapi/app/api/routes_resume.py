@@ -3,8 +3,9 @@ import io
 import json
 import logging
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import JSONResponse
+from typing import Optional
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -19,6 +20,18 @@ from app.services.resume_optimizer import optimize_resume_logic
 from supabase_client import supabase
 
 router = APIRouter()
+
+
+async def get_current_user_optional(authorization: Optional[str] = Header(None)):
+    """Extract user from JWT token (returns None if not authenticated)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.replace("Bearer ", "")
+    try:
+        user = supabase.auth.get_user(token)
+        return user.user if user and user.user else None
+    except Exception:
+        return None
 
 
 @router.post("/optimize")
@@ -241,15 +254,59 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         )
 
 
+@router.get("/study-materials-cache")
+async def get_study_materials_cache(
+    user=Depends(get_current_user_optional),
+):
+    """
+    Load cached study materials from Supabase for the current user.
+    Returns the most recent cached entry if available.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Not authenticated"},
+        )
+
+    try:
+        result = (
+            supabase.table("study_materials_cache")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if result.data:
+            row = result.data[0]
+            return JSONResponse({
+                "success": True,
+                "cached": True,
+                "target_career": row.get("target_career", ""),
+                "skill_gap_report": row.get("skill_gap_report", []),
+                "study_plan": row.get("study_plan", []),
+                "cached_at": row.get("created_at"),
+            })
+        else:
+            return JSONResponse({"success": True, "cached": False})
+
+    except Exception as e:
+        logger.warning(f"Failed to load study materials cache: {e}")
+        return JSONResponse({"success": True, "cached": False})
+
+
 @router.post("/generate-study-materials-simple")
 async def generate_study_materials_simple(
     target_career: str = Form(...),
-    missing_skills: str = Form(...)
+    missing_skills: str = Form(...),
+    user=Depends(get_current_user_optional),
 ):
     """
     🤖 AGENTIC Study Planner Endpoint (LangGraph + Gemini Search Grounding)
     Generates a live learning roadmap for the given skill gaps.
     No resume upload required – accepts career + skills directly.
+    Auto-saves results to Supabase for the authenticated user.
     """
     try:
         logger.info(f"Study planner request: career={target_career}")
@@ -275,6 +332,26 @@ async def generate_study_materials_simple(
         logger.info(
             f"Study planner complete. {len(result.get('skill_gap_report', []))} skills covered"
         )
+
+        # Auto-save to Supabase if user is authenticated
+        if user:
+            try:
+                # Delete old cache for this user (keep only latest)
+                supabase.table("study_materials_cache") \
+                    .delete() \
+                    .eq("user_id", user.id) \
+                    .execute()
+
+                # Insert new cache entry
+                supabase.table("study_materials_cache").insert({
+                    "user_id": user.id,
+                    "target_career": result.get("target_career", target_career),
+                    "skill_gap_report": result.get("skill_gap_report", []),
+                    "study_plan": result.get("study_plan", []),
+                }).execute()
+                logger.info(f"Study materials cached for user {user.id}")
+            except Exception as cache_err:
+                logger.warning(f"Failed to cache study materials: {cache_err}")
 
         return JSONResponse({
             "success": True,

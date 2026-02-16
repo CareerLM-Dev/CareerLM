@@ -1,5 +1,6 @@
 // src/components/StudyPlanner.js
 import React, { useState, useEffect, useCallback } from "react";
+import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { BookOpen, ExternalLink, Youtube, FileText, GraduationCap, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -8,7 +9,46 @@ function StudyPlanner({ resumeData }) {
   const [studyMaterials, setStudyMaterials] = useState(null);
   const [expandedSkills, setExpandedSkills] = useState({});
   const [loading, setLoading] = useState(false);
+  const [loadingCache, setLoadingCache] = useState(true);
   const [error, setError] = useState(null);
+  const [cachedAt, setCachedAt] = useState(null);
+
+  // Helper: get auth token
+  const getAuthToken = async () => {
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token || null;
+  };
+
+  // On mount: try loading cached study materials from Supabase
+  useEffect(() => {
+    let cancelled = false;
+    const loadCache = async () => {
+      try {
+        const token = await getAuthToken();
+        if (!token) { setLoadingCache(false); return; }
+
+        const res = await fetch(
+          "http://localhost:8000/api/v1/resume/study-materials-cache",
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const data = await res.json();
+
+        if (!cancelled && data.success && data.cached) {
+          setStudyMaterials(data);
+          setCachedAt(data.cached_at);
+          if (data.skill_gap_report?.length > 0) {
+            setExpandedSkills({ 0: true });
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load cached study materials:", err);
+      } finally {
+        if (!cancelled) setLoadingCache(false);
+      }
+    };
+    loadCache();
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchStudyMaterials = useCallback(async () => {
     if (!resumeData?.careerAnalysis) {
@@ -28,6 +68,8 @@ function StudyPlanner({ resumeData }) {
     setError(null);
 
     try {
+      const token = await getAuthToken();
+
       const formData = new FormData();
       formData.append("target_career", topCareer.career);
       formData.append(
@@ -35,15 +77,19 @@ function StudyPlanner({ resumeData }) {
         JSON.stringify(topCareer.missing_skills.slice(0, 7))
       );
 
+      const headers = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const response = await fetch(
         "http://localhost:8000/api/v1/resume/generate-study-materials-simple",
-        { method: "POST", body: formData }
+        { method: "POST", body: formData, headers }
       );
 
       const data = await response.json();
 
       if (data.success) {
         setStudyMaterials(data);
+        setCachedAt(new Date().toISOString());
         if (data.skill_gap_report?.length > 0) {
           setExpandedSkills({ 0: true });
         }
@@ -82,7 +128,19 @@ function StudyPlanner({ resumeData }) {
 
   // ---------- EMPTY / LOADING / ERROR STATES ----------
 
-  if (!resumeData) {
+  if (loadingCache) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-card border border-border rounded-lg p-8 text-center">
+          <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Loading Saved Study Plan...</h2>
+          <p className="text-muted-foreground">Checking for cached materials</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!resumeData && !studyMaterials) {
     return (
       <div className="max-w-4xl mx-auto">
         <div className="bg-card border border-border rounded-lg p-8 text-center">
@@ -184,9 +242,26 @@ function StudyPlanner({ resumeData }) {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div className="bg-primary/10 border border-border rounded-lg p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <GraduationCap className="w-7 h-7 text-primary" />
-          <h2 className="text-2xl font-bold">Personalized Study Plan</h2>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <GraduationCap className="w-7 h-7 text-primary" />
+            <h2 className="text-2xl font-bold">Personalized Study Plan</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {cachedAt && (
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                Saved {new Date(cachedAt).toLocaleDateString()}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchStudyMaterials}
+              disabled={loading}
+            >
+              {loading ? "Refreshing..." : "Refresh"}
+            </Button>
+          </div>
         </div>
         <p className="text-muted-foreground">
           Your customized learning roadmap for {target_career || "career development"}

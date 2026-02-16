@@ -1,59 +1,64 @@
 # app/agents/llm_config.py
 """
 LLM configuration for different modules
-Each module can use specialized models based on its needs
+Each module can use specialized models based on its needs.
+All LLM / API clients are defined here so the rest of the codebase
+just imports them instead of creating its own instances.
 """
 from langchain_groq import ChatGroq
+from groq import Groq
+from google import genai
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ===== RESUME MODULE (ACTIVE) =====
+# ──────────────────────────────────────────────
+# Raw Groq client (used by services & agents
+# that call client.chat.completions.create())
+# ──────────────────────────────────────────────
+GROQ_CLIENT = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# ──────────────────────────────────────────────
+# Gemini client (used by study planner for
+# Google Search grounding)
+# ──────────────────────────────────────────────
+_gemini_key = os.getenv("GEMINI_API_KEY")
+GEMINI_CLIENT = genai.Client(api_key=_gemini_key) if _gemini_key else None
+
+# ──────────────────────────────────────────────
+# LangChain-wrapped LLMs (used by LangGraph agents)
+# ──────────────────────────────────────────────
+
+# ===== RESUME MODULE =====
 RESUME_LLM = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
     model="llama-3.1-8b-instant",
     temperature=0.7
 )
 
-# ===== SKILL/LEARNING MODULE =====
-# SKILL_LLM = ChatGroq(
-#     api_key=os.getenv("GROQ_API_KEY"),
-#     model="llama-3.1-70b-versatile",  # Better reasoning for skill assessment
-#     temperature=0.7
-# )
-
-# ===== INTERVIEW MODULE =====
-# INTERVIEW_LLM = ChatGroq(
-#     api_key=os.getenv("GROQ_API_KEY"),
-#     model="llama-3.1-70b-versatile",  # Deep reasoning for questions & evaluation
-#     temperature=0.8
-# )
-# 
-# INTERVIEW_SERVICES = {
-#     "tts": "openai",  # Text-to-Speech for reading questions
-#     "stt": "groq-whisper",  # Speech-to-Text for recording answers
-# }
-
 # ===== COLD EMAIL MODULE =====
 EMAIL_LLM = ChatGroq(
     api_key=os.getenv("OSS_API_KEY"),
-    model="openai/gpt-oss-20b",  # Fast, creative for email writing
-    temperature=0.9  # Higher creativity for personalization
+    model="openai/gpt-oss-20b",
+    temperature=0.9
 )
 
-# ===== STUDY PROGRESS MODULE =====
-# PROGRESS_LLM = ChatGroq(
-#     api_key=os.getenv("GROQ_API_KEY"),
-#     model="llama-3.1-70b-versatile",  # Better knowledge for course recommendations
-#     temperature=0.7
-# )
+# ──────────────────────────────────────────────
+# Model name constants (for services that pass
+# the model name to GROQ_CLIENT manually)
+# ──────────────────────────────────────────────
+GROQ_DEFAULT_MODEL = "llama-3.1-8b-instant"
+GROQ_PLANNING_MODEL = "mixtral-8x7b-32768"
+GEMINI_MODEL = "gemini-2.0-flash"
 
-# Export active LLMs
+# Export active objects
 __all__ = [
+    "GROQ_CLIENT",
+    "GEMINI_CLIENT",
     "RESUME_LLM",
-    # "SKILL_LLM",
-    # "INTERVIEW_LLM",
     "EMAIL_LLM",
-    # "PROGRESS_LLM",
+    "GROQ_DEFAULT_MODEL",
+    "GROQ_PLANNING_MODEL",
+    "GEMINI_MODEL",
 ]
