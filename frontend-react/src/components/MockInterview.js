@@ -6,7 +6,6 @@ import {
   MicOff, 
   Volume2, 
   PlayCircle,
-  StopCircle,
   CheckCircle,
   AlertCircle,
   FileText,
@@ -14,6 +13,22 @@ import {
   XCircle
 } from "lucide-react";
 import { supabase } from "../api/supabaseClient";
+
+const ROLE_LABELS = {
+  "software_engineer": "Software Engineer",
+  "data_scientist": "Data Scientist",
+  "data_analyst": "Data Analyst",
+  "devops_engineer": "DevOps Engineer",
+  "full_stack_developer": "Full Stack Developer",
+  "ml_engineer": "Machine Learning Engineer",
+  "product_manager": "Product Manager",
+  "ux_ui_designer": "UI/UX Designer",
+  "cloud_architect": "Cloud Architect",
+  "cybersecurity_analyst": "Cybersecurity Analyst",
+  "business_analyst": "Business Analyst",
+  "mobile_developer": "Mobile Developer",
+  "undecided": "Undecided"
+};
 
 // Markdown renderer
 const renderMarkdown = (text) => {
@@ -66,23 +81,6 @@ function MockInterview({ resumeData }) {
   const recognitionRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis);
   
-  // Role options mapping
-  const roleLabels = {
-    "software_engineer": "Software Engineer",
-    "data_scientist": "Data Scientist",
-    "data_analyst": "Data Analyst",
-    "devops_engineer": "DevOps Engineer",
-    "full_stack_developer": "Full Stack Developer",
-    "ml_engineer": "Machine Learning Engineer",
-    "product_manager": "Product Manager",
-    "ux_ui_designer": "UI/UX Designer",
-    "cloud_architect": "Cloud Architect",
-    "cybersecurity_analyst": "Cybersecurity Analyst",
-    "business_analyst": "Business Analyst",
-    "mobile_developer": "Mobile Developer",
-    "undecided": "Undecided"
-  };
-  
   // Fetch user's saved roles on mount
   useEffect(() => {
     const fetchUserProfile = async () => {
@@ -105,7 +103,7 @@ function MockInterview({ resumeData }) {
             if (questionnaire.target_role.length > 0) {
               const firstRole = questionnaire.target_role[0];
               setSelectedRoleOption(firstRole);
-              setTargetRole(roleLabels[firstRole] || firstRole);
+              setTargetRole(ROLE_LABELS[firstRole] || firstRole);
             }
           }
         }
@@ -130,15 +128,12 @@ function MockInterview({ resumeData }) {
     recognitionRef.current.interimResults = true;
     
     recognitionRef.current.onresult = (event) => {
-      let interimTranscript = '';
       let finalTranscript = '';
       
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
           finalTranscript += transcript + ' ';
-        } else {
-          interimTranscript += transcript;
         }
       }
       
@@ -154,12 +149,14 @@ function MockInterview({ resumeData }) {
       setIsListening(false);
     };
     
+    const synth = synthRef.current;
+
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
-      if (synthRef.current) {
-        synthRef.current.cancel();
+      if (synth) {
+        synth.cancel();
       }
     };
   }, []);
@@ -444,7 +441,7 @@ function MockInterview({ resumeData }) {
                       if (value === "other") {
                         setTargetRole("");
                       } else {
-                        setTargetRole(roleLabels[value] || value);
+                        setTargetRole(ROLE_LABELS[value] || value);
                         setCustomRole("");
                       }
                     }}
@@ -453,7 +450,7 @@ function MockInterview({ resumeData }) {
                     <option value="" disabled>Select a role...</option>
                     {savedRoles.map((role) => (
                       <option key={role} value={role}>
-                        {roleLabels[role] || role}
+                        {ROLE_LABELS[role] || role}
                       </option>
                     ))}
                     <option value="other">Other (Custom Role)</option>
