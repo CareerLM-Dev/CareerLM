@@ -28,7 +28,7 @@ def resume_analyzer_agent(state: ResumeState) -> ResumeState:
     Single agent that does both tasks (no need for separate structure_fixer).
     """
     messages = state.get("messages", [])
-    messages.append("📊 Resume Analyzer: Starting ATS analysis...")
+    messages.append("Resume Analyzer: Starting ATS analysis...")
 
     # Get ATS score using existing service
     ats_result = get_ats_score(
@@ -40,14 +40,14 @@ def resume_analyzer_agent(state: ResumeState) -> ResumeState:
     ats_score = ats_result["overall_score"]
     components = ats_result["component_scores"]
     
-    messages.append(f"📊 Resume Analyzer: ATS Score = {ats_score}/100")
+    messages.append(f"Resume Analyzer: ATS Score = {ats_score}/100")
     
     # If ATS < 60, generate structure suggestions using LLM
     structure_suggestions = []
     needs_template = False
     
     if ats_score < 60:
-        messages.append("📊 Resume Analyzer: Low ATS score - analyzing structure issues...")
+        messages.append("Resume Analyzer: Low ATS score - analyzing structure issues...")
         needs_template = True
         
         prompt = f"""You are an ATS optimization expert.
@@ -86,10 +86,10 @@ Be specific and actionable."""
             if not structure_suggestions:
                 structure_suggestions = ["Use a clean, ATS-friendly template", "Add clear section headers", "Quantify achievements"]
                 
-            messages.append(f"📊 Resume Analyzer: Generated {len(structure_suggestions)} structure fixes")
+            messages.append(f"Resume Analyzer: Generated {len(structure_suggestions)} structure fixes")
             
         except Exception as e:
-            messages.append(f"⚠️ Resume Analyzer: Error generating suggestions - {str(e)}")
+            messages.append(f"Resume Analyzer: Error generating suggestions - {str(e)}")
             structure_suggestions = ["Consider using an ATS-optimized template"]
 
     completed = state.get("completed_steps", [])
@@ -118,7 +118,7 @@ def skill_intelligence_agent(state: ResumeState) -> ResumeState:
     This is the heart of honest skill assessment.
     """
     messages = state.get("messages", [])
-    messages.append("🧠 Skill Intelligence: Analyzing skills with evidence...")
+    messages.append("Skill Intelligence: Analyzing skills with evidence...")
 
     resume_text = state["resume_text"]
     jd_text = state["job_description"]
@@ -208,7 +208,8 @@ Be strict: Only mark "confirmed" if there's REAL evidence of use.
         # Calculate readiness metrics
         total_skills = len(skills_analysis)
         ready_skills = [s["skill"] for s in skills_analysis if s["gap"] == 0]
-        critical_gaps = [s["skill"] for s in skills_analysis if s["gap"] >= 2 and s["status"] == "missing"]
+        # Show all gaps for now (any gap > 0, regardless of status)
+        critical_gaps = [s["skill"] for s in skills_analysis if s["gap"] > 0]
         
         readiness_pct = (len(ready_skills) / total_skills * 100) if total_skills > 0 else 0
         overall_readiness = f"{readiness_pct:.0f}% match"
@@ -228,11 +229,11 @@ Be strict: Only mark "confirmed" if there's REAL evidence of use.
         # Sort by gap (biggest first)
         learning_priorities.sort(key=lambda x: x["gap"], reverse=True)
 
-        messages.append(f"🧠 Skill Intelligence: {overall_readiness} | Ready: {len(ready_skills)}/{total_skills}")
-        messages.append(f"🧠 Skill Intelligence: Critical gaps: {len(critical_gaps)}")
+        messages.append(f"Skill Intelligence: {overall_readiness} | Ready: {len(ready_skills)}/{total_skills}")
+        messages.append(f"Skill Intelligence: Critical gaps: {len(critical_gaps)}")
 
     except Exception as e:
-        messages.append(f"⚠️ Skill Intelligence: Error - {str(e)}")
+        messages.append(f"Skill Intelligence: Error - {str(e)}")
         skills_analysis = []
         overall_readiness = "Unknown"
         ready_skills = []
@@ -265,7 +266,7 @@ def optimization_advisor_agent(state: ResumeState) -> ResumeState:
     Only suggests changes based on confirmed/transferable skills.
     """
     messages = state.get("messages", [])
-    messages.append("✍️ Optimization Advisor: Generating honest suggestions...")
+    messages.append("Optimization Advisor: Generating honest suggestions...")
 
     skills_analysis = state.get("skills_analysis", [])
     ats_score = state.get("ats_score", 0)
@@ -335,10 +336,10 @@ Be direct, actionable, ETHICAL. Never fabricate experience."""
                 "Use action verbs for your achievements (Built, Optimized, Reduced, Increased)"
             ]
 
-        messages.append(f"✍️ Optimization Advisor: Generated {len(honest_improvements)} suggestions")
+        messages.append(f"Optimization Advisor: Generated {len(honest_improvements)} suggestions")
 
     except Exception as e:
-        messages.append(f"⚠️ Optimization Advisor: Error - {str(e)}")
+        messages.append(f"Optimization Advisor: Error - {str(e)}")
         honest_improvements = ["Unable to generate suggestions"]
 
     # Generate learning roadmap from priorities
@@ -364,7 +365,7 @@ Be direct, actionable, ETHICAL. Never fabricate experience."""
     projected_readiness = min(95, current_readiness + (len(learning_priorities[:5]) * 8))
     job_readiness_estimate = f"{current_readiness}% now → {projected_readiness}% in {total_learning_months} months"
 
-    messages.append(f"✍️ Optimization Advisor: Learning roadmap ready ({len(learning_roadmap)} priorities)")
+    messages.append(f"Optimization Advisor: Learning roadmap ready ({len(learning_roadmap)} priorities)")
 
     completed = state.get("completed_steps", [])
     completed.append("generate_advice")

@@ -212,7 +212,7 @@ def generate_feedback_report(
 
 # Mock Interview Feedback Report
 
-## 📊 Interview Metrics
+## Interview Metrics
 - **Total Questions:** {total_questions}
 - **Questions Answered:** {answered}/{total_questions}
 - **Questions Skipped:** {skipped}/{total_questions}
@@ -220,10 +220,10 @@ def generate_feedback_report(
 - **Technical Competency:** [Strong/Moderate/Weak]
 - **Communication Skills:** [Strong/Moderate/Weak]
 
-## 📝 Overall Assessment
+## Overall Assessment
 [2-3 sentences summarizing overall performance]
 
-## ✅ Strengths
+## Strengths
 - [Specific strength 1 with example from transcript]
 - [Specific strength 2 with example from transcript]
 - [Specific strength 3 with example from transcript]
@@ -233,7 +233,7 @@ def generate_feedback_report(
 - **[Weakness 2 Title]**: [Detailed explanation with examples]
 - **[Weakness 3 Title]**: [Detailed explanation with examples]
 
-## 📂 Category Breakdown
+## Category Breakdown
 
 ### Resume Validation
 **Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak]
@@ -260,7 +260,7 @@ def generate_feedback_report(
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
-## 🎯 Hiring Verdict
+## Hiring Verdict
 
 ### **Recommendation:** [✅ STRONG HIRE / ✔️ HIRE / ⚠️ MAYBE / ❌ NO HIRE]
 

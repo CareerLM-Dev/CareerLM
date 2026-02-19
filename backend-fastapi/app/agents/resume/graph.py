@@ -19,7 +19,7 @@ def create_resume_workflow():
     No coordinator needed - just sequential execution.
     """
     
-    print("🔧 Building simplified Resume workflow...")
+    print("Building simplified Resume workflow...")
     
     workflow = StateGraph(ResumeState)
     
@@ -49,7 +49,7 @@ def create_resume_workflow():
 
 
 # Create singleton
-print("📦 Creating resume_workflow singleton...")
+print("Creating resume_workflow singleton...")
 resume_workflow = create_resume_workflow()
 print("✓ resume_workflow ready!")
 resume_workflow = create_resume_workflow()

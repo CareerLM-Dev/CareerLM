@@ -85,7 +85,7 @@ async def get_resume_history(
             
             # Try to extract additional data from content
             if content:
-                formatted_item["job_description"] = content.get("jobDescription", "")
+                formatted_item["job_description"] = item.get("job_description", "")
             
             # Extract career analysis summary
             if career_analysis:

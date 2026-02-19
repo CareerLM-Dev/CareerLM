@@ -45,33 +45,35 @@ async def optimize_resume(
     Uses LangGraph multi-agent system to analyze and optimize resumes
     """
     
-    # 1️⃣ Extract raw text using centralized parser
+    # Extract raw text using centralized parser
     parser = get_parser()
     resume_bytes = await resume.read()
     resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
 
-    # 2️⃣ Parse structured sections (lowercase keys for ATS compatibility)
+    # Parse structured sections (lowercase keys for ATS compatibility)
     sections = parser.parse_sections(resume_text)
 
-    # 3️⃣ Run AGENTIC optimizer logic (this now uses LangGraph!)
+    # Run AGENTIC optimizer logic (this now uses LangGraph!)
     logger.info(f"Processing resume: {resume.filename}")
     
     analysis_result = optimize_resume_logic(
-        resume_bytes, 
-        job_description, 
-        filename=resume.filename
+        resume_bytes,
+        job_description,
+        filename=resume.filename,
+        resume_text=resume_text,
+        sections=sections
     )
     
     logger.info(f"ATS Score: {analysis_result.get('ats_score')}/100")
     
-    # 3.5️⃣ Run Skill Gap Analysis in parallel
+    # Run Skill Gap Analysis in parallel
     logger.info("Running skill gap analysis...")
     from app.agents.skill_gap import analyze_skill_gap
     skill_gap_result = analyze_skill_gap(resume_text, filename=resume.filename)
     
     logger.info(f"Skill gap analysis complete. Found {skill_gap_result.get('total_skills_found', 0)} skills")
 
-    # 4️⃣ Build comprehensive result
+    # Build comprehensive result
     result = {
         # Original fields (backward compatible)
         "sections": sections,
@@ -115,7 +117,7 @@ async def optimize_resume(
         "summary": "",  # Keep for backward compatibility
     }
 
-    # 5️⃣ Insert/Update Supabase
+    # Insert/Update Supabase
     existing_resume = supabase.table("resumes").select("*").eq("user_id", user_id).execute()
 
     if existing_resume.data:
@@ -138,32 +140,24 @@ async def optimize_resume(
         resume_id = resp.data[0]["resume_id"]
         new_version_number = 1
 
-    # Split data into separate columns
-    # 1. Content: only extracted resume sections
-    content_data = {
+    # Separate resume text from analysis data
+    analysis_data = {
         "sections": result["sections"],
         "filename": result["filename"],
-        "summary": result["summary"]
-    }
-
-    # 2. Resume Analysis: ATS scores + optimization suggestions
-    resume_analysis_data = {
         "ats_score": result["ats_score"],
         "ats_analysis": result["ats_analysis"],
         "analysis": result["analysis"],
-        "agentic_metadata": result["agentic_metadata"]
+        "careerAnalysis": result["careerAnalysis"],
+        "agentic_metadata": result["agentic_metadata"],
+        "summary": result["summary"]
     }
-
-    # 3. Skill Gap: career analysis & recommendations
-    skill_gap_data = result["careerAnalysis"]
 
     stored_version = supabase.table("resume_versions").insert({
         "resume_id": resume_id,
         "version_number": new_version_number,
-        "resume_text": resume_text,
-        "content": json.dumps(content_data),
-        "resume_analysis": json.dumps(resume_analysis_data),
-        "skill_gap": json.dumps(skill_gap_data),
+        "resume_text": resume_text,  # Store plain resume text separately
+        "job_description": job_description,
+        "content": json.dumps(analysis_data),  # Store only analysis data
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
@@ -312,7 +306,7 @@ async def generate_study_materials_simple(
     user=Depends(get_current_user_optional),
 ):
     """
-    🤖 AGENTIC Study Planner Endpoint (LangGraph + Gemini Search Grounding)
+    AGENTIC Study Planner Endpoint (LangGraph + Gemini Search Grounding)
     Generates a live learning roadmap for the given skill gaps.
     No resume upload required – accepts career + skills directly.
     Auto-saves results to Supabase for the authenticated user.

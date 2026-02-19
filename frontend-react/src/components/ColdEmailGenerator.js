@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -16,6 +16,45 @@ function ColdEmailGenerator({ resumeData }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(null);
+  const [hasPrefilled, setHasPrefilled] = useState(false);
+
+  useEffect(() => {
+    const fetchPrefill = async () => {
+      if (hasPrefilled) return;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      try {
+        const response = await fetch(
+          "http://localhost:8000/api/v1/cold-email/prefill",
+          {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          return;
+        }
+
+        const result = await response.json();
+        if (!result.success) return;
+
+        setFormData((prev) => ({
+          targetCompany: prev.targetCompany || result.target_company || "",
+          targetRole: prev.targetRole || result.target_role || "",
+          jobDescription: prev.jobDescription || result.job_description || "",
+        }));
+        setHasPrefilled(true);
+      } catch (err) {
+        console.error("Failed to prefill cold email data:", err);
+      }
+    };
+
+    fetchPrefill();
+  }, [hasPrefilled]);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
