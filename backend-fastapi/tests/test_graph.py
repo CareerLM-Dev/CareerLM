@@ -6,10 +6,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-print("✓ Path setup complete")
+print("Path setup complete")
 
 from app.services.resume_optimizer import optimize_resume_logic
-print("✓ Imports successful")
+print("Imports successful")
 
 
 def test_with_sample_resume():
@@ -100,6 +100,6 @@ Requirements:
 
 
 if __name__ == "__main__":
-    print("🧪 Starting test...")
+    print("Starting test...")
     test_with_sample_resume()
-    print("\n✅ Test complete!")
+    print("\nTest complete!")

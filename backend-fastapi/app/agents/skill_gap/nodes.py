@@ -3,6 +3,7 @@ Nodes for the skill gap analyzer agent.
 Implements individual steps in the skill gap analysis workflow.
 """
 
+import re
 import os
 import logging
 from dotenv import load_dotenv
@@ -136,6 +137,126 @@ CAREER_CLUSTERS = {
 }
 
 
+# ── Tech Stack Definitions ──
+# Each stack lists technologies that are specific to it.
+# Skills NOT listed in any stack are considered "universal" and always included.
+TECH_STACKS = {
+    "Python": [
+        "Python", "Django", "Flask", "FastAPI", "Pandas", "NumPy",
+        "Jupyter", "Scikit-learn", "TensorFlow", "PyTorch",
+    ],
+    "JavaScript / TypeScript": [
+        "JavaScript", "TypeScript", "React", "Angular", "Vue.js",
+        "Node.js", "Express.js", "Next.js", "Redux",
+    ],
+    "Java": ["Java"],
+    "C++": ["C++"],
+    "Swift / iOS": ["Swift", "iOS"],
+    "Kotlin / Android": ["Kotlin", "Android"],
+    "React Native": ["React Native"],
+    "Flutter": ["Flutter"],
+    "R": ["R"],
+}
+
+# For some careers, the generic filter doesn't work well (e.g. Full Stack needs
+# both frontend + backend).  Provide explicit skill sets per stack instead.
+CAREER_STACK_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "Full Stack Developer": {
+        "Python": [
+            "Python", "Django", "Flask", "JavaScript", "React", "HTML", "CSS",
+            "REST API", "GraphQL", "PostgreSQL", "MongoDB", "Git", "Docker",
+            "AWS", "Authentication", "Testing", "Tailwind CSS", "Responsive Design",
+        ],
+        "JavaScript / TypeScript": [
+            "JavaScript", "TypeScript", "React", "Node.js", "Express.js",
+            "Next.js", "HTML", "CSS", "REST API", "GraphQL", "MongoDB",
+            "PostgreSQL", "Git", "Docker", "AWS", "Authentication", "Testing",
+            "Redux", "Tailwind CSS", "Responsive Design",
+        ],
+        "Java": [
+            "Java", "JavaScript", "React", "HTML", "CSS",
+            "REST API", "GraphQL", "PostgreSQL", "MongoDB", "Git", "Docker",
+            "AWS", "Authentication", "Testing", "Responsive Design",
+        ],
+    },
+    "Mobile Developer": {
+        "Swift / iOS": [
+            "Swift", "iOS", "Mobile UI/UX", "REST API", "Firebase",
+            "Push Notifications", "App Store", "Git", "Testing", "Debugging",
+            "Performance Optimization", "Mobile Security",
+        ],
+        "Kotlin / Android": [
+            "Kotlin", "Android", "Mobile UI/UX", "REST API", "Firebase",
+            "Push Notifications", "Google Play", "Git", "Testing", "Debugging",
+            "Performance Optimization", "Mobile Security",
+        ],
+        "React Native": [
+            "React Native", "JavaScript", "TypeScript", "Mobile UI/UX", "REST API",
+            "Firebase", "Push Notifications", "App Store", "Google Play", "Git",
+            "Testing", "Debugging", "Performance Optimization", "Mobile Security",
+        ],
+        "Flutter": [
+            "Flutter", "Mobile UI/UX", "REST API", "Firebase",
+            "Push Notifications", "App Store", "Google Play", "Git",
+            "Testing", "Debugging", "Performance Optimization", "Mobile Security",
+        ],
+    },
+}
+
+
+def detect_primary_stacks(user_skills: list[str]) -> list[dict]:
+    """Return detected tech stacks sorted by number of matched technologies."""
+    skills_lower = {s.lower() for s in user_skills}
+    results = []
+    for stack_name, stack_techs in TECH_STACKS.items():
+        matched = [t for t in stack_techs if t.lower() in skills_lower]
+        if matched:
+            results.append({
+                "stack": stack_name,
+                "matched": matched,
+                "confidence": round(len(matched) / len(stack_techs), 2),
+            })
+    results.sort(key=lambda x: x["confidence"], reverse=True)
+    return results
+
+
+def get_career_skills_for_stack(career: str, stack: str) -> list[str]:
+    """
+    Return the skill set for *career* filtered through *stack*.
+
+    Uses CAREER_STACK_OVERRIDES when available; otherwise applies the generic
+    filter: keep universal skills + skills belonging to the selected stack,
+    drop skills belonging to other stacks.
+    """
+    # Explicit override?
+    if career in CAREER_STACK_OVERRIDES and stack in CAREER_STACK_OVERRIDES[career]:
+        return CAREER_STACK_OVERRIDES[career][stack]
+
+    career_skills = CAREER_CLUSTERS.get(career, {}).get("skills", [])
+    if not career_skills:
+        return []
+
+    # Build set of ALL stack-specific techs (lowercase)
+    all_stack_techs_lower: set[str] = set()
+    for techs in TECH_STACKS.values():
+        all_stack_techs_lower.update(t.lower() for t in techs)
+
+    # Selected stack's techs (lowercase)
+    selected_lower = {t.lower() for t in TECH_STACKS.get(stack, [])}
+
+    filtered = []
+    for skill in career_skills:
+        sl = skill.lower()
+        if sl not in all_stack_techs_lower:
+            # Universal / stack-agnostic -> always include
+            filtered.append(skill)
+        elif sl in selected_lower:
+            # Belongs to the selected stack -> include
+            filtered.append(skill)
+        # else: belongs to another stack -> exclude
+    return filtered
+
+
 def extract_skills_from_resume(resume_text: str) -> list[str]:
     """
     Extract skills from resume text using pattern matching.
@@ -154,9 +275,12 @@ def extract_skills_from_resume(resume_text: str) -> list[str]:
     for cluster_data in CAREER_CLUSTERS.values():
         all_skills.update(cluster_data["skills"])
     
-    # Find skills in resume
+    # Find skills in resume using word-boundary matching to avoid
+    # false positives for short names like "R", "Go", "C", "C++".
     for skill in all_skills:
-        if skill.lower() in resume_lower:
+        # re.escape handles special chars like "C++"
+        pattern = r'(?<![a-zA-Z])' + re.escape(skill.lower()) + r'(?![a-zA-Z])'
+        if re.search(pattern, resume_lower):
             found_skills.add(skill)
     
     return list(found_skills)

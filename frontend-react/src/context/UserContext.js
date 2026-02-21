@@ -25,7 +25,7 @@ export const UserProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    // 1️⃣  Register the listener FIRST so we never miss a
+    // 1.  Register the listener FIRST so we never miss a
     //     SIGNED_IN / TOKEN_REFRESHED event that fires while
     //     getSession() is still resolving.
     const {
@@ -39,7 +39,7 @@ export const UserProvider = ({ children }) => {
       }, 0);
     });
 
-    // 2️⃣  Then hydrate from localStorage / cookie (fast, synchronous cache).
+    // 2.  Then hydrate from localStorage / cookie (fast, synchronous cache).
     //     Only set loading=false here if onAuthStateChange hasn't fired yet.
     const initSession = async () => {
       try {

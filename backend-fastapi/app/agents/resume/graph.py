@@ -43,7 +43,7 @@ def create_resume_workflow():
     # ===== COMPILE =====
     print("  → Compiling graph...")
     app = workflow.compile()
-    print("✓ Resume workflow ready! (3 agents, linear flow)")
+    print("Resume workflow ready! (3 agents, linear flow)")
     
     return app
 
@@ -51,6 +51,6 @@ def create_resume_workflow():
 # Create singleton
 print("Creating resume_workflow singleton...")
 resume_workflow = create_resume_workflow()
-print("✓ resume_workflow ready!")
+print("resume_workflow ready!")
 resume_workflow = create_resume_workflow()
-print("✓ resume_workflow ready!")
+print("resume_workflow ready!")

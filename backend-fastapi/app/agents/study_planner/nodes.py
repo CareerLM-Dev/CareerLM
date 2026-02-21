@@ -130,6 +130,9 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
                 "• If the user prefers HANDS-ON, include interactive labs, coding challenges, or project-based resources.\n"
                 "• Match est_time values to the user's weekly time commitment (e.g. shorter for 5 hrs/week).\n"
                 "• Adjust difficulty to match the user's goal (beginner-friendly for first-job seekers, advanced for upskill).\n"
+                "• When the user has expressed interest in specific target roles, prioritise resources "
+                "that are most relevant and commonly required for those roles. Frame each skill "
+                "in the context of the interested role(s) so the user understands *why* it matters.\n"
             )
 
     prompt = f"""

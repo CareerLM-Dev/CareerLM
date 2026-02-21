@@ -467,7 +467,7 @@ function MockInterview({ resumeData }) {
                   )}
                   
                   <p className="text-xs text-muted-foreground mt-2">
-                    💡 Roles from your profile. Update them in <a href="/profile" className="text-primary hover:underline">Profile Settings</a>
+                    Roles from your profile. Update them in <a href="/profile" className="text-primary hover:underline">Profile Settings</a>
                   </p>
                 </>
               ) : (
@@ -480,7 +480,7 @@ function MockInterview({ resumeData }) {
                     className="w-full px-4 py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                   <p className="text-xs text-muted-foreground mt-2">
-                    💡 Set your preferred roles in <a href="/profile" className="text-primary hover:underline">Profile Settings</a> for quick access
+                    Set your preferred roles in <a href="/profile" className="text-primary hover:underline">Profile Settings</a> for quick access
                   </p>
                 </>
               )}
@@ -544,7 +544,7 @@ function MockInterview({ resumeData }) {
             </button>
             
             <div className="text-xs text-muted-foreground text-center pt-2">
-              <p>✓ Free voice-powered AI • ✓ Real-time transcription • ✓ Detailed feedback report</p>
+              <p>Free voice-powered AI - Real-time transcription - Detailed feedback report</p>
             </div>
           </div>
         </div>
@@ -599,7 +599,7 @@ function MockInterview({ resumeData }) {
             <div className="flex-1">
               <h3 className="text-lg font-semibold mb-2">{currentQuestion.question}</h3>
               {currentQuestion.follow_up_hint && (
-                <p className="text-sm text-muted-foreground">💡 {currentQuestion.follow_up_hint}</p>
+                <p className="text-sm text-muted-foreground">{currentQuestion.follow_up_hint}</p>
               )}
             </div>
             <button
@@ -787,7 +787,7 @@ function MockInterview({ resumeData }) {
           <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
             <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
               <h3 className="text-xl font-bold flex items-center gap-3">
-                <span className="text-3xl">📊</span>
+                <span className="text-3xl"></span>
                 <span>Performance Metrics</span>
               </h3>
             </div>

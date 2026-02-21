@@ -236,33 +236,33 @@ def generate_feedback_report(
 ## Category Breakdown
 
 ### Resume Validation
-**Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak]
+**Performance Grade:** [Strong / Moderate / Weak]
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
 ### Project Deep Dive
-**Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak]
+**Performance Grade:** [Strong / Moderate / Weak]
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
 ### Core Technical
-**Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak]
+**Performance Grade:** [Strong / Moderate / Weak]
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
 ### System Design (if applicable)
-**Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak / ⚪ Not Assessed]
+**Performance Grade:** [Strong / Moderate / Weak / Not Assessed]
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
 ### Behavioral (if applicable)
-**Performance Grade:** [🟢 Strong / 🟡 Moderate / 🔴 Weak / ⚪ Not Assessed]
+**Performance Grade:** [Strong / Moderate / Weak / Not Assessed]
 **Questions:** [X answered, Y skipped]
 [Analysis of responses]
 
 ## Hiring Verdict
 
-### **Recommendation:** [✅ STRONG HIRE / ✔️ HIRE / ⚠️ MAYBE / ❌ NO HIRE]
+### **Recommendation:** [STRONG HIRE / HIRE / MAYBE / NO HIRE]
 
 ### Justification:
 [2-3 sentences explaining the verdict based on performance]

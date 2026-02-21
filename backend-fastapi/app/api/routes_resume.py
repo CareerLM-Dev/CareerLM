@@ -41,7 +41,7 @@ async def optimize_resume(
     job_description: str = Form(...)
 ):
     """
-    🤖 AGENTIC Resume Optimization Endpoint
+    AGENTIC Resume Optimization Endpoint
     Uses LangGraph multi-agent system to analyze and optimize resumes
     """
     
@@ -88,7 +88,7 @@ async def optimize_resume(
         "analysis": {
             "gaps": analysis_result.get("gaps", []),  # Skill gaps
             "alignment_suggestions": analysis_result.get("alignment_suggestions", []),
-            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # ✅ Only if ATS < 60
+            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # Only if ATS < 60
         },
         
         # Career & Skill Gap Analysis (auto-populated)
@@ -105,7 +105,7 @@ async def optimize_resume(
             }
         },
         
-        # 🤖 Agentic Metadata (for debugging/UI)
+        # Agentic Metadata (for debugging/UI)
         "agentic_metadata": {
             "agent_execution_log": analysis_result.get("agent_execution_log", []),
             "total_iterations": analysis_result.get("total_iterations", 0),
@@ -262,8 +262,8 @@ async def get_study_materials_cache(
     user=Depends(get_current_user_optional),
 ):
     """
-    Load cached study materials from Supabase for the current user.
-    Returns the most recent cached entry if available.
+    Load ALL cached study plans from Supabase for the current user.
+    Returns one entry per career path so the frontend can switch between them.
     """
     if not user:
         return JSONResponse(
@@ -277,26 +277,204 @@ async def get_study_materials_cache(
             .select("*")
             .eq("user_id", user.id)
             .order("created_at", desc=True)
-            .limit(1)
             .execute()
         )
 
         if result.data:
-            row = result.data[0]
+            plans = []
+            for row in result.data:
+                plans.append({
+                    "target_career": row.get("target_career", ""),
+                    "skill_gap_report": row.get("skill_gap_report", []),
+                    "study_plan": row.get("study_plan", []),
+                    "cached_at": row.get("created_at"),
+                })
             return JSONResponse({
                 "success": True,
                 "cached": True,
-                "target_career": row.get("target_career", ""),
-                "skill_gap_report": row.get("skill_gap_report", []),
-                "study_plan": row.get("study_plan", []),
-                "cached_at": row.get("created_at"),
+                "plans": plans,
             })
         else:
-            return JSONResponse({"success": True, "cached": False})
+            return JSONResponse({"success": True, "cached": False, "plans": []})
 
     except Exception as e:
         logger.warning(f"Failed to load study materials cache: {e}")
-        return JSONResponse({"success": True, "cached": False})
+        return JSONResponse({"success": True, "cached": False, "plans": []})
+
+
+# ── Mapping from questionnaire target_role values to CAREER_CLUSTERS keys ──
+_ROLE_TO_CAREER = {
+    "software_engineer": "Software Engineer",
+    "data_scientist": "Data Scientist",
+    "data_analyst": "Data Analyst",
+    "devops_engineer": "DevOps Engineer",
+    "full_stack_developer": "Full Stack Developer",
+    "ml_engineer": "Machine Learning Engineer",
+    "product_manager": "Product Manager",
+    "ux_ui_designer": "UI/UX Designer",
+    "cloud_architect": "Cloud Architect",
+    "cybersecurity_analyst": "Cybersecurity Analyst",
+    "business_analyst": "Business Analyst",
+    "mobile_developer": "Mobile Developer",
+}
+
+
+@router.get("/suggested-roles")
+async def get_suggested_roles(
+    user=Depends(get_current_user_optional),
+    stack: Optional[str] = Query(None, description="Tech stack to filter skills by (e.g. 'Python')"),
+):
+    """
+    Return career roles ranked by combining skill-gap match scores with the
+    user's questionnaire interest.  Roles the user expressed interest in during
+    onboarding are boosted so they appear near the top.
+
+    If ``stack`` is provided, each role's ``missing_skills`` are filtered to
+    only include skills relevant to that tech stack.  The response also
+    includes ``detected_stacks`` derived from the user's resume skills.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Not authenticated"},
+        )
+
+    try:
+        # 1. Load the latest resume analysis (career_matches from skill-gap)
+        from app.agents.skill_gap.nodes import (
+            CAREER_CLUSTERS,
+            TECH_STACKS,
+            detect_primary_stacks,
+            get_career_skills_for_stack,
+        )
+
+        resume_row = (
+            supabase.table("resumes")
+            .select("resume_id")
+            .eq("user_id", user.id)
+            .limit(1)
+            .execute()
+        )
+
+        career_matches = []
+        user_skills: list[str] = []
+        if resume_row.data:
+            resume_id = resume_row.data[0]["resume_id"]
+            version_row = (
+                supabase.table("resume_versions")
+                .select("content")
+                .eq("resume_id", resume_id)
+                .order("version_number", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if version_row.data:
+                content = version_row.data[0].get("content")
+                if isinstance(content, str):
+                    content = json.loads(content)
+                career_analysis = content.get("careerAnalysis", {}) if content else {}
+                career_matches = career_analysis.get("career_matches", [])
+                user_skills = career_analysis.get("user_skills", [])
+
+        # Auto-detect stacks from resume skills
+        detected_stacks = detect_primary_stacks(user_skills)
+
+        # If no explicit stack given, pick the top auto-detected one (if any)
+        active_stack = stack
+        if not active_stack and detected_stacks:
+            active_stack = detected_stacks[0]["stack"]
+
+        # 2. Load questionnaire answers
+        q_result = (
+            supabase.table("user")
+            .select("questionnaire_answers")
+            .eq("id", user.id)
+            .limit(1)
+            .execute()
+        )
+        qa = {}
+        if q_result.data and q_result.data[0].get("questionnaire_answers"):
+            qa = q_result.data[0]["questionnaire_answers"]
+
+        interested_roles_raw = qa.get("target_role", [])
+        if isinstance(interested_roles_raw, str):
+            interested_roles_raw = [interested_roles_raw]
+
+        # Map questionnaire values to career names
+        interested_careers = set()
+        for r in interested_roles_raw:
+            mapped = _ROLE_TO_CAREER.get(r)
+            if mapped:
+                interested_careers.add(mapped)
+
+        # Helper: filter a skill list through the active stack
+        def _filter_skills(career: str, skills: list[str]) -> list[str]:
+            if not active_stack:
+                return skills
+            allowed = set(
+                s.lower() for s in get_career_skills_for_stack(career, active_stack)
+            )
+            return [s for s in skills if s.lower() in allowed]
+
+        # 3. Build ranked list
+        INTEREST_BOOST = 20  # percentage points added for user-selected roles
+
+        ranked = []
+        seen = set()
+
+        for cm in career_matches:
+            career = cm["career"]
+            seen.add(career)
+            base_score = cm.get("probability", 0)
+            is_interested = career in interested_careers
+            boosted_score = min(100, base_score + INTEREST_BOOST) if is_interested else base_score
+            filtered_missing = _filter_skills(career, cm.get("missing_skills", []))
+            ranked.append({
+                "career": career,
+                "base_score": base_score,
+                "boosted_score": round(boosted_score, 2),
+                "is_interested": is_interested,
+                "missing_skills": filtered_missing,
+                "matched_skills_count": cm.get("matched_skills_count", 0),
+                "total_required_skills": cm.get("total_required_skills", 0),
+            })
+
+        # Add interested roles that weren't in career_matches (e.g. no resume yet)
+        for career in interested_careers:
+            if career not in seen:
+                if active_stack:
+                    all_skills = get_career_skills_for_stack(career, active_stack)
+                else:
+                    cluster = CAREER_CLUSTERS.get(career, {})
+                    all_skills = cluster.get("skills", [])
+                ranked.append({
+                    "career": career,
+                    "base_score": 0,
+                    "boosted_score": INTEREST_BOOST,
+                    "is_interested": True,
+                    "missing_skills": all_skills,
+                    "matched_skills_count": 0,
+                    "total_required_skills": len(all_skills),
+                })
+
+        # Sort by boosted_score descending
+        ranked.sort(key=lambda x: x["boosted_score"], reverse=True)
+
+        return JSONResponse({
+            "success": True,
+            "suggested_roles": ranked,
+            "interested_roles": list(interested_careers),
+            "detected_stacks": detected_stacks,
+            "active_stack": active_stack,
+            "available_stacks": list(TECH_STACKS.keys()),
+        })
+
+    except Exception as e:
+        logger.exception(f"Error fetching suggested roles: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)},
+        )
 
 
 @router.post("/generate-study-materials-simple")
@@ -354,22 +532,22 @@ async def generate_study_materials_simple(
         )
 
         # Auto-save to Supabase if user is authenticated
+        # Upsert per career: delete only the matching career entry, keep others
         if user:
             try:
-                # Delete old cache for this user (keep only latest)
                 supabase.table("study_materials_cache") \
                     .delete() \
                     .eq("user_id", user.id) \
+                    .eq("target_career", result.get("target_career", target_career)) \
                     .execute()
 
-                # Insert new cache entry
                 supabase.table("study_materials_cache").insert({
                     "user_id": user.id,
                     "target_career": result.get("target_career", target_career),
                     "skill_gap_report": result.get("skill_gap_report", []),
                     "study_plan": result.get("study_plan", []),
                 }).execute()
-                logger.info(f"Study materials cached for user {user.id}")
+                logger.info(f"Study materials cached for user {user.id} / career {target_career}")
             except Exception as cache_err:
                 logger.warning(f"Failed to cache study materials: {cache_err}")
 

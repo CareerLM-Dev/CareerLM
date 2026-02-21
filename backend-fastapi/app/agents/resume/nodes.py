@@ -302,10 +302,10 @@ Provide exactly 5 honest resume improvements:
 - 2 suggestions: How to REFRAME transferable skills honestly
 
 RULES:
-✅ DO: "Move Python to top of Skills", "Quantify database size in project"
-✅ DO: "Reframe 'deployed app' as 'cloud deployment experience' (honest stretch)"
-❌ DON'T: "Add AWS to skills" (if missing)
-❌ DON'T: "Mention Kubernetes" (if missing)
+DO: "Move Python to top of Skills", "Quantify database size in project"
+DO: "Reframe 'deployed app' as 'cloud deployment experience' (honest stretch)"
+DON'T: "Add AWS to skills" (if missing)
+DON'T: "Mention Kubernetes" (if missing)
 
 Format (exactly 5 items):
 1. [Honest suggestion for confirmed skill]
