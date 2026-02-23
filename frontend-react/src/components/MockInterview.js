@@ -75,11 +75,15 @@ function MockInterview({ resumeData }) {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [questionTimes, setQuestionTimes] = useState([]);
+  const [currentQuestionElapsed, setCurrentQuestionElapsed] = useState(0);
   const [error, setError] = useState("");
   
   // Speech API refs
   const recognitionRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis);
+  const questionStartRef = useRef(null);
+  const questionTimesRef = useRef([]);
   
   // Fetch user's saved roles on mount
   useEffect(() => {
@@ -177,6 +181,51 @@ function MockInterview({ resumeData }) {
       setCurrentAnswer(answers[currentQuestionIndex] || "");
     }
   }, [currentQuestionIndex, sessionState, answers]);
+
+  useEffect(() => {
+    if (sessionState !== "interview" || !questions.length) return;
+
+    questionStartRef.current = Date.now();
+    setCurrentQuestionElapsed(0);
+
+    const timer = setInterval(() => {
+      if (!questionStartRef.current) return;
+      const elapsed = Math.floor((Date.now() - questionStartRef.current) / 1000);
+      setCurrentQuestionElapsed(Math.max(0, elapsed));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [sessionState, currentQuestionIndex, questions.length]);
+
+  const formatDuration = (seconds) => {
+    const totalSeconds = Math.max(0, Number(seconds) || 0);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (mins === 0) return `${secs}s`;
+    return `${mins}m ${secs}s`;
+  };
+
+  const captureCurrentQuestionTime = () => {
+    if (sessionState !== "interview" || !questions.length) {
+      return questionTimesRef.current;
+    }
+
+    if (!questionStartRef.current) {
+      questionStartRef.current = Date.now();
+      return questionTimesRef.current;
+    }
+
+    const elapsed = Math.max(0, Math.floor((Date.now() - questionStartRef.current) / 1000));
+    const updatedTimes = [...questionTimesRef.current];
+    updatedTimes[currentQuestionIndex] = (updatedTimes[currentQuestionIndex] || 0) + elapsed;
+
+    questionTimesRef.current = updatedTimes;
+    setQuestionTimes(updatedTimes);
+    questionStartRef.current = Date.now();
+    setCurrentQuestionElapsed(0);
+
+    return updatedTimes;
+  };
   
   // Speech synthesis function
   const speakText = (text) => {
@@ -292,6 +341,10 @@ function MockInterview({ resumeData }) {
 
       setQuestions(sanitizedQuestions);
       setAnswers(new Array(sanitizedQuestions.length).fill(""));
+      const initialQuestionTimes = new Array(sanitizedQuestions.length).fill(0);
+      setQuestionTimes(initialQuestionTimes);
+      questionTimesRef.current = initialQuestionTimes;
+      questionStartRef.current = Date.now();
       setCurrentQuestionIndex(0);
       setActiveRole(finalRole); // Store the role being used
       setSessionState("interview");
@@ -309,6 +362,7 @@ function MockInterview({ resumeData }) {
   // Submit current answer and move to next question
   const submitAnswer = async () => {
     stopListening();
+    captureCurrentQuestionTime();
     
     // Save current answer
     const newAnswers = [...answers];
@@ -335,6 +389,7 @@ function MockInterview({ resumeData }) {
   // Skip current question
   const skipQuestion = async () => {
     stopListening();
+    captureCurrentQuestionTime();
     
     // Save empty answer
     const newAnswers = [...answers];
@@ -356,6 +411,7 @@ function MockInterview({ resumeData }) {
   // Go to previous question
   const goToPreviousQuestion = async () => {
     stopListening();
+    captureCurrentQuestionTime();
     
     if (currentQuestionIndex > 0) {
       // Save current answer before going back
@@ -387,6 +443,10 @@ function MockInterview({ resumeData }) {
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
     setFeedback(null);
+    setQuestionTimes([]);
+    questionTimesRef.current = [];
+    questionStartRef.current = null;
+    setCurrentQuestionElapsed(0);
     setError("");
   };
   
@@ -448,6 +508,10 @@ function MockInterview({ resumeData }) {
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
     setFeedback(null);
+    setQuestionTimes([]);
+    questionTimesRef.current = [];
+    questionStartRef.current = null;
+    setCurrentQuestionElapsed(0);
     setError("");
     synthRef.current.cancel();
   };
@@ -646,6 +710,9 @@ function MockInterview({ resumeData }) {
             <span className="text-sm font-medium">Question {currentQuestionIndex + 1} of {questions.length}</span>
             <span className="text-sm text-muted-foreground">{currentQuestion.category}</span>
           </div>
+          <div className="text-xs text-muted-foreground mb-2">
+            Time on this question: {formatDuration(currentQuestionElapsed)}
+          </div>
           <div className="w-full bg-muted rounded-full h-2">
             <div 
               className="bg-primary h-2 rounded-full transition-all duration-300"
@@ -709,7 +776,9 @@ function MockInterview({ resumeData }) {
             {currentQuestionIndex > 0 && (
               <button
                 onClick={goToPreviousQuestion}
-                className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors flex items-center gap-2"
+                disabled={answers[currentQuestionIndex - 1] && answers[currentQuestionIndex - 1] !== "[Skipped]"}
+                className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                title={answers[currentQuestionIndex - 1] && answers[currentQuestionIndex - 1] !== "[Skipped]" ? "Cannot go back to answered questions" : ""}
               >
                 ← Previous
               </button>
@@ -728,7 +797,7 @@ function MockInterview({ resumeData }) {
               onClick={skipQuestion}
               className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
             >
-              Skip
+              {currentQuestionIndex < questions.length - 1 ? 'Skip' : 'Skip & Submit'}
             </button>
           </div>
           
@@ -763,7 +832,8 @@ function MockInterview({ resumeData }) {
         skipped: answers?.filter(a => !a || a === '[Skipped]').length || 0,
         overallReadiness: 'N/A',
         confidenceTone: 'N/A',
-        verbosity: 'N/A'
+        verbosity: 'N/A',
+        averageTimeSeconds: 0
       };
       
       if (!feedbackJson || typeof feedbackJson !== 'object') return metrics;
@@ -774,6 +844,11 @@ function MockInterview({ resumeData }) {
       if (feedbackJson.quantitative_metrics) {
         metrics.confidenceTone = feedbackJson.quantitative_metrics.confidence_tone || 'N/A';
         metrics.verbosity = feedbackJson.quantitative_metrics.verbosity || 'N/A';
+      }
+
+      if ((questions?.length || 0) > 0) {
+        const totalTime = (questionTimes || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+        metrics.averageTimeSeconds = Math.round(totalTime / questions.length);
       }
       
       return metrics;
@@ -930,12 +1005,16 @@ function MockInterview({ resumeData }) {
                     <div className="text-xs text-muted-foreground mb-1">Verbosity</div>
                     <div className="text-lg font-semibold">{metrics.verbosity}</div>
                   </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Average Time / Question</div>
+                    <div className="text-lg font-semibold">{formatDuration(metrics.averageTimeSeconds)}</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
-        
+
         {/* Stage Performance Breakdown */}
         {feedback?.stage_performance && (
           <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">

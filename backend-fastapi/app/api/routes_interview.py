@@ -60,7 +60,30 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
         if not user or not user.user:
             raise HTTPException(status_code=401, detail="Invalid token")
         return user.user
+    except HTTPException:
+        raise
     except Exception as e:
+        error_text = str(e).lower()
+        network_markers = [
+            "handshake operation timed out",
+            "ssl",
+            "timed out",
+            "connection",
+            "dns",
+            "temporary failure",
+            "name or service not known",
+            "network is unreachable",
+            "connection reset",
+            "connection refused",
+        ]
+
+        if any(marker in error_text for marker in network_markers):
+            logger.warning(f"Auth provider connectivity issue: {str(e)}")
+            raise HTTPException(
+                status_code=503,
+                detail="Authentication service temporarily unavailable. Please retry.",
+            )
+
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
 
@@ -109,11 +132,31 @@ async def get_user_resume_data(user_id: str):
         ])
         filename = version_data.get("raw_file_path", "resume.pdf")
         
+        # Reconstruct resume_text from sections
+        resume_text = ""
+        if sections:
+            for section_name, section_content in sections.items():
+                if isinstance(section_content, dict):
+                    resume_text += f"\n{section_name.upper()}\n"
+                    if "content" in section_content:
+                        resume_text += section_content["content"] + "\n"
+                    else:
+                        resume_text += str(section_content) + "\n"
+                elif isinstance(section_content, list):
+                    resume_text += f"\n{section_name.upper()}\n"
+                    for item in section_content:
+                        if isinstance(item, dict):
+                            resume_text += str(item) + "\n"
+                        else:
+                            resume_text += str(item) + "\n"
+                else:
+                    resume_text += f"\n{section_name.upper()}\n{section_content}\n"
+        
         logger.info(f"Retrieved resume data: {filename}, text length: {len(resume_text)}, sections: {list(sections.keys())}")
         
         return {
             "resume_id": resume_record["resume_id"],
-            "resume_text": resume_text,
+            "resume_text": resume_text.strip(),
             "sections": sections,
             "filename": filename
         }
