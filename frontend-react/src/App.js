@@ -10,6 +10,7 @@ import History from "./components/History";
 import Onboarding from "./pages/Onboarding";
 import ResumeUploadPage from "./pages/ResumeUploadPage";
 import Profile from "./pages/Profile";
+import AuthCallback from "./pages/AuthCallback";
 
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/onboarding/:userId" element={<Onboarding />} />
             <Route path="/upload-resume" element={<ResumeUploadPage />} />
             <Route path="/dashboard" element={<Dashboard />} />
