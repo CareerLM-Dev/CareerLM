@@ -141,7 +141,7 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
             )}
           </div>
         )}
-      </div> */}
+      </div>
     </div>
   );
 };
