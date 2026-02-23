@@ -132,20 +132,20 @@ function Navbar() {
             <div className="h-4 w-24 rounded bg-muted" />
           </div>
         ) : isAuthenticated ? (
-          <div className="relative ml-4" ref={dropdownRef}>
+          <div className="relative ml-2 md:ml-4" ref={dropdownRef}>
             <Button
               variant="outline"
               onClick={() => setShowDropdown(!showDropdown)}
-              className="flex items-center gap-3 px-4 py-2 bg-primary/10 border-primary/20 hover:bg-primary/15 hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-300"
+              className="flex items-center gap-2 md:gap-3 px-2 md:px-4 py-2 bg-primary/10 border-primary/20 hover:bg-primary/15 hover:border-primary/30 hover:-translate-y-0.5 transition-all duration-300"
             >
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground font-bold text-sm">
                 {user?.email?.charAt(0).toUpperCase() || "U"}
               </div>
-              <span className="max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-foreground text-sm">
+              <span className="hidden md:inline max-w-[150px] overflow-hidden text-ellipsis whitespace-nowrap font-semibold text-foreground text-sm">
                 {user?.email}
               </span>
               <ChevronDown 
-                className={`h-4 w-4 transition-transform duration-300 ${
+                className={`h-4 w-4 transition-transform duration-300 hidden md:block ${
                   showDropdown ? "rotate-180" : ""
                 }`} 
               />

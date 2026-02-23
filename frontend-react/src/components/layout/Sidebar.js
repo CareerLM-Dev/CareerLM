@@ -84,7 +84,7 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
                 title={collapsed ? item.label : undefined}
                 className={cn(
                   "group flex cursor-pointer items-center rounded-lg font-medium transition-all duration-200",
-                  collapsed ? "justify-center px-1.5 py-2" : "gap-2.5 px-3 py-2.5",
+                  collapsed ? "justify-center px-1.5 py-2" : "gap-3 px-2.5 py-2",
                   isActive
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-md",
@@ -92,11 +92,11 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
                 )}
               >
                 <span className={cn(
-                  "flex items-center justify-center rounded-md transition-all duration-200 flex-shrink-0",
-                  collapsed ? "h-8 w-8" : "h-8 w-8",
+                  "flex items-center justify-center transition-all duration-200 flex-shrink-0",
+                  collapsed ? "h-8 w-8" : "h-7 w-7",
                   isActive 
-                    ? "bg-primary-foreground/20" 
-                    : "bg-muted group-hover:bg-background"
+                    ? "" 
+                    : "bg-muted rounded-md group-hover:bg-background"
                 )}>
                   <Icon 
                     className={cn(
