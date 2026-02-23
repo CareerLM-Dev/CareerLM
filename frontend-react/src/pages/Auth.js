@@ -26,6 +26,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
     setIsLogin(searchParams.get("mode") !== "signup");
   }, [searchParams]);
 
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
@@ -69,10 +70,17 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
         if (authError) {
           console.error("Signup error:", authError);
+          if (authError.message.includes("already") || authError.message.includes("exists")) {
+            throw new Error("This email is already registered. Please sign in instead.");
+          }
           throw authError;
         }
 
         console.log("Signup successful:", authData);
+
+        if (authData?.user?.identities && authData.user.identities.length === 0) {
+          throw new Error("This email is already registered. Please sign in instead.");
+        }
 
         if (authData.user && !authData.session) {
           throw new Error(
