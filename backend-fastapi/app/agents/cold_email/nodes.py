@@ -29,11 +29,22 @@ def writer_agent(state: ColdEmailState) -> Dict[str, Any]:
     job_desc = state.get("job_description", "")
     resume_text = state.get("resume_text", "")
     projects_section = state.get("projects_section", "")
+    template_subject = state.get("template_subject") or ""
+    template_body = state.get("template_body") or ""
 
     # Organize skills
     skills_str = ', '.join(skills[:10]) if skills else 'various technical skills'
     
     # Build context-rich prompt using actual resume data
+    template_section = ""
+    if template_subject or template_body:
+        template_section = f"""
+SAVED TEMPLATE (use structure + tone, update details with latest resume data):
+SUBJECT: {template_subject or '[Use your own subject if missing]'}
+BODY:
+{template_body or '[No template body provided]'}
+"""
+
     prompt = f"""
 Write a professional, personalized cold email using ONLY the information provided from the candidate's actual resume. DO NOT generate, invent, or create any fake projects, experiences, or details.
 
@@ -48,6 +59,8 @@ CANDIDATE INFORMATION:
 --- PROJECTS SECTION FROM RESUME ---
 {projects_section if projects_section else 'No projects section provided'}
 --- END RESUME CONTENT ---
+
+{template_section}
 
 TARGET POSITION:
 - Company: {target_company}
@@ -74,6 +87,7 @@ CRITICAL RULES:
 - Extract and use real project names and descriptions from the resume
 - DO NOT create fictional projects or experiences
 - DO NOT include any phone numbers or email addresses; use [YOUR-NUMBER] and [YOUR-EMAIL] placeholders
+- If a saved template is provided, keep its structure and tone while updating details to match the target company/role
 - If information is missing, keep that section brief and general
 - 200-250 words maximum
 - Professional tone

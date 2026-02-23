@@ -23,6 +23,13 @@ class ColdEmailRequest(BaseModel):
     target_company: str
     target_role: str
     job_description: Optional[str] = None
+    template_subject: Optional[str] = None
+    template_body: Optional[str] = None
+
+
+class SaveColdEmailRequest(BaseModel):
+    subject: str
+    body: str
 
 
 def _clean_extracted_value(value: Optional[str]) -> str:
@@ -212,7 +219,9 @@ async def create_cold_email(
             job_description=request.job_description,
             user_experience=experience_section[:200] if experience_section else None,  # Brief summary
             resume_text=resume_text,
-            projects_section=projects_section
+                projects_section=projects_section,
+                template_subject=request.template_subject,
+                template_body=request.template_body
         )
         
         if not result.get("success"):
@@ -232,6 +241,85 @@ async def create_cold_email(
         raise
     except Exception as e:
         logger.error(f"Cold email generation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/saved")
+async def list_saved_cold_emails(user=Depends(get_current_user)):
+    try:
+        result = (
+            supabase.table("cold_email_templates")
+            .select("id, subject, body, created_at")
+            .eq("user_id", user.id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"success": True, "data": result.data or []}
+    except Exception as e:
+        logger.error(f"Failed to list saved cold emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved")
+async def save_cold_email_template(
+    request: SaveColdEmailRequest,
+    user=Depends(get_current_user)
+):
+    try:
+        existing = (
+            supabase.table("cold_email_templates")
+            .select("id")
+            .eq("user_id", user.id)
+            .execute()
+        )
+        if existing.data and len(existing.data) >= 5:
+            raise HTTPException(
+                status_code=400,
+                detail="You can save up to 5 emails. Remove one to save another.",
+            )
+
+        payload = {
+            "user_id": user.id,
+            "subject": request.subject.strip()[:120] if request.subject else "",
+            "body": request.body.strip() if request.body else "",
+        }
+
+        result = (
+            supabase.table("cold_email_templates")
+            .insert(payload)
+            .execute()
+        )
+
+        return {"success": True, "data": result.data[0] if result.data else payload}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save cold email template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/saved/{template_id}")
+async def delete_cold_email_template(
+    template_id: str,
+    user=Depends(get_current_user)
+):
+    try:
+        result = (
+            supabase.table("cold_email_templates")
+            .delete()
+            .eq("id", template_id)
+            .eq("user_id", user.id)
+            .execute()
+        )
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        return {"success": True, "data": result.data[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete cold email template: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
