@@ -74,7 +74,7 @@ function MockInterview({ resumeData }) {
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState("");
   
   // Speech API refs
@@ -142,10 +142,19 @@ function MockInterview({ resumeData }) {
     
     recognitionRef.current.onerror = (event) => {
       console.error('Speech recognition error:', event.error);
+      // Always reset listening state on error to prevent state mismatch
       setIsListening(false);
+      
+      // Show user-friendly error messages for common errors
+      if (event.error === 'no-speech') {
+        setError("No speech detected. Please try again.");
+      } else if (event.error !== 'aborted') {
+        setError(`Speech recognition error: ${event.error}`);
+      }
     };
     
     recognitionRef.current.onend = () => {
+      // Always ensure listening state is reset when recognition ends
       setIsListening(false);
     };
     
@@ -160,6 +169,14 @@ function MockInterview({ resumeData }) {
       }
     };
   }, []);
+
+  // Load saved answer when question index changes
+  useEffect(() => {
+    if (sessionState === "interview" && answers.length > 0) {
+      // Load the saved answer for this question
+      setCurrentAnswer(answers[currentQuestionIndex] || "");
+    }
+  }, [currentQuestionIndex, sessionState, answers]);
   
   // Speech synthesis function
   const speakText = (text) => {
@@ -189,17 +206,35 @@ function MockInterview({ resumeData }) {
   
   // Start listening to user
   const startListening = () => {
-    if (recognitionRef.current && !isListening) {
-      setCurrentAnswer("");
+    if (!recognitionRef.current) return;
+    
+    try {
+      // Check if already listening by checking internal state
+      if (isListening) {
+        console.warn("Speech recognition already running");
+        return;
+      }
+      
       recognitionRef.current.start();
       setIsListening(true);
+    } catch (error) {
+      console.error("Error starting speech recognition:", error);
+      // If error occurs, ensure state is reset
+      setIsListening(false);
     }
   };
   
   // Stop listening
   const stopListening = () => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+    if (!recognitionRef.current) return;
+    
+    try {
+      if (isListening) {
+        recognitionRef.current.stop();
+        setIsListening(false);
+      }
+    } catch (error) {
+      console.error("Error stopping speech recognition:", error);
       setIsListening(false);
     }
   };
@@ -242,14 +277,27 @@ function MockInterview({ resumeData }) {
       }
       
       const data = await response.json();
-      setQuestions(data.questions);
-      setAnswers(new Array(data.questions.length).fill(""));
+      const rawQuestions = Array.isArray(data.questions) ? data.questions : [];
+      const sanitizedQuestions = rawQuestions
+        .filter((item) => item && typeof item === "object")
+        .map((item, index) => ({
+          id: typeof item.id === "number" ? item.id : index + 1,
+          category: typeof item.category === "string" && item.category.trim() ? item.category : "General",
+          question: typeof item.question === "string" && item.question.trim() ? item.question : "Please describe your relevant experience for this role."
+        }));
+
+      if (!sanitizedQuestions.length) {
+        throw new Error("No valid questions returned. Please try again.");
+      }
+
+      setQuestions(sanitizedQuestions);
+      setAnswers(new Array(sanitizedQuestions.length).fill(""));
       setCurrentQuestionIndex(0);
       setActiveRole(finalRole); // Store the role being used
       setSessionState("interview");
       
       // Speak first question
-      await speakText(data.questions[0].question);
+      await speakText(sanitizedQuestions[0].question);
       
     } catch (err) {
       console.error("Error generating questions:", err);
@@ -275,7 +323,9 @@ function MockInterview({ resumeData }) {
       setCurrentAnswer("");
       
       // Speak next question
-      await speakText(questions[nextIndex].question);
+      if (questions[nextIndex]?.question) {
+        await speakText(questions[nextIndex].question);
+      }
     } else {
       // All questions answered - generate feedback
       await generateFeedback(newAnswers);
@@ -295,7 +345,9 @@ function MockInterview({ resumeData }) {
       const nextIndex = currentQuestionIndex + 1;
       setCurrentQuestionIndex(nextIndex);
       setCurrentAnswer("");
-      await speakText(questions[nextIndex].question);
+      if (questions[nextIndex]?.question) {
+        await speakText(questions[nextIndex].question);
+      }
     } else {
       await generateFeedback(newAnswers);
     }
@@ -317,7 +369,9 @@ function MockInterview({ resumeData }) {
       setCurrentAnswer(answers[prevIndex] || "");
       
       // Optionally speak the previous question
-      await speakText(questions[prevIndex].question);
+      if (questions[prevIndex]?.question) {
+        await speakText(questions[prevIndex].question);
+      }
     }
   };
   
@@ -332,7 +386,7 @@ function MockInterview({ resumeData }) {
     setAnswers([]);
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
-    setFeedback("");
+    setFeedback(null);
     setError("");
   };
   
@@ -366,7 +420,12 @@ function MockInterview({ resumeData }) {
       }
       
       const data = await response.json();
-      setFeedback(data.feedback);
+
+      if (!data.feedback || (typeof data.feedback === 'object' && Object.keys(data.feedback).length === 0)) {
+        throw new Error("Feedback report is empty. Please retry the interview feedback generation.");
+      }
+
+      setFeedback(typeof data.feedback === 'string' ? JSON.parse(data.feedback) : data.feedback);
       setSessionState("completed");
       
     } catch (err) {
@@ -388,7 +447,7 @@ function MockInterview({ resumeData }) {
     setAnswers([]);
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
-    setFeedback("");
+    setFeedback(null);
     setError("");
     synthRef.current.cancel();
   };
@@ -540,7 +599,7 @@ function MockInterview({ resumeData }) {
               className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <PlayCircle className="w-5 h-5" />
-              Start Interview (15 Questions)
+              Start Interview
             </button>
             
             <div className="text-xs text-muted-foreground text-center pt-2">
@@ -571,8 +630,13 @@ function MockInterview({ resumeData }) {
   
   // Interview screen
   if (sessionState === "interview") {
-    const currentQuestion = questions[currentQuestionIndex];
-    const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
+    const currentQuestion = questions[currentQuestionIndex] || {
+      id: currentQuestionIndex + 1,
+      category: "General",
+      question: "Question is unavailable. Please go to the next question."
+    };
+    const questionCount = Math.max(questions.length, 1);
+    const progress = ((currentQuestionIndex + 1) / questionCount) * 100;
     
     return (
       <div className="max-w-4xl mx-auto space-y-6">
@@ -598,9 +662,6 @@ function MockInterview({ resumeData }) {
             </div>
             <div className="flex-1">
               <h3 className="text-lg font-semibold mb-2">{currentQuestion.question}</h3>
-              {currentQuestion.follow_up_hint && (
-                <p className="text-sm text-muted-foreground">{currentQuestion.follow_up_hint}</p>
-              )}
             </div>
             <button
               onClick={() => speakText(currentQuestion.question)}
@@ -694,64 +755,54 @@ function MockInterview({ resumeData }) {
   
   // Completed screen with feedback
   if (sessionState === "completed") {
-    // Parse metrics from feedback
-    const parseMetrics = (feedbackText) => {
+    // Parse metrics from feedback JSON
+    const parseMetrics = (feedbackJson) => {
       const metrics = {
-        totalQuestions: 0,
-        answered: 0,
-        skipped: 0,
-        qualityScore: 0,
-        technicalCompetency: 'N/A',
-        communicationSkills: 'N/A'
+        totalQuestions: questions?.length || 0,
+        answered: answers?.filter(a => a && a !== '[Skipped]').length || 0,
+        skipped: answers?.filter(a => !a || a === '[Skipped]').length || 0,
+        overallReadiness: 'N/A',
+        confidenceTone: 'N/A',
+        verbosity: 'N/A'
       };
       
-      if (!feedbackText) return metrics;
+      if (!feedbackJson || typeof feedbackJson !== 'object') return metrics;
       
-      // Extract total questions
-      const totalMatch = feedbackText.match(/Total Questions:\*\*\s*(\d+)/i);
-      if (totalMatch) metrics.totalQuestions = parseInt(totalMatch[1]);
+      // Extract from new JSON structure
+      metrics.overallReadiness = feedbackJson.overall_readiness || 'N/A';
       
-      // Extract answered
-      const answeredMatch = feedbackText.match(/Questions Answered:\*\*\s*(\d+)/i);
-      if (answeredMatch) metrics.answered = parseInt(answeredMatch[1]);
-      
-      // Extract skipped
-      const skippedMatch = feedbackText.match(/Questions Skipped:\*\*\s*(\d+)/i);
-      if (skippedMatch) metrics.skipped = parseInt(skippedMatch[1]);
-      
-      // Extract quality score
-      const qualityMatch = feedbackText.match(/Answer Quality Score:\*\*\s*(\d+)/i);
-      if (qualityMatch) metrics.qualityScore = parseInt(qualityMatch[1]);
-      
-      // Extract technical competency
-      const techMatch = feedbackText.match(/Technical Competency:\*\*\s*(Strong|Moderate|Weak)/i);
-      if (techMatch) metrics.technicalCompetency = techMatch[1];
-      
-      // Extract communication skills
-      const commMatch = feedbackText.match(/Communication Skills:\*\*\s*(Strong|Moderate|Weak)/i);
-      if (commMatch) metrics.communicationSkills = commMatch[1];
+      if (feedbackJson.quantitative_metrics) {
+        metrics.confidenceTone = feedbackJson.quantitative_metrics.confidence_tone || 'N/A';
+        metrics.verbosity = feedbackJson.quantitative_metrics.verbosity || 'N/A';
+      }
       
       return metrics;
     };
     
     const metrics = parseMetrics(feedback);
     
-    // Helper to get color for skill level
-    const getSkillColor = (level) => {
+    // Helper to get color for readiness level
+    const getReadinessColor = (level) => {
+      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
       switch(level.toLowerCase()) {
-        case 'strong': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
-        case 'moderate': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
-        case 'weak': return 'bg-gradient-to-r from-red-600 to-red-500 text-white';
+        case 'interview ready': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
+        case 'nearly ready': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
+        case 'needs practice': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
+        case 'early stage': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
         default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
       }
     };
     
-    // Helper to get quality score color
-    const getQualityColor = (score) => {
-      if (score >= 80) return 'bg-gradient-to-r from-green-600 to-green-500';
-      if (score >= 60) return 'bg-gradient-to-r from-yellow-500 to-yellow-400';
-      if (score >= 40) return 'bg-gradient-to-r from-orange-500 to-orange-400';
-      return 'bg-gradient-to-r from-red-600 to-red-500';
+    // Helper to get color for stage performance
+    const getStageColor = (level) => {
+      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
+      switch(level.toLowerCase()) {
+        case 'strong': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
+        case 'solid': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
+        case 'growing': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
+        case 'needs work': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
+        default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
+      }
     };
     
     return (
@@ -857,99 +908,164 @@ function MockInterview({ resumeData }) {
                 </div>
               </div>
               
-              {/* Answer Quality Score */}
+              {/* Overall Readiness */}
               <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Answer Quality Score</h4>
-                <div className="flex flex-col items-center justify-center">
-                  <div className="relative mb-4">
-                    <svg className="w-32 h-32 transform -rotate-90">
-                      <circle
-                        cx="64"
-                        cy="64"
-                        r="56"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="12"
-                        className="text-muted/30"
-                      />
-                      <circle
-                        cx="64"
-                        cy="64"
-                        r="56"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="12"
-                        className={metrics.qualityScore >= 80 ? 'text-green-500' : metrics.qualityScore >= 60 ? 'text-yellow-500' : metrics.qualityScore >= 40 ? 'text-orange-500' : 'text-red-500'}
-                        strokeDasharray={`${(metrics.qualityScore / 100) * 351.86} 351.86`}
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-4xl font-bold text-foreground">{metrics.qualityScore}</span>
-                      <span className="text-xs text-muted-foreground font-medium">out of 100</span>
-                    </div>
-                  </div>
-                  <div className="w-full space-y-2">
-                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                      <span>Poor</span>
-                      <span>Excellent</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden shadow-inner">
-                      <div 
-                        className={`h-full transition-all duration-1000 ease-out ${getQualityColor(metrics.qualityScore)}`}
-                        style={{ width: `${metrics.qualityScore}%` }}
-                      ></div>
-                    </div>
+                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Overall Readiness</h4>
+                <div className="flex items-center justify-center h-24">
+                  <div className={`px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-transform ${getReadinessColor(metrics.overallReadiness)}`}>
+                    {metrics.overallReadiness.toUpperCase()}
                   </div>
                 </div>
               </div>
               
-              {/* Technical Competency */}
+              {/* Confidence & Communication */}
               <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Technical Competency</h4>
-                <div className="flex items-center justify-center h-24">
-                  <div className={`px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-transform ${getSkillColor(metrics.technicalCompetency)}`}>
-                    {metrics.technicalCompetency.toUpperCase()}
+                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Confidence & Communication</h4>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Confidence Tone</div>
+                    <div className="text-lg font-semibold">{metrics.confidenceTone}</div>
                   </div>
-                </div>
-                <div className="mt-4 flex justify-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${metrics.technicalCompetency.toLowerCase() === 'weak' ? 'bg-red-600' : 'bg-muted'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${metrics.technicalCompetency.toLowerCase() === 'moderate' ? 'bg-yellow-500' : 'bg-muted'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${metrics.technicalCompetency.toLowerCase() === 'strong' ? 'bg-green-600' : 'bg-muted'}`}></div>
-                </div>
-              </div>
-              
-              {/* Communication Skills */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Communication Skills</h4>
-                <div className="flex items-center justify-center h-24">
-                  <div className={`px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-transform ${getSkillColor(metrics.communicationSkills)}`}>
-                    {metrics.communicationSkills.toUpperCase()}
+                  <div>
+                    <div className="text-xs text-muted-foreground mb-1">Verbosity</div>
+                    <div className="text-lg font-semibold">{metrics.verbosity}</div>
                   </div>
-                </div>
-                <div className="mt-4 flex justify-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${metrics.communicationSkills.toLowerCase() === 'weak' ? 'bg-red-600' : 'bg-muted'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${metrics.communicationSkills.toLowerCase() === 'moderate' ? 'bg-yellow-500' : 'bg-muted'}`}></div>
-                  <div className={`w-2 h-2 rounded-full ${metrics.communicationSkills.toLowerCase() === 'strong' ? 'bg-green-600' : 'bg-muted'}`}></div>
                 </div>
               </div>
             </div>
           </div>
         )}
         
-        {/* Detailed Feedback Report */}
+        {/* Stage Performance Breakdown */}
+        {feedback?.stage_performance && (
+          <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+            <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
+              <h3 className="text-xl font-bold flex items-center gap-3">
+                <span className="text-2xl">📊</span>
+                <span>Stage Performance</span>
+              </h3>
+            </div>
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
+                <div className="text-xs text-muted-foreground mb-2">Resume Validation</div>
+                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.resume_validation)}`}>
+                  {feedback.stage_performance.resume_validation}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
+                <div className="text-xs text-muted-foreground mb-2">Project Deep Dive</div>
+                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.project_deep_dive)}`}>
+                  {feedback.stage_performance.project_deep_dive}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
+                <div className="text-xs text-muted-foreground mb-2">Core Technical</div>
+                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.core_technical)}`}>
+                  {feedback.stage_performance.core_technical}
+                </div>
+              </div>
+              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
+                <div className="text-xs text-muted-foreground mb-2">Behavioral</div>
+                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.behavioral)}`}>
+                  {feedback.stage_performance.behavioral}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Executive Summary & Action Plan */}
         <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
           <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
             <h3 className="text-xl font-bold flex items-center gap-3">
               <FileText className="w-6 h-6 text-primary" />
-              <span>Detailed Feedback Report</span>
+              <span>Detailed Feedback</span>
             </h3>
           </div>
-          <div className="p-8">
-            <div 
-              className="prose prose-sm max-w-none dark:prose-invert markdown-content"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(feedback) }}
-            />
+          <div className="p-8 space-y-6">
+            {/* Executive Summary */}
+            {feedback?.executive_summary && (
+              <div>
+                <h4 className="text-lg font-semibold mb-3 text-primary">Executive Summary</h4>
+                <p className="text-foreground leading-relaxed">{feedback.executive_summary}</p>
+              </div>
+            )}
+            
+            {/* Action Plan */}
+            {feedback?.action_plan && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                {feedback.action_plan.stop_doing?.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                    <h5 className="font-semibold text-red-700 dark:text-red-400 mb-2">🛑 Stop Doing</h5>
+                    <ul className="space-y-1">
+                      {feedback.action_plan.stop_doing.map((item, idx) => (
+                        <li key={idx} className="text-sm text-foreground">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {feedback.action_plan.start_doing?.length > 0 && (
+                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                    <h5 className="font-semibold text-green-700 dark:text-green-400 mb-2">✅ Start Doing</h5>
+                    <ul className="space-y-1">
+                      {feedback.action_plan.start_doing.map((item, idx) => (
+                        <li key={idx} className="text-sm text-foreground">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {feedback.action_plan.study_focus?.length > 0 && (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <h5 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">📚 Study Focus</h5>
+                    <ul className="space-y-1">
+                      {feedback.action_plan.study_focus.map((item, idx) => (
+                        <li key={idx} className="text-sm text-foreground">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {feedback.action_plan.next_steps?.length > 0 && (
+                  <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                    <h5 className="font-semibold text-purple-700 dark:text-purple-400 mb-2">🎯 Next Steps</h5>
+                    <ul className="space-y-1">
+                      {feedback.action_plan.next_steps.map((item, idx) => (
+                        <li key={idx} className="text-sm text-foreground">• {item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Question Breakdown */}
+            {feedback?.question_breakdown?.length > 0 && (
+              <div className="mt-8">
+                <h4 className="text-lg font-semibold mb-4 text-primary">Question-by-Question Breakdown</h4>
+                <div className="space-y-4">
+                  {feedback.question_breakdown.map((item, idx) => (
+                    <div key={idx} className="bg-muted/50 border border-border rounded-lg p-4">
+                      <div className="font-semibold text-sm text-primary mb-2">
+                        Q{idx + 1}: {item.question}
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        <strong>Your Answer:</strong> {item.user_answer_summary}
+                      </div>
+                      {item.improvement_needed && (
+                        <div className="text-xs text-yellow-700 dark:text-yellow-400 mb-2">
+                          <strong>Improvement Needed:</strong> {item.improvement_needed}
+                        </div>
+                      )}
+                      <div className="text-xs text-green-700 dark:text-green-400">
+                        <strong>Ideal Answer:</strong> {item.ideal_golden_answer}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -1,22 +1,18 @@
 # app/agents/interview/generator.py
 """
-Mock Interview Question Generator
-Uses Groq Llama-3 to generate structured interview questions
+Mock Interview Generator - Compatibility Facade
+Routes to graph workflows for question generation and feedback
+
+This module provides the original function signatures for backward compatibility
+while delegating to the new graph-based architecture (state.py, nodes.py, graph.py)
 """
-import json
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+import logging
+from typing import Dict, Any, List, Optional
+from .graph import question_generation_workflow, feedback_generation_workflow
+from .state import InterviewState
 
-# Initialize Interview LLM
-INTERVIEW_LLM = ChatGroq(
-    api_key=os.getenv("GROQ_API_KEY"),
-    model="llama-3.1-8b-instant",
-    temperature=0.8
-)
+logger = logging.getLogger(__name__)
 
 
 def generate_interview_questions(
@@ -28,6 +24,8 @@ def generate_interview_questions(
 ) -> dict:
     """
     Generate structured interview questions based on user context and difficulty.
+    
+    FACADE: Routes to question_generation_workflow
     
     Question count by difficulty:
     - Easy: 5 questions total (2 Resume, 2 Project, 1 Technical)
@@ -43,120 +41,41 @@ def generate_interview_questions(
         
     Returns:
         dict with questions array
+        
+    Raises:
+        ValueError: If validation fails
+        RuntimeError: If generation fails
     """
+    logger.info(f"generate_interview_questions called: role={target_role}, difficulty={difficulty}")
     
-    # Extract key context
-    experience = resume_sections.get("experience", "")[:500]
-    projects = resume_sections.get("projects", "")[:500]
-    skills = resume_sections.get("skills", "")[:300]
-    education = resume_sections.get("education", "")[:300]
-    
-    # Define difficulty descriptions
-    difficulty_guidance = {
-        "easy": "Focus on fundamental concepts, basic terminology, and straightforward scenarios. Questions should be answerable by entry-level candidates.",
-        "medium": "Mix of fundamental and intermediate concepts. Include some problem-solving scenarios and practical applications. Suitable for mid-level candidates.",
-        "hard": "Advanced concepts, complex scenarios, optimization problems, and deep technical knowledge. Challenge the candidate with edge cases and architectural decisions."
-    }
-    
-    difficulty_desc = difficulty_guidance.get(difficulty.lower(), difficulty_guidance["medium"])
-    
-    # Define question distribution based on difficulty
-    distributions = {
-        "easy": {
-            "total": 5,
-            "breakdown": "2 Resume Validation, 2 Project Deep Dive, 1 Core Technical"
-        },
-        "medium": {
-            "total": 10,
-            "breakdown": "2 Resume Validation, 3 Project Deep Dive, 3 Core Technical, 1 System Design, 1 Behavioral"
-        },
-        "hard": {
-            "total": 15,
-            "breakdown": "3 Resume Validation, 4 Project Deep Dive, 4 Core Technical, 2 System Design, 2 Behavioral"
-        }
-    }
-    
-    dist = distributions.get(difficulty.lower(), distributions["medium"])
-    
-    prompt = f"""You are an expert technical interviewer conducting a mock interview session.
-
-**Candidate Context:**
-Target Role: {target_role}
-Skills: {skills if skills else (', '.join(user_skills) if user_skills else 'Not specified')}
-Experience: {experience[:200] if experience else 'Not specified'}
-Projects: {projects[:200] if projects else 'Not specified'}
-
-**Difficulty Level: {difficulty.upper()}**
-{difficulty_desc}
-
-**Task:** Generate EXACTLY {dist['total']} interview questions in this EXACT distribution:
-{dist['breakdown']}
-
-IMPORTANT: Generate EXACTLY {dist['total']} questions total. No more, no less.
-
-**Requirements:**
-- Questions must be specific to the candidate's background
-- Progressive difficulty within each category
-- Questions should be realistic for {target_role}
-- Each question should be clear and answerable in 2-3 minutes
-
-**Output Format (JSON ONLY):**
-{{
-  "questions": [
-    {{
-      "id": 1,
-      "category": "Resume Validation",
-      "question": "Your actual question here?",
-      "follow_up_hint": "Brief hint for deeper probing"
-    }},
-    ...continue for all 15 questions...
-  ]
-}}
-
-Return ONLY valid JSON. No markdown formatting, no explanation."""
-
     try:
-        response = INTERVIEW_LLM.invoke([
-            SystemMessage(content="You are a JSON-only interview question generator. Return valid JSON only."),
-            HumanMessage(content=prompt)
-        ])
+        # Build input state
+        input_state: InterviewState = {
+            "resume_text": resume_text,
+            "resume_sections": resume_sections,
+            "target_role": target_role,
+            "difficulty": difficulty,
+            "user_skills": user_skills or [],
+            "mode": "questions"
+        }
         
-        content = response.content.strip()
+        # Execute workflow
+        result = question_generation_workflow.invoke(input_state)
         
-        # Clean up potential markdown formatting
-        if content.startswith("```json"):
-            content = content[7:]
-        if content.startswith("```"):
-            content = content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
+        # Extract and return questions in original format
+        questions = result.get("questions_generated", [])
         
-        content = content.strip()
+        logger.info(f"Generated {len(questions)} questions successfully")
         
-        # Parse JSON
-        result = json.loads(content)
+        return {
+            "questions": questions
+        }
         
-        # Validate structure
-        if "questions" not in result:
-            raise ValueError("Invalid response: missing 'questions' key")
-        
-        # Determine expected count based on difficulty
-        expected_counts = {"easy": 5, "medium": 10, "hard": 15}
-        expected = expected_counts.get(difficulty.lower(), 10)
-        
-        # Ensure we have the right number of questions (truncate if more, error if less)
-        if len(result["questions"]) < expected:
-            raise ValueError(f"Expected at least {expected} questions, got {len(result['questions'])}")
-        
-        if len(result["questions"]) > expected:
-            # Truncate to expected count
-            result["questions"] = result["questions"][:expected]
-        
-        return result
-        
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse LLM response as JSON: {str(e)}")
+    except ValueError as e:
+        logger.error(f"Validation error in question generation: {str(e)}")
+        raise
     except Exception as e:
+        logger.error(f"Workflow error in question generation: {str(e)}")
         raise RuntimeError(f"Question generation failed: {str(e)}")
 
 
@@ -169,127 +88,43 @@ def generate_feedback_report(
     """
     Generate markdown feedback report based on interview transcript.
     
+    FACADE: Routes to feedback_generation_workflow
+    
     Args:
-        questions: List of question dicts
+        questions: List of question dicts with id, category, question, follow_up_hint
         answers: List of answer texts (same order as questions)
         target_role: Target job role
         resume_text: Original resume text for context
         
     Returns:
         Markdown formatted feedback report
-    """
-    
-    # Build transcript and calculate metrics
-    transcript = ""
-    answered = 0
-    skipped = 0
-    
-    for i, (q, a) in enumerate(zip(questions, answers), 1):
-        transcript += f"\n**Q{i} [{q['category']}]:** {q['question']}\n"
-        if a.strip() and a != "[Skipped]":
-            transcript += f"**A{i}:** {a}\n"
-            answered += 1
-        else:
-            transcript += f"**A{i}:** [Skipped]\n"
-            skipped += 1
-    
-    total_questions = len(questions)
-    
-    prompt = f"""You are an expert technical interviewer providing feedback on a mock interview.
-
-**Target Role:** {target_role}
-**Interview Statistics:**
-- Total Questions: {total_questions}
-- Answered: {answered}
-- Skipped: {skipped}
-
-**Interview Transcript:**
-{transcript}
-
-**Task:** Analyze the candidate's performance and generate a detailed feedback report WITH METRICS.
-
-**Report Structure (Markdown):**
-
-# Mock Interview Feedback Report
-
-## Interview Metrics
-- **Total Questions:** {total_questions}
-- **Questions Answered:** {answered}/{total_questions}
-- **Questions Skipped:** {skipped}/{total_questions}
-- **Answer Quality Score:** [Give 0-100 score based on depth, accuracy, and clarity]
-- **Technical Competency:** [Strong/Moderate/Weak]
-- **Communication Skills:** [Strong/Moderate/Weak]
-
-## Overall Assessment
-[2-3 sentences summarizing overall performance]
-
-## Strengths
-- [Specific strength 1 with example from transcript]
-- [Specific strength 2 with example from transcript]
-- [Specific strength 3 with example from transcript]
-
-## Areas for Improvement
-- **[Weakness 1 Title]**: [Detailed explanation with examples]
-- **[Weakness 2 Title]**: [Detailed explanation with examples]
-- **[Weakness 3 Title]**: [Detailed explanation with examples]
-
-## Category Breakdown
-
-### Resume Validation
-**Performance Grade:** [Strong / Moderate / Weak]
-**Questions:** [X answered, Y skipped]
-[Analysis of responses]
-
-### Project Deep Dive
-**Performance Grade:** [Strong / Moderate / Weak]
-**Questions:** [X answered, Y skipped]
-[Analysis of responses]
-
-### Core Technical
-**Performance Grade:** [Strong / Moderate / Weak]
-**Questions:** [X answered, Y skipped]
-[Analysis of responses]
-
-### System Design (if applicable)
-**Performance Grade:** [Strong / Moderate / Weak / Not Assessed]
-**Questions:** [X answered, Y skipped]
-[Analysis of responses]
-
-### Behavioral (if applicable)
-**Performance Grade:** [Strong / Moderate / Weak / Not Assessed]
-**Questions:** [X answered, Y skipped]
-[Analysis of responses]
-
-## Hiring Verdict
-
-### **Recommendation:** [STRONG HIRE / HIRE / MAYBE / NO HIRE]
-
-### Justification:
-[2-3 sentences explaining the verdict based on performance]
-
-**Next Steps:**
-- [Actionable recommendation 1]
-- [Actionable recommendation 2]
-- [Actionable recommendation 3]
-
----
-*Generated by CareerLM Mock Interview AI*
-
-**IMPORTANT**: Use ONLY markdown syntax. Do NOT use HTML tags like <br/>, <strong>, etc. Use markdown formatting:
-- Headers: #, ##, ###
-- Bold: **text**
-- Lists: - item or bullet points
-- Line breaks: double newlines
-
-Return ONLY the markdown report. Be honest and constructive."""
-
-    try:
-        response = INTERVIEW_LLM.invoke([
-            SystemMessage(content="You are an expert interviewer providing constructive feedback. Return PURE MARKDOWN ONLY - no HTML tags."),
-            HumanMessage(content=prompt)
-        ])
         
-        return response.content.strip()
+    Raises:
+        RuntimeError: If feedback generation fails
+    """
+    logger.info(f"generate_feedback_report called: role={target_role}, questions={len(questions)}")
+    
+    try:
+        # Build input state
+        input_state: InterviewState = {
+            "questions": questions,
+            "answers": answers,
+            "target_role": target_role,
+            "resume_text": resume_text,
+            "resume_sections": {},  # Not needed for feedback
+            "mode": "feedback"
+        }
+        
+        # Execute workflow
+        result = feedback_generation_workflow.invoke(input_state)
+        
+        # Extract and return feedback in original format
+        feedback = result.get("feedback_report", "")
+        
+        logger.info("Feedback report generated successfully")
+        
+        return feedback
         
     except Exception as e:
+        logger.error(f"Workflow error in feedback generation: {str(e)}")
         raise RuntimeError(f"Feedback generation failed: {str(e)}")

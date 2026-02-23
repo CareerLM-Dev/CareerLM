@@ -10,10 +10,11 @@ from datetime import datetime
 import logging
 import json
 
-from app.agents.interview.generator import (
-    generate_interview_questions,
-    generate_feedback_report
+from app.agents.interview.graph import (
+    question_generation_workflow,
+    feedback_generation_workflow
 )
+from app.agents.interview.state import InterviewState
 from app.services.resume_parser import get_parser
 from supabase_client import supabase
 
@@ -151,21 +152,25 @@ async def generate_questions(
         
         logger.info(f"Generating questions for user {request.user_id}, role: {request.target_role}")
         
-        # Generate questions using Groq
-        result = generate_interview_questions(
-            resume_text=resume_data["resume_text"],
-            resume_sections=resume_data["sections"],
-            target_role=request.target_role,
-            difficulty=request.difficulty,
-            user_skills=None  # Can be extracted from sections if needed
-        )
+        # Generate questions using workflow
+        input_state: InterviewState = {
+            "resume_text": resume_data["resume_text"],
+            "resume_sections": resume_data["sections"],
+            "target_role": request.target_role,
+            "difficulty": request.difficulty,
+            "user_skills": [],
+            "mode": "questions"
+        }
+        
+        workflow_result = question_generation_workflow.invoke(input_state)
+        questions = workflow_result.get("questions_generated", [])
         
         # Create interview session record
         session_data = {
             "user_id": request.user_id,
             "resume_id": resume_data["resume_id"],
             "target_role": request.target_role,
-            "questions": result["questions"],
+            "questions": questions,
             "status": "in_progress",
             "created_at": datetime.utcnow().isoformat()
         }
@@ -183,7 +188,7 @@ async def generate_questions(
         
         return {
             "success": True,
-            "questions": result["questions"],
+            "questions": questions,
             "session_id": session_id,
             "resume_filename": resume_data["filename"]
         }
@@ -240,13 +245,27 @@ async def generate_feedback(
             resume_data = await get_user_resume_data(request.user_id)
             resume_text = resume_data["resume_text"] if resume_data else ""
         
-        # Generate feedback using Groq
-        feedback_report = generate_feedback_report(
-            questions=request.questions,
-            answers=request.answers,
-            target_role=request.target_role,
-            resume_text=resume_text
-        )
+        # Generate feedback using workflow
+        input_state: InterviewState = {
+            "questions": request.questions,
+            "answers": request.answers,
+            "target_role": request.target_role,
+            "resume_text": resume_text,
+            "resume_sections": {},
+            "mode": "feedback"
+        }
+        
+        workflow_result = feedback_generation_workflow.invoke(input_state)
+        workflow_error = workflow_result.get("error")
+        feedback_json = workflow_result.get("feedback_json")
+
+        if workflow_error:
+            logger.error(f"Feedback workflow error: {workflow_error}")
+            raise HTTPException(status_code=500, detail=str(workflow_error))
+
+        if not feedback_json or not isinstance(feedback_json, dict):
+            logger.error("Feedback workflow returned empty or invalid JSON")
+            raise HTTPException(status_code=500, detail="Feedback generation returned an empty report. Please retry.")
         
         # Store feedback in database (optional)
         try:
@@ -257,7 +276,7 @@ async def generate_feedback(
                     "questions": request.questions,
                     "answers": request.answers
                 },
-                "feedback_report": feedback_report,
+                "feedback_json": feedback_json,
                 "created_at": datetime.utcnow().isoformat()
             }
             
@@ -269,7 +288,7 @@ async def generate_feedback(
         
         return {
             "success": True,
-            "feedback": feedback_report,
+            "feedback": feedback_json,
             "timestamp": datetime.utcnow().isoformat()
         }
         
