@@ -118,7 +118,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-primary">
+    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
       <div className="w-full max-w-md">
         <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_25px_50px_rgba(0,0,0,0.15)]">
           <CardHeader className="text-center space-y-2">

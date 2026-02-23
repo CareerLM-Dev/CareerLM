@@ -8,7 +8,7 @@ function Home() {
   const navigate = useNavigate();
   const { isAuthenticated, loading } = useUser();
   return (
-    <div className="min-h-screen bg-background">
+    <div className="h-full overflow-y-auto bg-background">
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center px-4 py-20" id="home">
         <div className="container mx-auto grid lg:grid-cols-2 gap-12 items-center">

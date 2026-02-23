@@ -16,19 +16,23 @@ function App() {
   return (
     <ThemeProvider>
     <UserProvider>
-      {/* Sticky Navbar on top */}
-      <Navbar />
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Navbar */}
+        <Navbar />
 
-      {/* Page content */}
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/onboarding/:userId" element={<Onboarding />} />
-        <Route path="/upload-resume" element={<ResumeUploadPage />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/profile" element={<Profile />} />
-      </Routes>
+        {/* Page content fills remaining space */}
+        <div className="flex-1 overflow-hidden">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/onboarding/:userId" element={<Onboarding />} />
+            <Route path="/upload-resume" element={<ResumeUploadPage />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/profile" element={<Profile />} />
+          </Routes>
+        </div>
+      </div>
     </UserProvider>
     </ThemeProvider>
   );

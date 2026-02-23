@@ -203,7 +203,7 @@ function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-primary">
+    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
       <div className="w-full max-w-2xl">
         <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
           {/* Header */}
