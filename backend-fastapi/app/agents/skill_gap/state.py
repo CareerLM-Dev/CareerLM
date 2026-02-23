@@ -29,6 +29,8 @@ class SkillGapState(TypedDict):
     """State for the skill gap analyzer workflow."""
     resume_text: str
     filename: NotRequired[Optional[str]]
+    skills_text: NotRequired[Optional[str]]      # Parsed skills section
+    projects_text: NotRequired[Optional[str]]    # Parsed projects section
     user_skills: NotRequired[list[str]]
     career_matches: NotRequired[list[CareerMatch]]
     top_3_careers: NotRequired[list[CareerMatch]]

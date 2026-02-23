@@ -5,7 +5,7 @@ import { Button } from "./ui/button";
 import {
   BookOpen, ExternalLink, FileText, GraduationCap,
   ChevronDown, ChevronUp, Star, TrendingUp, Plus,
-  RefreshCw, Sparkles, Target, Layers,
+  RefreshCw, Sparkles, Target, Layers, Map,
 } from "lucide-react";
 
 function StudyPlanner({ resumeData }) {
@@ -155,19 +155,6 @@ function StudyPlanner({ resumeData }) {
       setLoading(false);
     }
   }, [getCareerMeta]);
-
-  // Seed from resumeData prop if no cached plans loaded
-  useEffect(() => {
-    if (Object.keys(allPlans).length > 0) return;
-    if (resumeData?.studyMaterials) {
-      const sm = resumeData.studyMaterials;
-      if (sm.target_career && sm.skill_gap_report?.length > 0) {
-        setAllPlans({ [sm.target_career]: sm });
-        setActiveCareer(sm.target_career);
-        setExpandedSkills({ 0: true });
-      }
-    }
-  }, [resumeData, allPlans]);
 
   const toggleSkill = (idx) => setExpandedSkills((p) => ({ ...p, [idx]: !p[idx] }));
   const expandAll = () => {
@@ -517,6 +504,18 @@ function StudyPlanner({ resumeData }) {
                     {skillIdx + 1}
                   </span>
                   <h4 className="font-semibold text-lg">{skillData.skill}</h4>
+                  {skillData.roadmap_url && (
+                    <a
+                      href={skillData.roadmap_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors border border-emerald-500/20"
+                    >
+                      <Map className="w-3 h-3" />
+                      roadmap.sh
+                    </a>
+                  )}
                   <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full">
                     {skillData.learning_path?.length || 0} steps
                   </span>
@@ -574,6 +573,24 @@ function StudyPlanner({ resumeData }) {
                             Open Resource
                             <ExternalLink className="w-3 h-3" />
                           </a>
+                        )}
+                        {/* Alternative platform links */}
+                        {resource.alt_platforms?.length > 0 && (
+                          <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <span className="text-xs text-muted-foreground">Also on:</span>
+                            {resource.alt_platforms.map((alt, altIdx) => (
+                              <a
+                                key={altIdx}
+                                href={alt.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-border bg-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-colors"
+                              >
+                                {alt.name}
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>

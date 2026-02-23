@@ -49,7 +49,7 @@ EMAIL_LLM = ChatGroq(
 # the model name to GROQ_CLIENT manually)
 # ──────────────────────────────────────────────
 GROQ_DEFAULT_MODEL = "llama-3.1-8b-instant"
-GROQ_PLANNING_MODEL = "mixtral-8x7b-32768"
+GROQ_SKILLGAP_MODEL = "llama-3.3-70b-versatile"   # Skill-gap analyzer (dedicated)
 GEMINI_MODEL = "gemini-2.0-flash"
 
 # Export active objects
@@ -59,6 +59,6 @@ __all__ = [
     "RESUME_LLM",
     "EMAIL_LLM",
     "GROQ_DEFAULT_MODEL",
-    "GROQ_PLANNING_MODEL",
+    "GROQ_SKILLGAP_MODEL",
     "GEMINI_MODEL",
 ]

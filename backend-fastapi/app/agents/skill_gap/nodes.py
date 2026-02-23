@@ -1,16 +1,16 @@
 """
 Nodes for the skill gap analyzer agent.
 Implements individual steps in the skill gap analysis workflow.
+Uses LLM-based extraction and matching instead of hardcoded regex + TF-IDF.
 """
 
 import re
+import json
 import os
 import logging
 from dotenv import load_dotenv
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from .state import SkillGapState, CareerMatch
-from app.agents.llm_config import GROQ_CLIENT as client, GROQ_DEFAULT_MODEL
+from app.agents.llm_config import GROQ_CLIENT as client, GROQ_SKILLGAP_MODEL
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -257,111 +257,134 @@ def get_career_skills_for_stack(career: str, stack: str) -> list[str]:
     return filtered
 
 
-def extract_skills_from_resume(resume_text: str) -> list[str]:
+def extract_skills_from_resume(
+    skills_text: str | None = None,
+    projects_text: str | None = None,
+    resume_text: str | None = None,
+) -> list[str]:
     """
-    Extract skills from resume text using pattern matching.
-    
-    Args:
-        resume_text: The extracted resume text.
-        
-    Returns:
-        List of found skills.
+    Extract skills using the dedicated skills section and project tech-stacks.
+
+    Priority:
+      1. ``skills_text`` + ``projects_text`` (structured sections from resume)
+      2. Falls back to ``resume_text`` only when sections are unavailable.
+
+    Falls back to regex matching against CAREER_CLUSTERS if the LLM call fails.
     """
+    # Build a focused input for the LLM
+    if skills_text or projects_text:
+        input_block = ""
+        if skills_text:
+            input_block += f"=== SKILLS SECTION ===\n{skills_text}\n\n"
+        if projects_text:
+            input_block += f"=== PROJECTS SECTION ===\n{projects_text}\n"
+    elif resume_text:
+        input_block = resume_text[:6000]
+    else:
+        return []
+
+    try:
+        prompt = (
+            "Extract every technical skill, tool, framework, programming language, "
+            "methodology, and platform from the text below.\n\n"
+            "Rules:\n"
+            "- Return ONLY a JSON array of strings.\n"
+            "- Use the canonical / most-common capitalisation (e.g. 'JavaScript' not 'javascript').\n"
+            "- Include soft skills only if they are clearly tech-adjacent (e.g. 'Agile', 'Scrum').\n"
+            "- Do NOT include job titles, company names, organization names, or degrees.\n"
+            "- Do NOT include project names — only the technologies used in those projects.\n"
+            "- Keep each item short (one skill per entry, no descriptions).\n\n"
+            f"{input_block}"
+        )
+
+        completion = client.chat.completions.create(
+            model=GROQ_SKILLGAP_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise resume-skill extractor. "
+                        "Respond ONLY with a JSON array of strings. No commentary."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+
+        raw = (completion.choices[0].message.content or "").strip()
+        if not raw:
+            raise ValueError("LLM returned empty response")
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+
+        skills = json.loads(raw)
+        if isinstance(skills, list):
+            # Deduplicate while preserving order
+            seen: set[str] = set()
+            unique: list[str] = []
+            for s in skills:
+                if isinstance(s, str) and s.strip():
+                    key = s.strip().lower()
+                    if key not in seen:
+                        seen.add(key)
+                        unique.append(s.strip())
+            logger.info(f"LLM extracted {len(unique)} skills from resume")
+            return unique
+
+    except Exception as e:
+        logger.warning(f"LLM skill extraction failed, falling back to regex: {e}")
+
+    # ── Fallback: regex matching against CAREER_CLUSTERS ──
+    fallback_text = skills_text or projects_text or resume_text or ""
+    return _regex_extract_skills(fallback_text)
+
+
+def _regex_extract_skills(resume_text: str) -> list[str]:
+    """Fallback regex-based skill extraction using CAREER_CLUSTERS."""
     resume_lower = resume_text.lower()
-    found_skills = set()
-    
-    # Collect all possible skills from career clusters
-    all_skills = set()
+    found_skills: set[str] = set()
+
+    all_skills: set[str] = set()
     for cluster_data in CAREER_CLUSTERS.values():
         all_skills.update(cluster_data["skills"])
-    
-    # Find skills in resume using word-boundary matching to avoid
-    # false positives for short names like "R", "Go", "C", "C++".
+
     for skill in all_skills:
-        # re.escape handles special chars like "C++"
-        pattern = r'(?<![a-zA-Z])' + re.escape(skill.lower()) + r'(?![a-zA-Z])'
+        pattern = r"(?<![a-zA-Z])" + re.escape(skill.lower()) + r"(?![a-zA-Z])"
         if re.search(pattern, resume_lower):
             found_skills.add(skill)
-    
+
     return list(found_skills)
 
 
-def calculate_skill_match_percentage(user_skills: list[str], career_skills: list[str]) -> float:
-    """
-    Calculate percentage match between user skills and career requirements.
-    
-    Args:
-        user_skills: List of user's skills.
-        career_skills: List of required career skills.
-        
-    Returns:
-        Match percentage as a float.
-    """
-    user_skills_set = set(skill.lower() for skill in user_skills)
-    career_skills_set = set(skill.lower() for skill in career_skills)
-    
-    if not career_skills_set:
-        return 0.0
-    
-    matched_skills = user_skills_set.intersection(career_skills_set)
-    match_percentage = (len(matched_skills) / len(career_skills_set)) * 100
-    
-    return round(match_percentage, 2)
-
-
-def calculate_semantic_similarity(user_text: str, career_keywords: list[str]) -> float:
-    """
-    Calculate semantic similarity using TF-IDF and cosine similarity.
-    
-    Args:
-        user_text: The resume text.
-        career_keywords: List of career keywords.
-        
-    Returns:
-        Similarity score as a percentage.
-    """
-    try:
-        # Combine career keywords into a single text
-        career_text = " ".join(career_keywords)
-        
-        # Create TF-IDF vectors
-        vectorizer = TfidfVectorizer(stop_words='english')
-        vectors = vectorizer.fit_transform([user_text.lower(), career_text.lower()])
-        
-        # Calculate cosine similarity
-        similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
-        return round(similarity * 100, 2)
-    except Exception:
-        return 0.0
+def _build_career_reference() -> str:
+    """Build a compact text summary of CAREER_CLUSTERS for the LLM prompt."""
+    lines = []
+    for career, data in CAREER_CLUSTERS.items():
+        skills_str = ", ".join(data["skills"])
+        lines.append(f"- {career}: {skills_str}")
+    return "\n".join(lines)
 
 
 def extract_skills_node(state: SkillGapState) -> SkillGapState:
     """
-    Node: Extract skills from resume text.
-    
-    Args:
-        state: The skill gap state.
-        
-    Returns:
-        Updated state with extracted skills.
+    Node: Extract skills from the skills section + project stack.
+    Falls back to full resume text when sections aren't available.
     """
     try:
-        user_skills = extract_skills_from_resume(state["resume_text"])
+        user_skills = extract_skills_from_resume(
+            skills_text=state.get("skills_text"),
+            projects_text=state.get("projects_text"),
+            resume_text=state.get("resume_text"),
+        )
         logger.info(f"Extracted {len(user_skills)} skills from resume")
-        
-        if not user_skills:
-            logger.warning("No recognizable skills found in resume")
-            # Still continue with empty skills for semantic analysis
-            return {
-                **state,
-                "user_skills": [],
-                "total_skills_found": 0
-            }
-        
+
         return {
             **state,
             "user_skills": user_skills,
-            "total_skills_found": len(user_skills)
+            "total_skills_found": len(user_skills),
         }
     except Exception as e:
         logger.error(f"Error extracting skills: {str(e)}")
@@ -369,79 +392,148 @@ def extract_skills_node(state: SkillGapState) -> SkillGapState:
             **state,
             "error": f"Error extracting skills: {str(e)}",
             "user_skills": [],
-            "total_skills_found": 0
+            "total_skills_found": 0,
         }
 
 
 def calculate_career_probabilities_node(state: SkillGapState) -> SkillGapState:
     """
-    Node: Calculate career probability scores based on skills and semantic matching.
-    
-    Args:
-        state: The skill gap state.
-        
-    Returns:
-        Updated state with career matches.
+    Node: Use the LLM to score how well the user's skills match each career.
+    Falls back to simple set-intersection scoring if the LLM call fails.
     """
     try:
         user_skills = state.get("user_skills", [])
         resume_text = state["resume_text"]
+
+        logger.info(
+            f"Calculating career probabilities via LLM for {len(user_skills)} skills"
+        )
+
+        career_ref = _build_career_reference()
+
+        prompt = f"""You are an expert career analyst.
+
+The user has these skills (extracted from their resume):
+{json.dumps(user_skills)}
+
+Here are the career paths and the skills typically required for each:
+{career_ref}
+
+For EACH career path listed above, evaluate how well the user's skills fit.
+Consider:
+- Direct skill matches (user has the exact skill)
+- Transferable / related skills (e.g. "FastAPI" implies "REST API" knowledge)
+- Overall profile coherence with the career
+
+Return ONLY valid JSON — an array of objects, one per career, with these fields:
+{{
+  "career": "<career name>",
+  "probability": <0-100 float, overall match percentage>,
+  "matched_skills": [<skills the user already has that are relevant>],
+  "missing_skills": [<top 10 most important skills the user is missing>]
+}}
+
+Sort by probability descending.  No extra text, just the JSON array."""
+
+        completion = client.chat.completions.create(
+            model=GROQ_SKILLGAP_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a career-matching engine. Respond ONLY with a "
+                        "JSON array. No markdown, no commentary."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+        )
+
+        raw = (completion.choices[0].message.content or "").strip()
+        if not raw:
+            raise ValueError("LLM returned empty response")
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+
+        llm_matches = json.loads(raw)
+
+        if not isinstance(llm_matches, list) or len(llm_matches) == 0:
+            raise ValueError("LLM returned empty or non-list response")
+
         career_matches: list[CareerMatch] = []
-        
-        logger.info(f"Calculating career probabilities for {len(user_skills)} skills")
-        
-        for career_name, cluster_data in CAREER_CLUSTERS.items():
-            # Calculate skill-based match
-            skill_match = calculate_skill_match_percentage(user_skills, cluster_data["skills"])
-            
-            # Calculate semantic similarity
-            semantic_match = calculate_semantic_similarity(resume_text, cluster_data["keywords"])
-            
-            # Combined probability (weighted average: 70% skills, 30% semantic)
-            combined_probability = (skill_match * 0.7) + (semantic_match * 0.3)
-            
-            # Find matched and missing skills
-            user_skills_lower = set(skill.lower() for skill in user_skills)
-            
-            matched_skills = [
-                skill for skill in cluster_data["skills"] 
-                if skill.lower() in user_skills_lower
-            ]
-            
-            missing_skills = [
-                skill for skill in cluster_data["skills"] 
-                if skill.lower() not in user_skills_lower
-            ][:10]  # Limit to top 10 missing skills
-            
+        for m in llm_matches:
+            matched = m.get("matched_skills", [])
+            missing = m.get("missing_skills", [])[:10]
+            career_name = m.get("career", "Unknown")
+            cluster = CAREER_CLUSTERS.get(career_name, {})
+            total_req = len(cluster.get("skills", [])) if cluster else (
+                len(matched) + len(missing)
+            )
+            prob = float(m.get("probability", 0))
+
             career_matches.append({
                 "career": career_name,
-                "probability": round(combined_probability, 2),
-                "skill_match_percentage": skill_match,
-                "semantic_match_percentage": semantic_match,
-                "matched_skills": matched_skills,
-                "missing_skills": missing_skills,
-                "total_required_skills": len(cluster_data["skills"]),
-                "matched_skills_count": len(matched_skills)
+                "probability": round(prob, 2),
+                "skill_match_percentage": round(
+                    (len(matched) / total_req * 100) if total_req else 0, 2
+                ),
+                "semantic_match_percentage": 0.0,  # not used in LLM path
+                "matched_skills": matched,
+                "missing_skills": missing,
+                "total_required_skills": total_req,
+                "matched_skills_count": len(matched),
             })
-        
-        # Sort by probability (descending)
+
         career_matches.sort(key=lambda x: x["probability"], reverse=True)
-        
-        logger.info(f"Top career: {career_matches[0]['career']} ({career_matches[0]['probability']}%)")
-        
+        logger.info(
+            f"LLM career match — top: {career_matches[0]['career']} "
+            f"({career_matches[0]['probability']}%)"
+        )
+
         return {
             **state,
             "career_matches": career_matches,
-            "top_3_careers": career_matches[:3]
+            "top_3_careers": career_matches[:3],
         }
+
     except Exception as e:
-        logger.error(f"Error calculating career probabilities: {str(e)}")
-        return {
-            **state,
-            "error": f"Error calculating career probabilities: {str(e)}",
-            "career_matches": [],
-            "top_3_careers": []
-        }
+        logger.warning(f"LLM career matching failed, falling back: {e}")
+        return _fallback_career_probabilities(state)
+
+
+def _fallback_career_probabilities(state: SkillGapState) -> SkillGapState:
+    """Fallback: simple set-intersection scoring when the LLM call fails."""
+    user_skills = state.get("user_skills", [])
+    user_lower = {s.lower() for s in user_skills}
+    career_matches: list[CareerMatch] = []
+
+    for career_name, cluster_data in CAREER_CLUSTERS.items():
+        career_skills = cluster_data["skills"]
+        career_lower = {s.lower() for s in career_skills}
+
+        matched = [s for s in career_skills if s.lower() in user_lower]
+        missing = [s for s in career_skills if s.lower() not in user_lower][:10]
+        pct = (len(matched) / len(career_lower) * 100) if career_lower else 0
+
+        career_matches.append({
+            "career": career_name,
+            "probability": round(pct, 2),
+            "skill_match_percentage": round(pct, 2),
+            "semantic_match_percentage": 0.0,
+            "matched_skills": matched,
+            "missing_skills": missing,
+            "total_required_skills": len(career_skills),
+            "matched_skills_count": len(matched),
+        })
+
+    career_matches.sort(key=lambda x: x["probability"], reverse=True)
+    return {
+        **state,
+        "career_matches": career_matches,
+        "top_3_careers": career_matches[:3],
+    }
 
 
 def get_ai_recommendations_node(state: SkillGapState) -> SkillGapState:
@@ -489,7 +581,7 @@ Keep the response structured and practical."""
 
         logger.info("Generating AI recommendations")
         completion = client.chat.completions.create(
-            model=GROQ_DEFAULT_MODEL,
+            model=GROQ_SKILLGAP_MODEL,
             messages=[
                 {"role": "system", "content": "You are an expert career counselor and skill development advisor."},
                 {"role": "user", "content": prompt},

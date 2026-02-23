@@ -69,7 +69,9 @@ async def optimize_resume(
     # Run Skill Gap Analysis in parallel
     logger.info("Running skill gap analysis...")
     from app.agents.skill_gap import analyze_skill_gap
-    skill_gap_result = analyze_skill_gap(resume_text, filename=resume.filename)
+    skill_gap_result = analyze_skill_gap(
+        resume_text, filename=resume.filename, sections=sections
+    )
     
     logger.info(f"Skill gap analysis complete. Found {skill_gap_result.get('total_skills_found', 0)} skills")
 
@@ -230,10 +232,15 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
             )
         
         logger.info(f"Extracted {len(resume_text)} characters from resume")
+
+        # Parse structured sections so skill extractor uses skills + projects only
+        sections = parser.parse_sections(resume_text)
         
         # Analyze skill gaps using LangGraph workflow
         logger.info("Running skill gap analysis workflow")
-        analysis_result = analyze_skill_gap(resume_text, filename=resume.filename)
+        analysis_result = analyze_skill_gap(
+            resume_text, filename=resume.filename, sections=sections
+        )
         
         if "error" in analysis_result:
             logger.warning(f"Analysis error: {analysis_result['error']}")
@@ -299,7 +306,7 @@ async def get_study_materials_cache(
                 plans.append({
                     "target_career": row.get("target_career", ""),
                     "skill_gap_report": row.get("skill_gap_report", []),
-                    "study_plan": row.get("study_plan", []),
+                    "study_plan": [],
                     "cached_at": row.get("created_at"),
                 })
             return JSONResponse({
@@ -564,7 +571,6 @@ async def generate_study_materials_simple(
                     "user_id": user.id,
                     "target_career": result.get("target_career", target_career),
                     "skill_gap_report": result.get("skill_gap_report", []),
-                    "study_plan": result.get("study_plan", []),
                 }).execute()
                 logger.info(f"Study materials cached for user {user.id} / career {target_career}")
             except Exception as cache_err:
@@ -586,61 +592,4 @@ async def generate_study_materials_simple(
                 "error": str(e),
                 "message": "Failed to generate study materials",
             },
-        )
-
-
-@router.post("/generate-study-materials")
-async def generate_study_materials(
-    resume: UploadFile = File(...),
-    job_description: str = Form(...),
-    target_career: str = Form(None),
-    missing_skills: str = Form(None)
-):
-    """
-    Generate personalized study materials and learning resources based on skill gaps.
-    
-    Args:
-        resume: The uploaded resume file (PDF).
-        job_description: The target job description.
-        target_career: Optional target career path.
-        missing_skills: Optional JSON string of missing skills.
-        
-    Returns:
-        JSON response with study materials and learning resources.
-    """
-    try:
-        resume_bytes = await resume.read()
-        from app.services.study_materials_generator import generate_learning_resources
-        
-        import json
-        skills_list = json.loads(missing_skills) if missing_skills else []
-        
-        study_result = generate_learning_resources(
-            resume_bytes,
-            job_description,
-            filename=resume.filename,
-            target_career=target_career,
-            missing_skills=skills_list
-        )
-        
-        return JSONResponse({
-            "success": True,
-            "filename": resume.filename,
-            "target_career": target_career,
-            "learning_resources": study_result.get("learning_resources", []),
-            "study_plan": study_result.get("study_plan", ""),
-            "recommended_courses": study_result.get("recommended_courses", []),
-            "practice_projects": study_result.get("practice_projects", []),
-            "certifications": study_result.get("certifications", []),
-            "timeline": study_result.get("timeline", "")
-        })
-        
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": str(e),
-                "message": "Failed to generate study materials"
-            }
         )
