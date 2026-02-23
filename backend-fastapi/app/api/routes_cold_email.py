@@ -137,7 +137,7 @@ async def create_cold_email(
         
         # Get the most recent version
         latest_version = supabase.table("resume_versions")\
-            .select("resume_text, content, raw_file_path")\
+            .select("content, skill_gap, raw_file_path")\
             .in_("resume_id", resume_ids)\
             .order("updated_at", desc=True)\
             .limit(1)\
@@ -151,24 +151,46 @@ async def create_cold_email(
         
         version_data = latest_version.data[0]
         
-        # Get resume text from dedicated column (new structure)
-        resume_text = version_data.get("resume_text", "")
-        
         # Parse content for analysis data
         content = json.loads(version_data["content"]) if isinstance(version_data["content"], str) else version_data["content"]
-        
-        # Fallback to old structure if resume_text column is empty
-        if not resume_text and "resume_text" in content:
+
+        sections = content.get("sections", {}) if content else {}
+
+        resume_text = "\n\n".join([
+            section_text.strip()
+            for section_text in sections.values()
+            if isinstance(section_text, str) and section_text.strip()
+        ])
+
+        # Fallback to old structure if present
+        if not resume_text and content and "resume_text" in content:
             resume_text = content["resume_text"]
         
         # Extract data from stored resume
-        user_name = user.email.split("@")[0].replace(".", " ").title()  # Fallback name from email
-        sections = content.get("sections", {})
+        user_name = ""
+        try:
+            profile_result = (
+                supabase.table("user")
+                .select("name")
+                .eq("id", user.id)
+                .single()
+                .execute()
+            )
+            if profile_result.data:
+                user_name = (profile_result.data.get("name") or "").strip()
+        except Exception:
+            user_name = ""
+
+        if not user_name:
+            user_name = user.email.split("@")[0].replace(".", " ").title()
         projects_section = sections.get("projects", "")
         experience_section = sections.get("experience", "")
         
-        # Extract skills from career analysis
-        career_analysis = content.get("careerAnalysis", {})
+        # Extract skills from career analysis (prefer skill_gap column)
+        skill_gap = version_data.get("skill_gap")
+        if isinstance(skill_gap, str):
+            skill_gap = json.loads(skill_gap)
+        career_analysis = skill_gap or (content.get("careerAnalysis", {}) if content else {})
         user_skills = career_analysis.get("user_skills", [])
         
         if not user_skills:

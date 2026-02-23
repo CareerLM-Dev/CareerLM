@@ -173,7 +173,7 @@ async def get_resume_text(
     try:
         # Get the version from database
         result = supabase.table("resume_versions")\
-            .select("resume_text, content, raw_file_path, resumes!inner(user_id)")\
+            .select("content, raw_file_path, resumes!inner(user_id)")\
             .eq("version_id", version_id)\
             .execute()
         
@@ -186,15 +186,19 @@ async def get_resume_text(
         if item["resumes"]["user_id"] != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Get resume text from dedicated column (new structure)
-        resume_text = item.get("resume_text", "")
-        
         # Parse content for sections
         content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
-        sections = content.get("sections", {})
-        
-        # Fallback to old structure if resume_text column is empty
-        if not resume_text and "resume_text" in content:
+        sections = content.get("sections", {}) if content else {}
+
+        # Build a text-only view from stored sections
+        resume_text = "\n\n".join([
+            section_text.strip()
+            for section_text in sections.values()
+            if isinstance(section_text, str) and section_text.strip()
+        ])
+
+        # Fallback to old structure if present
+        if not resume_text and content and "resume_text" in content:
             resume_text = content["resume_text"]
         
         return {

@@ -83,7 +83,7 @@ async def get_user_resume_data(user_id: str):
         
         # Get latest version of this resume
         version_result = supabase.table("resume_versions")\
-            .select("content, resume_text, raw_file_path")\
+            .select("content, raw_file_path")\
             .eq("resume_id", resume_record["resume_id"])\
             .order("version_number", desc=True)\
             .limit(1)\
@@ -101,8 +101,12 @@ async def get_user_resume_data(user_id: str):
             content = json.loads(content)
         
         # Extract resume text and sections
-        resume_text = version_data.get("resume_text", "")
         sections = content.get("sections", {}) if content else {}
+        resume_text = "\n\n".join([
+            section_text.strip()
+            for section_text in sections.values()
+            if isinstance(section_text, str) and section_text.strip()
+        ])
         filename = version_data.get("raw_file_path", "resume.pdf")
         
         logger.info(f"Retrieved resume data: {filename}, text length: {len(resume_text)}, sections: {list(sections.keys())}")

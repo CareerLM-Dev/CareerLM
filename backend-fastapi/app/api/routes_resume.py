@@ -140,28 +140,41 @@ async def optimize_resume(
         resume_id = resp.data[0]["resume_id"]
         new_version_number = 1
 
-    # Separate resume text from analysis data
-    analysis_data = {
-        "sections": result["sections"],
-        "filename": result["filename"],
+    # Store resume text section-wise, excluding contact info
+    stored_sections = {
+        key: value
+        for key, value in (result.get("sections") or {}).items()
+        if key not in ["contact", "other"]
+    }
+
+    content_data = {
+        "sections": stored_sections
+    }
+
+    resume_analysis_data = {
         "ats_score": result["ats_score"],
         "ats_analysis": result["ats_analysis"],
         "analysis": result["analysis"],
-        "careerAnalysis": result["careerAnalysis"],
         "agentic_metadata": result["agentic_metadata"],
         "summary": result["summary"]
     }
 
+    skill_gap_data = result["careerAnalysis"]
+
     stored_version = supabase.table("resume_versions").insert({
         "resume_id": resume_id,
         "version_number": new_version_number,
-        "resume_text": resume_text,  # Store plain resume text separately
         "job_description": job_description,
-        "content": json.dumps(analysis_data),  # Store only analysis data
+        "content": json.dumps(content_data),
+        "resume_analysis": json.dumps(resume_analysis_data),
+        "skill_gap": json.dumps(skill_gap_data),
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
     }).execute()
+
+    # print("resume_versions insert data=", getattr(stored_version, "data", None))
+    # print("resume_versions insert error=", getattr(stored_version, "error", None))
 
     return JSONResponse({
         "success": True,
@@ -362,17 +375,23 @@ async def get_suggested_roles(
             resume_id = resume_row.data[0]["resume_id"]
             version_row = (
                 supabase.table("resume_versions")
-                .select("content")
+                .select("content, skill_gap")
                 .eq("resume_id", resume_id)
                 .order("version_number", desc=True)
                 .limit(1)
                 .execute()
             )
             if version_row.data:
-                content = version_row.data[0].get("content")
-                if isinstance(content, str):
-                    content = json.loads(content)
-                career_analysis = content.get("careerAnalysis", {}) if content else {}
+                row = version_row.data[0]
+                skill_gap = row.get("skill_gap")
+                if isinstance(skill_gap, str):
+                    skill_gap = json.loads(skill_gap)
+                if not skill_gap:
+                    content = row.get("content")
+                    if isinstance(content, str):
+                        content = json.loads(content)
+                    skill_gap = content.get("careerAnalysis", {}) if content else {}
+                career_analysis = skill_gap or {}
                 career_matches = career_analysis.get("career_matches", [])
                 user_skills = career_analysis.get("user_skills", [])
 

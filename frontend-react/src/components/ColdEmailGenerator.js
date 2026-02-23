@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
-import { Mail, Copy, Sparkles, Building2, Briefcase, FileText, AlertCircle, CheckCircle } from "lucide-react";
+import { Mail, Copy, Sparkles, Building2, Briefcase, FileText, AlertCircle, CheckCircle, RefreshCw } from "lucide-react";
 
 function ColdEmailGenerator({ resumeData }) {
   const [formData, setFormData] = useState({
@@ -18,41 +18,43 @@ function ColdEmailGenerator({ resumeData }) {
   const [copied, setCopied] = useState(null);
   const [hasPrefilled, setHasPrefilled] = useState(false);
 
-  useEffect(() => {
-    const fetchPrefill = async () => {
-      if (hasPrefilled) return;
+  const fetchPrefill = async () => {
+    if (hasPrefilled) return;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      return;
+    }
 
-      try {
-        const response = await fetch(
-          "http://localhost:8000/api/v1/cold-email/prefill",
-          {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          return;
+    try {
+      const response = await fetch(
+        "http://localhost:8000/api/v1/cold-email/prefill",
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         }
+      );
 
-        const result = await response.json();
-        if (!result.success) return;
-
-        setFormData((prev) => ({
-          targetCompany: prev.targetCompany || result.target_company || "",
-          targetRole: prev.targetRole || result.target_role || "",
-          jobDescription: prev.jobDescription || result.job_description || "",
-        }));
-        setHasPrefilled(true);
-      } catch (err) {
-        console.error("Failed to prefill cold email data:", err);
+      if (!response.ok) {
+        return;
       }
-    };
 
+      const result = await response.json();
+      if (!result.success) return;
+
+      setFormData((prev) => ({
+        targetCompany: prev.targetCompany || result.target_company || "",
+        targetRole: prev.targetRole || result.target_role || "",
+        jobDescription: prev.jobDescription || result.job_description || "",
+      }));
+      setHasPrefilled(true);
+    } catch (err) {
+      console.error("Failed to prefill cold email data:", err);
+    }
+  };
+
+  useEffect(() => {
     fetchPrefill();
   }, [hasPrefilled]);
 
@@ -207,9 +209,30 @@ function ColdEmailGenerator({ resumeData }) {
       {generatedEmail && (
         <div className="bg-card border border-border rounded-lg overflow-hidden">
           <div className="bg-primary/10 p-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <Mail className="w-5 h-5 text-primary" />
-              <h3 className="font-semibold">Generated Email</h3>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-primary" />
+                <h3 className="font-semibold">Generated Email</h3>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <div className="animate-spin w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full mr-2" />
+                    Regenerating...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh Email
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 
