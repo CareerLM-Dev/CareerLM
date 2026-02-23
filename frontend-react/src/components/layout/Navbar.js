@@ -72,7 +72,7 @@ function Navbar() {
   }, []);
 
   return (
-    <nav className="sticky top-0 z-50 flex items-center justify-between px-10 py-5 bg-background/95 backdrop-blur-md border-b border-border/40 transition-all duration-300">
+    <nav className="flex-shrink-0 z-50 flex items-center justify-between px-10 py-5 bg-background/95 backdrop-blur-md border-b border-border/40 transition-all duration-300">
       <div className="flex items-center">
         <Link 
           to="/" 

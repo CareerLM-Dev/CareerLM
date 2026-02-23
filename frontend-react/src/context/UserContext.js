@@ -24,6 +24,37 @@ export const UserProvider = ({ children }) => {
     setUser(newSession?.user ?? null);
   }, []);
 
+  // Ensure a row exists in the `user` table for OAuth sign-ups
+  const ensureUserRow = useCallback(async (supabaseUser) => {
+    if (!supabaseUser) return;
+    try {
+      // Check if row already exists
+      const { data } = await supabase
+        .from("user")
+        .select("id")
+        .eq("id", supabaseUser.id)
+        .single();
+
+      if (!data) {
+        // First-time OAuth user — create a row
+        const meta = supabaseUser.user_metadata || {};
+        await supabase.from("user").insert([{
+          id: supabaseUser.id,
+          name: meta.full_name || meta.name || meta.preferred_username || supabaseUser.email?.split("@")[0] || "User",
+          email: supabaseUser.email,
+          password: null,
+          status: "student",
+          current_company: null,
+          questionnaire_answered: false,
+          questionnaire_answers: null,
+        }]);
+      }
+    } catch (err) {
+      // Row likely already exists (race condition) — ignore
+      console.error("ensureUserRow:", err);
+    }
+  }, []);
+
   useEffect(() => {
     // 1.  Register the listener FIRST so we never miss a
     //     SIGNED_IN / TOKEN_REFRESHED event that fires while
@@ -36,6 +67,11 @@ export const UserProvider = ({ children }) => {
         applySession(currentSession);
         setLoading(false);
         initialised.current = true;
+
+        // Auto-create user row for first-time OAuth sign-ups
+        if (event === "SIGNED_IN" && currentSession?.user?.app_metadata?.provider !== "email") {
+          ensureUserRow(currentSession.user);
+        }
       }, 0);
     });
 

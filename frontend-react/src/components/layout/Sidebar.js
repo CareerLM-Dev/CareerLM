@@ -56,13 +56,13 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
     <aside
       className={cn(
         "relative flex-shrink-0 flex h-full flex-col border-r border-border bg-card shadow-sm transition-all duration-300 ease-in-out",
-        collapsed ? "w-[68px]" : "w-72"
+        collapsed ? "w-[56px]" : "w-52"
       )}
     >
       {/* Toggle button */}
       <button
         onClick={onToggle}
-        className="absolute -right-3 top-4 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground transition-colors"
+        className="absolute -right-3 top-3 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground transition-colors"
       >
         {collapsed ? (
           <PanelLeftOpen className="h-3.5 w-3.5" />
@@ -71,8 +71,8 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
         )}
       </button>
 
-      <nav className={cn("flex-1 overflow-y-auto overflow-x-hidden", collapsed ? "p-2" : "p-4")}>
-        <ul className="flex flex-col gap-1">
+      <nav className={cn("flex-1 overflow-y-auto overflow-x-hidden", collapsed ? "p-1.5" : "p-2")}>
+        <ul className="flex flex-col gap-0.5">
           {menuItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id;
@@ -83,8 +83,8 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
                 onClick={() => setCurrentPage(item.id)}
                 title={collapsed ? item.label : undefined}
                 className={cn(
-                  "group flex cursor-pointer items-center rounded-xl font-medium transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5",
-                  collapsed ? "justify-center px-2 py-3" : "gap-3 px-6 py-4",
+                  "group flex cursor-pointer items-center rounded-lg font-medium transition-all duration-200",
+                  collapsed ? "justify-center px-1.5 py-2" : "gap-2.5 px-3 py-2.5",
                   isActive
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30"
                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-md",
@@ -92,15 +92,15 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
                 )}
               >
                 <span className={cn(
-                  "flex items-center justify-center rounded-lg transition-all duration-300 flex-shrink-0",
-                  collapsed ? "h-9 w-9" : "h-10 w-10",
+                  "flex items-center justify-center rounded-md transition-all duration-200 flex-shrink-0",
+                  collapsed ? "h-8 w-8" : "h-8 w-8",
                   isActive 
                     ? "bg-primary-foreground/20" 
                     : "bg-muted group-hover:bg-background"
                 )}>
                   <Icon 
                     className={cn(
-                      "h-5 w-5 transition-all duration-300",
+                      "h-4.5 w-4.5 transition-all duration-200",
                       isActive ? "text-primary-foreground" : "text-foreground"
                     )} 
                   />

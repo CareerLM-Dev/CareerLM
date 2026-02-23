@@ -485,7 +485,7 @@ function Dashboard() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] bg-background">
+    <div className="flex h-full bg-background">
       <Sidebar
         setCurrentPage={setCurrentPage}
         currentPage={currentPage}

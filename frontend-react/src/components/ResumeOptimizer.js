@@ -108,11 +108,11 @@ function ResumeOptimizer({ resumeData }) {
               </div>
               <div>
                 {resumeData.alignment_suggestions && resumeData.alignment_suggestions.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-3">
                     {resumeData.alignment_suggestions.map((suggestion, idx) => (
-                      <span
+                      <div
                         key={idx}
-                        className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20"
+                        className="px-4 py-3 bg-primary/5 text-sm text-foreground rounded-lg border border-primary/20 leading-relaxed break-words"
                         dangerouslySetInnerHTML={{ __html: formatText(suggestion) }}
                       />
                     ))}

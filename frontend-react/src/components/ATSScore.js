@@ -59,8 +59,8 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
 
   return (
     <div className="space-y-6">
-      {/* Circular progress + Score Breakdown side by side */}
-      <div className="grid md:grid-cols-2 gap-6">
+      {/* Circular progress + Score Breakdown + ATS Analysis in one row */}
+      <div className="grid md:grid-cols-3 gap-6">
         {/* Circular progress indicator */}
         <div className="flex flex-col items-center justify-center">
           <svg width="120" height="120" viewBox="0 0 120 120">
@@ -94,22 +94,22 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
             </div>
           )}
         </div>
-      </div>
 
-      {/* Justification */}
-      {justification && justification.length > 0 && (
-        <div className="bg-muted/50 rounded-lg p-4">
-          <h4 className="text-base font-semibold mb-3">ATS Analysis</h4>
-          <ul className="space-y-2">
-            {justification.map((item, index) => (
-              <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <span className="text-primary mt-0.5">•</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        {/* Justification */}
+        {justification && justification.length > 0 && (
+          <div className="bg-muted/50 rounded-lg p-4">
+            <h4 className="text-base font-semibold mb-3">ATS Analysis</h4>
+            <ul className="space-y-2">
+              {justification.map((item, index) => (
+                <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <span className="text-primary mt-0.5">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* AI Analysis */}
       <div className="bg-muted/50 rounded-lg p-4">
