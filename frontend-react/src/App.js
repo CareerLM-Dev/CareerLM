@@ -3,6 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { UserProvider } from "./context/UserContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import Navbar from "./components/layout/Navbar";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Home from "./pages/Home";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
@@ -24,14 +25,17 @@ function App() {
         {/* Page content fills remaining space */}
         <div className="flex-1 overflow-hidden">
           <Routes>
+            {/* Public routes */}
             <Route path="/" element={<Home />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
-            <Route path="/onboarding/:userId" element={<Onboarding />} />
-            <Route path="/upload-resume" element={<ResumeUploadPage />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/profile" element={<Profile />} />
+
+            {/* Protected routes — redirect to /auth if not authenticated */}
+            <Route path="/onboarding/:userId" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+            <Route path="/upload-resume" element={<ProtectedRoute><ResumeUploadPage /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           </Routes>
         </div>
       </div>

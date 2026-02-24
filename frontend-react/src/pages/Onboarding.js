@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useUser } from "../context/UserContext";
+import { supabase } from "../api/supabaseClient";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -9,22 +11,35 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { AlertCircle, ArrowLeft, ArrowRight, Check, SkipForward } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Briefcase, Check, GraduationCap, SkipForward } from "lucide-react";
 
 
 function Onboarding() {
   const navigate = useNavigate();
   const { userId } = useParams();
+  const { session } = useUser();
+  // phase: "loading" | "status" | "questionnaire" | "professional"
+  // "status"       — Student vs Professional choice (OAuth users only)
+  // "questionnaire" — 4-step questionnaire (students)
+  // "professional" — company name entry (professionals via OAuth)
+  const [phase, setPhase] = useState("loading");
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [currentCompany, setCurrentCompany] = useState("");
 
-  // Optional: Check if user has already completed questionnaire
+  // Determine starting phase.
+  // OAuth users (Google/GitHub) haven't chosen Student/Professional yet → show "status" step.
+  // Email-signup users already chose during registration → jump straight to "questionnaire".
   useEffect(() => {
-    // This could be implemented if needed
-    // For now, we'll just load the questionnaire
-  }, [userId, navigate]);
+    if (!session) return;
+    const provider = session.user.app_metadata?.provider;
+    const isOAuth = provider && provider !== "email";
+    setPhase(isOAuth ? "status" : "questionnaire");
+  }, [session]);
 
   // Question responses - now arrays for multiple selections
   const [answers, setAnswers] = useState({
@@ -121,6 +136,36 @@ function Onboarding() {
     });
   };
 
+  // ── Status selection (OAuth users only) ──────────────────────────────────
+  const handleStatusSelect = (choice) => {
+    setError(null);
+    setPhase(choice === "student" ? "questionnaire" : "professional");
+  };
+
+  // ── Professional path: save company + mark onboarding done ───────────────
+  const handleProfessionalComplete = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { error: dbError } = await supabase
+        .from("user")
+        .update({
+          status: "professional",
+          current_company: currentCompany.trim() || null,
+          questionnaire_answered: true,
+        })
+        .eq("id", userId);
+
+      if (dbError) throw dbError;
+      navigate("/dashboard");
+    } catch (err) {
+      console.error("Professional setup error:", err);
+      setError("Failed to save your profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSkip = async () => {
     setLoading(true);
     setError(null);
@@ -132,6 +177,7 @@ function Onboarding() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
           },
         },
       );
@@ -140,8 +186,8 @@ function Onboarding() {
         throw new Error("Failed to skip questionnaire");
       }
 
-      // Redirect to resume upload
-      navigate("/upload-resume");
+      // Skip goes directly to dashboard (user opted out of the whole questionnaire)
+      navigate("/dashboard");
     } catch (err) {
       console.error("Skip error:", err);
       setError("Failed to skip. Please try again.");
@@ -178,6 +224,7 @@ function Onboarding() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
           },
           body: JSON.stringify({
             target_role: answers.target_role,
@@ -192,7 +239,8 @@ function Onboarding() {
         throw new Error("Failed to save questionnaire");
       }
 
-      // Redirect to resume upload
+      // Signal ResumeUploadPage that we're arriving from the onboarding flow
+      sessionStorage.setItem("fromOnboarding", "true");
       navigate("/upload-resume");
     } catch (err) {
       console.error("Save error:", err);
@@ -202,6 +250,132 @@ function Onboarding() {
     }
   };
 
+  // ── Phase renders ─────────────────────────────────────────────────────────
+
+  // Spinner while session loads and we determine OAuth vs email
+  if (phase === "loading") {
+    return (
+      <div className="h-full flex items-center justify-center bg-primary">
+        <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Student vs Professional — shown only to new OAuth users
+  if (phase === "status") {
+    return (
+      <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
+        <div className="w-full max-w-2xl">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
+            <CardHeader className="text-center space-y-3">
+              <CardTitle className="text-3xl font-bold text-primary">
+                Welcome to CareerLM!
+              </CardTitle>
+              <CardDescription className="text-base text-muted-foreground">
+                Tell us a bit about yourself to personalise your experience
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pb-8">
+              <p className="text-center text-sm font-medium text-muted-foreground">I am a&hellip;</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={() => handleStatusSelect("student")}
+                  className="flex flex-col items-center gap-3 rounded-xl border-2 border-border bg-background p-8 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <GraduationCap className="h-10 w-10 text-primary" />
+                  <div>
+                    <p className="font-semibold text-foreground text-lg">Student</p>
+                    <p className="text-sm text-muted-foreground mt-1">Learning &amp; breaking into tech</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleStatusSelect("professional")}
+                  className="flex flex-col items-center gap-3 rounded-xl border-2 border-border bg-background p-8 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <Briefcase className="h-10 w-10 text-primary" />
+                  <div>
+                    <p className="font-semibold text-foreground text-lg">Professional</p>
+                    <p className="text-sm text-muted-foreground mt-1">Already working in the industry</p>
+                  </div>
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Professional path: company name entry
+  if (phase === "professional") {
+    return (
+      <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
+        <div className="w-full max-w-2xl">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
+            <CardHeader className="text-center space-y-3">
+              <CardTitle className="text-3xl font-bold text-primary">
+                Your Company
+              </CardTitle>
+              <CardDescription className="text-base text-muted-foreground">
+                Where are you currently working? (optional)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label htmlFor="company" className="text-sm font-medium">
+                  Current Company
+                </Label>
+                <Input
+                  id="company"
+                  type="text"
+                  placeholder="e.g. Google, Microsoft, a startup…"
+                  value={currentCompany}
+                  onChange={(e) => setCurrentCompany(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleProfessionalComplete(); }}
+                />
+              </div>
+              {error && (
+                <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-2 duration-300">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3 border-t border-border pt-6">
+              <Button
+                onClick={handleProfessionalComplete}
+                disabled={loading}
+                className="w-full gap-2 shadow-md shadow-primary/30"
+              >
+                {loading ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Continue to Dashboard
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={handleProfessionalComplete}
+                disabled={loading}
+                className="w-full text-muted-foreground hover:text-foreground gap-2"
+              >
+                <SkipForward className="h-4 w-4" />
+                Skip for Now
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Questionnaire (student path — email students and OAuth students both land here)
   return (
     <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
       <div className="w-full max-w-2xl">

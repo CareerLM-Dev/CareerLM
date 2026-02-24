@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
+import { supabase } from "../api/supabaseClient";
 import Sidebar from "../components/layout/Sidebar";
 import ResumeUpload from "../components/ResumeUpload";
 import ResumeOptimizer from "../components/ResumeOptimizer";
@@ -21,6 +22,8 @@ function Dashboard() {
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [backendDown, setBackendDown] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
 
   // Fetch most recent resume data from Supabase
   const fetchLatestResumeData = useCallback(async () => {
@@ -161,6 +164,34 @@ function Dashboard() {
     fetchScoreHistory();
   }, [session]);
 
+  // Fetch questionnaire answers so Target Position reflects the user's actual choices
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from("user")
+      .select("questionnaire_answers")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => setUserProfile(data));
+  }, [session]);
+
+  // Format snake_case role keys into readable labels (e.g. "data_scientist" → "Data Scientist")
+  const formatRole = (role) =>
+    role
+      ? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+      : null;
+
+  // Backend health check — run once on mount; show banner if server is unreachable
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+    fetch("http://localhost:8000/", { signal: controller.signal })
+      .then((res) => { if (!res.ok) setBackendDown(true); })
+      .catch(() => setBackendDown(true))
+      .finally(() => clearTimeout(timeoutId));
+  }, []);
+
   // Handle resume data update (now data is automatically stored in Supabase by backend)
   const handleResumeDataUpdate = async (data) => {
     // Update local state for immediate UI feedback
@@ -266,7 +297,8 @@ function Dashboard() {
                         <p className="font-semibold text-base">
                           {resumeData?.careerAnalysis?.analysis_summary?.best_match ||
                             resumeData?.careerAnalysis?.top_3_careers?.[0]?.career ||
-                            "Software Engineer"}
+                            formatRole(userProfile?.questionnaire_answers?.target_role?.[0]) ||
+                            "Not set"}
                         </p>
                       </div>
                       <button
@@ -444,7 +476,8 @@ function Dashboard() {
                           Best Match: <span className="font-semibold text-foreground">
                             {resumeData?.careerAnalysis?.analysis_summary?.best_match ||
                               resumeData?.careerAnalysis?.top_3_careers?.[0]?.career ||
-                              "Software Engineer"}
+                              formatRole(userProfile?.questionnaire_answers?.target_role?.[0]) ||
+                              "Not set"}
                           </span>
                         </p>
                       </div>
@@ -550,6 +583,16 @@ function Dashboard() {
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />
       <main className="flex-1 overflow-auto no-scrollbar transition-all duration-300">
+        {backendDown && (
+          <div className="flex items-center gap-3 bg-destructive/10 border-b border-destructive/30 text-destructive px-4 py-3 text-sm">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <span>
+              <strong>Backend unavailable</strong> — The CareerLM server is not reachable. Cached data is shown below, but AI features won't work until the server is back online.
+            </span>
+          </div>
+        )}
         <div className="max-w-7xl mx-auto p-4">{renderPage()}</div>
       </main>
     </div>

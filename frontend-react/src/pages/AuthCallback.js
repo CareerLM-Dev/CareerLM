@@ -6,8 +6,17 @@ import { supabase } from "../api/supabaseClient";
  * OAuth callback page.
  * Supabase appends tokens as URL hash fragments after the OAuth redirect.
  * `detectSessionInUrl: true` (already configured) picks them up automatically.
- * This component simply waits for the session to be established, ensures a
- * `user` row exists, then redirects to the dashboard.
+ *
+ * This component is the SINGLE OWNER of OAuth user-row creation.
+ * It runs the upsert BEFORE reading questionnaire_answered, making the
+ * entire flow sequential and eliminating the race condition that existed
+ * when UserContext owned the insert via a deferred setTimeout.
+ *
+ * Flow:
+ *   1. Get session from Supabase (tokens already parsed from URL hash)
+ *   2. Upsert public.user row — insert-if-not-exists, no-op if already there
+ *   3. Read questionnaire_answered from the now-guaranteed row
+ *   4. Route → /onboarding (new / incomplete) or /dashboard (returning)
  */
 function AuthCallback() {
   const navigate = useNavigate();
@@ -15,29 +24,63 @@ function AuthCallback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        // Supabase client detects the tokens in the URL hash automatically.
-        // getSession() returns the newly created session.
         const { data: { session }, error } = await supabase.auth.getSession();
 
         if (error) throw error;
 
-        if (session) {
-          // Check if user has completed questionnaire (i.e. is a returning user)
-          const { data: userRow } = await supabase
-            .from("user")
-            .select("questionnaire_answered")
-            .eq("id", session.user.id)
-            .single();
-
-          if (userRow && !userRow.questionnaire_answered) {
-            // First-time user — send to onboarding
-            navigate(`/onboarding/${session.user.id}`, { replace: true });
-          } else {
-            navigate("/dashboard", { replace: true });
-          }
-        } else {
-          // No session — something went wrong, go back to auth
+        if (!session) {
+          // No session — tokens missing or expired, send back to auth
           navigate("/auth", { replace: true });
+          return;
+        }
+
+        // ── Step 1: Ensure public.user row exists ──────────────────────────
+        // ignoreDuplicates: true  →  inserts only when no row with this id
+        // exists yet. Returning users' rows are left completely untouched.
+        const meta = session.user.user_metadata || {};
+        const { error: upsertError } = await supabase.from("user").upsert(
+          [
+            {
+              id: session.user.id,
+              name:
+                meta.full_name ||
+                meta.name ||
+                meta.preferred_username ||
+                session.user.email?.split("@")[0] ||
+                "User",
+              email: session.user.email,
+              password: null,          // OAuth users have no password (column is nullable)
+              status: "student",
+              current_company: null,
+              questionnaire_answered: false,
+              questionnaire_answers: null,
+            },
+          ],
+          { onConflict: "id", ignoreDuplicates: true }
+        );
+
+        if (upsertError) {
+          // Log but don't abort — row likely already exists
+          console.error("AuthCallback upsert error:", upsertError);
+        }
+
+        // ── Step 2: Read questionnaire status ──────────────────────────────
+        // The upsert above has already completed (awaited), so this read is
+        // guaranteed to see the row — no race condition possible.
+        const { data: userRow } = await supabase
+          .from("user")
+          .select("questionnaire_answered")
+          .eq("id", session.user.id)
+          .single();
+
+        // ── Step 3: Route ──────────────────────────────────────────────────
+        // !userRow                    → upsert failed for an unexpected reason
+        // questionnaire_answered false/null → new or incomplete user
+        // questionnaire_answered true       → returning user, go to dashboard
+        if (!userRow || !userRow.questionnaire_answered) {
+          navigate(`/onboarding/${session.user.id}`, { replace: true });
+        } else {
+          navigate("/dashboard", { replace: true });
         }
       } catch (err) {
         console.error("OAuth callback error:", err);

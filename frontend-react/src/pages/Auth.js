@@ -56,7 +56,21 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
         console.log("Login successful:", data);
         onLoginSuccess && onLoginSuccess(data);
-        navigate("/dashboard");
+
+        // Check whether this user has completed onboarding.
+        // Matches the same logic used in AuthCallback for OAuth logins.
+        const { data: userRow } = await supabase
+          .from("user")
+          .select("questionnaire_answered")
+          .eq("id", data.user.id)
+          .single();
+
+        if (!userRow || !userRow.questionnaire_answered) {
+          // New user or one who never finished the questionnaire
+          navigate(`/onboarding/${data.user.id}`);
+        } else {
+          navigate("/dashboard");
+        }
       } else {
         // REGISTER
         const hashedPassword = await bcrypt.hash(password, 10);
