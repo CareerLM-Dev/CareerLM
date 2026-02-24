@@ -110,7 +110,9 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             password: hashedPassword,
             status,
             current_company: status === "professional" ? currentCompany : null,
-            questionnaire_answered: false,
+            // Professionals skip the questionnaire entirely — mark as done so
+            // the login check never re-routes them to /onboarding.
+            questionnaire_answered: status === "professional",
             questionnaire_answers: null,
           },
         ]);

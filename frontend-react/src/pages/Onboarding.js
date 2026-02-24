@@ -31,14 +31,29 @@ function Onboarding() {
   const [error, setError] = useState(null);
   const [currentCompany, setCurrentCompany] = useState("");
 
-  // Determine starting phase.
-  // OAuth users (Google/GitHub) haven't chosen Student/Professional yet → show "status" step.
-  // Email-signup users already chose during registration → jump straight to "questionnaire".
+  // Determine starting phase:
+  // OAuth new users → "status" choice (Student / Professional)
+  // Email students  → "questionnaire" (4-step)
+  // Email professionals → "professional" (company entry — edge case fallback;
+  //   normally professionals have questionnaire_answered:true and never reach here)
   useEffect(() => {
     if (!session) return;
     const provider = session.user.app_metadata?.provider;
     const isOAuth = provider && provider !== "email";
-    setPhase(isOAuth ? "status" : "questionnaire");
+
+    if (isOAuth) {
+      setPhase("status");
+    } else {
+      // Email user — look up their status in the DB to decide the phase.
+      supabase
+        .from("user")
+        .select("status")
+        .eq("id", session.user.id)
+        .single()
+        .then(({ data }) => {
+          setPhase(data?.status === "professional" ? "professional" : "questionnaire");
+        });
+    }
   }, [session]);
 
   // Question responses - now arrays for multiple selections
