@@ -64,29 +64,6 @@ function ResumeUpload({ onResult }) {
       );
       const skillGapData = await skillGapResponse.json();
 
-      // Step 3: Generate Study Materials
-      const studyFormData = new FormData();
-      studyFormData.append("resume", resumeFile);
-      studyFormData.append("job_description", jobDescription);
-      if (skillGapData.top_3_careers && skillGapData.top_3_careers.length > 0) {
-        studyFormData.append(
-          "target_career",
-          skillGapData.top_3_careers[0].career,
-        );
-        studyFormData.append(
-          "missing_skills",
-          JSON.stringify(
-            skillGapData.top_3_careers[0].missing_skills.slice(0, 5),
-          ),
-        );
-      }
-
-      const studyResponse = await fetch(
-        "http://localhost:8000/api/v1/resume/generate-study-materials",
-        { method: "POST", body: studyFormData },
-      );
-      const studyData = await studyResponse.json();
-
       // Extract analysis for ResultBox
       const optimization = optimizeData.optimization || {};
       const analysis = optimization.analysis || {};
@@ -101,9 +78,6 @@ function ResumeUpload({ onResult }) {
 
         // Career & Skill Gap Analysis
         careerAnalysis: skillGapData.success ? skillGapData : null,
-
-        // Study Materials
-        studyMaterials: studyData.success ? studyData : null,
 
         // Original data
         filename: resumeFile.name,

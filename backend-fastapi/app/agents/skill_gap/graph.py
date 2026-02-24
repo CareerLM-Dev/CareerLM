@@ -41,14 +41,22 @@ def build_skill_gap_graph() -> StateGraph:
 skill_gap_workflow = build_skill_gap_graph().compile()
 
 
-def analyze_skill_gap(resume_text: str, filename: str = None) -> dict:
+def analyze_skill_gap(
+    resume_text: str,
+    filename: str | None = None,
+    sections: dict | None = None,
+) -> dict:
     """
     Main function to analyze skill gaps and recommend careers based on clustering.
-    
+
     Args:
         resume_text: The extracted resume text (already parsed).
         filename: Optional filename for logging purposes.
-        
+        sections: Optional dict with parsed resume sections
+                  (keys: 'skills', 'projects', etc.).  When provided the
+                  skill-extractor focuses on skills + project tech-stacks
+                  instead of the full resume text.
+
     Returns:
         Dictionary containing skill analysis, career matches, and recommendations.
     """
@@ -56,8 +64,13 @@ def analyze_skill_gap(resume_text: str, filename: str = None) -> dict:
         # Prepare initial state
         initial_state: SkillGapState = {
             "resume_text": resume_text,
-            "filename": filename
+            "filename": filename,
         }
+
+        # Feed structured sections when available
+        if sections:
+            initial_state["skills_text"] = sections.get("skills") or None
+            initial_state["projects_text"] = sections.get("projects") or None
         
         # Run the workflow
         result = skill_gap_workflow.invoke(initial_state)

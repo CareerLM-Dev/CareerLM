@@ -130,6 +130,9 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
                 "• If the user prefers HANDS-ON, include interactive labs, coding challenges, or project-based resources.\n"
                 "• Match est_time values to the user's weekly time commitment (e.g. shorter for 5 hrs/week).\n"
                 "• Adjust difficulty to match the user's goal (beginner-friendly for first-job seekers, advanced for upskill).\n"
+                "• When the user has expressed interest in specific target roles, prioritise resources "
+                "that are most relevant and commonly required for those roles. Frame each skill "
+                "in the context of the interested role(s) so the user understands *why* it matters.\n"
             )
 
     prompt = f"""
@@ -139,6 +142,22 @@ Context: The user wants to become a **{target_career}** and is missing the follo
 {personalisation_block}
 Task: Convert the skill gaps into a structured learning roadmap with EXACT, DIRECT resource URLs.
 
+RESOURCE DIVERSITY RULES (MUST follow):
+- For each skill, include a **roadmap_url** linking to the matching roadmap.sh page (e.g. https://roadmap.sh/python, https://roadmap.sh/docker, https://roadmap.sh/devops).
+  If no exact roadmap.sh page exists for the skill, use the closest parent roadmap (e.g. https://roadmap.sh/backend for FastAPI).
+- Resources MUST come from a MIX of platforms. Each skill gets exactly 3 resources; each resource MUST be from a DIFFERENT platform.
+  Choose the best resource for each step from any of these (DO NOT favour any single platform):
+    * YouTube channels: freeCodeCamp, Fireship, Traversy Media, Tech With Tim, The Net Ninja, etc.
+    * Course platforms: Udemy, Coursera, edX, Pluralsight, LinkedIn Learning, Boot.dev, Khan Academy
+    * Aggregators: Class Central (link to the specific course page it indexes, not a search page)
+    * Interactive/hands-on: freeCodeCamp, Codecademy, Exercism, HackerRank, LeetCode, Kaggle, Scrimba
+    * Documentation: Official docs, MDN, DevDocs, W3Schools
+    * Open courseware: MIT OCW, Stanford Online
+    * Books/reading: O'Reilly, dev.to, real-world blog posts
+- NEVER put 2+ resources from the same platform within a single skill.
+- Across the ENTIRE study plan, vary platforms — do NOT always pick the same platform for step 3.
+- Pick the highest-rated, most recommended resource regardless of platform.
+
 CRITICAL URL RULES:
 - Every URL MUST be a direct link to the actual resource page, NOT a Google search link or search results page.
 - Documentation URLs must point to the official docs site (e.g. https://docs.python.org, https://react.dev, https://kubernetes.io/docs).
@@ -147,9 +166,10 @@ CRITICAL URL RULES:
 - NEVER output google.com/search links, youtube.com/results links, or any search-results URL.
 
 Execution Steps:
-1. Search Grounding – Use live Google Search to discover the exact page URL for each resource.
-2. Verification – Confirm every URL is a direct page link, not a search or results page.
-3. Actionable Output – For each skill, provide exactly three resources forming a "Start to Finish" learning path.
+1. Search Grounding -- Use live Google Search to discover the exact page URL for each resource.
+2. Verification -- Confirm every URL is a direct page link, not a search or results page.
+3. Actionable Output -- For each skill, provide the roadmap.sh link + exactly three resources forming a "Start to Finish" learning path.
+4. Platform Alternatives -- For EACH resource step, also provide 2-3 **alt_platforms**: alternative places the user can find an equivalent resource. Each entry needs a platform name + direct URL.
 
 Constraint: Output strictly JSON. No conversational preamble.
 
@@ -158,10 +178,26 @@ JSON Schema:
   "study_plan": [
     {{
       "skill": "Skill Name",
+      "roadmap_url": "https://roadmap.sh/relevant-roadmap",
       "roadmap": [
-        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Exact Doc Page Title", "url": "https://exact-docs-site.com/path", "est_time": "Duration"}},
-        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Exact Video/Playlist Title", "url": "https://www.youtube.com/watch?v=XXXXX", "est_time": "Duration"}},
-        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Exact Course Title", "platform": "Platform Name", "url": "https://platform.com/learn/exact-course", "est_time": "Duration"}}
+        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Exact Doc Page Title", "url": "https://exact-docs-site.com/path", "est_time": "Duration",
+          "alt_platforms": [
+            {{"name": "DevDocs", "url": "https://devdocs.io/..."}},
+            {{"name": "W3Schools", "url": "https://www.w3schools.com/..."}}
+          ]
+        }},
+        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Exact Video/Playlist Title", "url": "https://www.youtube.com/watch?v=XXXXX", "est_time": "Duration",
+          "alt_platforms": [
+            {{"name": "Udemy", "url": "https://www.udemy.com/course/..."}},
+            {{"name": "Coursera", "url": "https://www.coursera.org/learn/..."}}
+          ]
+        }},
+        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Exact Course Title", "platform": "Platform Name", "url": "https://platform.com/learn/exact-course", "est_time": "Duration",
+          "alt_platforms": [
+            {{"name": "edX", "url": "https://www.edx.org/learn/..."}},
+            {{"name": "Class Central", "url": "https://www.classcentral.com/course/..."}}
+          ]
+        }}
       ]
     }}
   ]
@@ -198,9 +234,11 @@ JSON Schema:
                     "platform": step.get("platform", ""),
                     "est_time": step.get("est_time", ""),
                     "cost": "Free",
+                    "alt_platforms": step.get("alt_platforms", []),
                 })
             skill_gap_report.append({
                 "skill": item.get("skill", "Unknown"),
+                "roadmap_url": item.get("roadmap_url", ""),
                 "learning_path": learning_path,
             })
 
@@ -218,6 +256,55 @@ JSON Schema:
             "skill_gap_report": [],
             "error": f"Gemini search failed: {exc}",
         }
+
+
+# Well-known roadmap.sh mappings for common skills / careers
+KNOWN_ROADMAPS = {
+    "python": "https://roadmap.sh/python",
+    "javascript": "https://roadmap.sh/javascript",
+    "typescript": "https://roadmap.sh/typescript",
+    "react": "https://roadmap.sh/react",
+    "angular": "https://roadmap.sh/angular",
+    "vue.js": "https://roadmap.sh/vue",
+    "node.js": "https://roadmap.sh/nodejs",
+    "java": "https://roadmap.sh/java",
+    "c++": "https://roadmap.sh/cpp",
+    "rust": "https://roadmap.sh/rust",
+    "go": "https://roadmap.sh/golang",
+    "docker": "https://roadmap.sh/docker",
+    "kubernetes": "https://roadmap.sh/kubernetes",
+    "aws": "https://roadmap.sh/aws",
+    "sql": "https://roadmap.sh/sql",
+    "postgresql": "https://roadmap.sh/postgresql-dba",
+    "mongodb": "https://roadmap.sh/mongodb",
+    "git": "https://roadmap.sh/git-github",
+    "graphql": "https://roadmap.sh/graphql",
+    "linux": "https://roadmap.sh/linux",
+    "devops": "https://roadmap.sh/devops",
+    "django": "https://roadmap.sh/python",
+    "flask": "https://roadmap.sh/python",
+    "fastapi": "https://roadmap.sh/python",
+    "spring": "https://roadmap.sh/spring-boot",
+    "machine learning": "https://roadmap.sh/mlops",
+    "deep learning": "https://roadmap.sh/ai-data-scientist",
+    "data science": "https://roadmap.sh/ai-data-scientist",
+    "cybersecurity": "https://roadmap.sh/cyber-security",
+    "system design": "https://roadmap.sh/system-design",
+    "ci/cd": "https://roadmap.sh/devops",
+    "terraform": "https://roadmap.sh/devops",
+    "rest api": "https://roadmap.sh/backend",
+    "full stack": "https://roadmap.sh/full-stack",
+    "frontend": "https://roadmap.sh/frontend",
+    "backend": "https://roadmap.sh/backend",
+}
+
+
+def _get_roadmap_url(skill: str) -> str:
+    """Return the known roadmap.sh URL for a skill, or the best-practices page."""
+    key = skill.strip().lower()
+    if key in KNOWN_ROADMAPS:
+        return KNOWN_ROADMAPS[key]
+    return f"https://roadmap.sh/best-practices"
 
 
 # Well-known official documentation sites for common technologies
@@ -292,10 +379,12 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
     skill_gap_report = []
     for skill in missing_skills:
         doc_url = _get_doc_url(skill)
+        roadmap_url = _get_roadmap_url(skill)
         slug = skill.replace(" ", "+")
 
         skill_gap_report.append({
             "skill": skill,
+            "roadmap_url": roadmap_url,
             "learning_path": [
                 {
                     "step": 1,
@@ -305,25 +394,37 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
                     "url": doc_url,
                     "est_time": "2-3 hours",
                     "cost": "Free",
+                    "alt_platforms": [
+                        {"name": "DevDocs", "url": f"https://devdocs.io/{skill.lower().replace(' ', '-')}/"},
+                        {"name": "W3Schools", "url": f"https://www.w3schools.com/{skill.lower().replace(' ', '')}/"},
+                    ],
                 },
                 {
                     "step": 2,
                     "label": "Deep Dive",
                     "type": "YouTube",
-                    "title": f"{skill} – freeCodeCamp Full Course",
+                    "title": f"{skill} -- freeCodeCamp Full Course",
                     "url": f"https://www.youtube.com/@freecodecamp/search?query={slug}",
                     "est_time": "4-6 hours",
                     "cost": "Free",
+                    "alt_platforms": [
+                        {"name": "Udemy", "url": f"https://www.udemy.com/courses/search/?q={slug}"},
+                        {"name": "Coursera", "url": f"https://www.coursera.org/search?query={slug}"},
+                    ],
                 },
                 {
                     "step": 3,
                     "label": "Hands-on Practice",
                     "type": "Course",
-                    "title": f"{skill} Course on Coursera",
-                    "platform": "Coursera",
-                    "url": f"https://www.coursera.org/courses?query={slug}",
+                    "title": f"{skill} -- Top-rated Course on Udemy",
+                    "platform": "Udemy",
+                    "url": f"https://www.udemy.com/courses/search/?q={slug}",
                     "est_time": "2-4 weeks",
-                    "cost": "Free",
+                    "cost": "Paid",
+                    "alt_platforms": [
+                        {"name": "edX", "url": f"https://www.edx.org/search?q={slug}"},
+                        {"name": "Class Central", "url": f"https://www.classcentral.com/search?q={slug}"},
+                    ],
                 },
             ],
         })

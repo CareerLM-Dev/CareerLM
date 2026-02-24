@@ -82,13 +82,13 @@ function Onboarding() {
       options: [
         {
           value: "video_tutorials",
-          label: "📹 Video Tutorials & Courses",
+          label: "Video Tutorials & Courses",
         },
-        { value: "hands_on", label: "💻 Hands-On Projects & Coding" },
-        { value: "reading", label: "📚 Reading & Documentation" },
-        { value: "interactive", label: "🎮 Interactive Platforms" },
-        { value: "mentor", label: "👨‍🏫 Mentorship & Guidance" },
-        { value: "mixed", label: "🔀 Mix of Everything" },
+        { value: "hands_on", label: "Hands-On Projects & Coding" },
+        { value: "reading", label: "Reading & Documentation" },
+        { value: "interactive", label: "Interactive Platforms" },
+        { value: "mentor", label: "Mentorship & Guidance" },
+        { value: "mixed", label: "Mix of Everything" },
       ],
     },
     {
@@ -203,13 +203,13 @@ function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-5 bg-primary">
+    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
       <div className="w-full max-w-2xl">
         <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
           {/* Header */}
           <CardHeader className="text-center space-y-3">
             <CardTitle className="text-3xl font-bold text-primary">
-              Let's Get to Know You! 👋
+              Let's Get to Know You!
             </CardTitle>
             <CardDescription className="text-base text-muted-foreground">
               Just a few quick questions to personalize your learning experience

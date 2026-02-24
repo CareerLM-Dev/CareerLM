@@ -18,6 +18,8 @@ class ColdEmailState(TypedDict):
     company_info: Optional[str]  # Info about the company
     resume_text: Optional[str]  # Full resume text
     projects_section: Optional[str]  # Parsed projects section
+    template_subject: Optional[str]  # Saved template subject
+    template_body: Optional[str]  # Saved template body
     
     # Output
     email_subject: Optional[str]

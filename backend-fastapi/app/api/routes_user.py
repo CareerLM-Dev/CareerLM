@@ -64,7 +64,13 @@ async def get_resume_history(
         # Parse and format the data
         formatted_data = []
         for item in result.data:
-            content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
+            content = json.loads(item["content"]) if isinstance(item["content"], str) else (item["content"] or {})
+            
+            # Parse skill_gap column (new) or fall back to content.careerAnalysis (old)
+            skill_gap = None
+            if item.get("skill_gap"):
+                skill_gap = json.loads(item["skill_gap"]) if isinstance(item["skill_gap"], str) else item["skill_gap"]
+            career_analysis = skill_gap or content.get("careerAnalysis", {})
             
             # Extract relevant information
             formatted_item = {
@@ -79,15 +85,14 @@ async def get_resume_history(
             
             # Try to extract additional data from content
             if content:
-                formatted_item["job_description"] = content.get("jobDescription", "")
-                
-                # Extract career analysis if available
-                career_analysis = content.get("careerAnalysis", {})
-                if career_analysis:
-                    summary = career_analysis.get("analysis_summary", {})
-                    formatted_item["best_career_match"] = summary.get("best_match")
-                    formatted_item["match_probability"] = summary.get("best_match_probability")
-                    formatted_item["total_skills_found"] = career_analysis.get("total_skills_found")
+                formatted_item["job_description"] = item.get("job_description", "")
+            
+            # Extract career analysis summary
+            if career_analysis:
+                summary = career_analysis.get("analysis_summary", {})
+                formatted_item["best_career_match"] = summary.get("best_match")
+                formatted_item["match_probability"] = summary.get("best_match_probability")
+                formatted_item["total_skills_found"] = career_analysis.get("total_skills_found")
             
             formatted_data.append(formatted_item)
         
@@ -120,8 +125,26 @@ async def get_history_item(
         if item["resumes"]["user_id"] != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Parse content
-        content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
+        # Parse content, resume_analysis, and skill_gap columns
+        content = json.loads(item["content"]) if isinstance(item["content"], str) else (item["content"] or {})
+        
+        resume_analysis = None
+        if item.get("resume_analysis"):
+            resume_analysis = json.loads(item["resume_analysis"]) if isinstance(item["resume_analysis"], str) else item["resume_analysis"]
+        
+        skill_gap = None
+        if item.get("skill_gap"):
+            skill_gap = json.loads(item["skill_gap"]) if isinstance(item["skill_gap"], str) else item["skill_gap"]
+        
+        # Merge back into a single object for frontend compatibility
+        merged_content = {**content}
+        if resume_analysis:
+            merged_content["ats_score"] = resume_analysis.get("ats_score")
+            merged_content["ats_analysis"] = resume_analysis.get("ats_analysis")
+            merged_content["analysis"] = resume_analysis.get("analysis")
+            merged_content["agentic_metadata"] = resume_analysis.get("agentic_metadata")
+        if skill_gap:
+            merged_content["careerAnalysis"] = skill_gap
         
         return {
             "success": True,
@@ -129,7 +152,7 @@ async def get_history_item(
                 "id": item["version_id"],
                 "resume_id": item["resume_id"],
                 "version_number": item["version_number"],
-                "content": content,
+                "content": merged_content,
                 "ats_score": item.get("ats_score"),
                 "filename": item.get("raw_file_path"),
                 "notes": item.get("notes"),
@@ -150,7 +173,7 @@ async def get_resume_text(
     try:
         # Get the version from database
         result = supabase.table("resume_versions")\
-            .select("resume_text, content, raw_file_path, resumes!inner(user_id)")\
+            .select("content, raw_file_path, resumes!inner(user_id)")\
             .eq("version_id", version_id)\
             .execute()
         
@@ -163,15 +186,19 @@ async def get_resume_text(
         if item["resumes"]["user_id"] != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        # Get resume text from dedicated column (new structure)
-        resume_text = item.get("resume_text", "")
-        
         # Parse content for sections
         content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
-        sections = content.get("sections", {})
-        
-        # Fallback to old structure if resume_text column is empty
-        if not resume_text and "resume_text" in content:
+        sections = content.get("sections", {}) if content else {}
+
+        # Build a text-only view from stored sections
+        resume_text = "\n\n".join([
+            section_text.strip()
+            for section_text in sections.values()
+            if isinstance(section_text, str) and section_text.strip()
+        ])
+
+        # Fallback to old structure if present
+        if not resume_text and content and "resume_text" in content:
             resume_text = content["resume_text"]
         
         return {

@@ -35,19 +35,21 @@ def extract_text_from_pdf(file_bytes):
     return parser.extract_text_from_pdf(file_bytes)
 
 
-def optimize_resume_logic(resume_content, job_description, filename=None):
+def optimize_resume_logic(resume_content, job_description, filename=None, resume_text=None, sections=None):
     """
     Simplified 3-Agent Version - Uses LangGraph workflow with linear flow.
     Uses centralized ResumeParser for all text extraction and parsing.
     """
     
-    # ===== EXTRACT TEXT USING RESUMEPARSER =====
+    # ===== EXTRACT TEXT USING RESUMEPARSER (IF NOT PROVIDED) =====
     parser = get_parser()
-    resume_text = parser.extract_text(resume_content, filename=filename)
+    if resume_text is None:
+        resume_text = parser.extract_text(resume_content, filename=filename)
     
-    # ===== PARSE SECTIONS USING RESUMEPARSER =====
+    # ===== PARSE SECTIONS USING RESUMEPARSER (IF NOT PROVIDED) =====
     # Keep lowercase keys as expected by ats_checker.py
-    sections = parser.parse_sections(resume_text)
+    if sections is None:
+        sections = parser.parse_sections(resume_text)
     
     # ===== INITIALIZE STATE (Simplified) =====
     initial_state: ResumeState = {
@@ -85,9 +87,9 @@ def optimize_resume_logic(resume_content, job_description, filename=None):
 
     
     # ===== RUN THE SIMPLIFIED WORKFLOW =====
-    print("\n🚀 Starting simplified 3-agent workflow...\n")
+    print("\nStarting simplified 3-agent workflow...\n")
     final_state = resume_workflow.invoke(initial_state)
-    print(f"\n✅ Workflow complete! Iterations: {final_state['iteration_count']}\n")
+    print(f"\nWorkflow complete! Iterations: {final_state['iteration_count']}\n")
     
     # ===== RETURN RESULTS =====
     return {

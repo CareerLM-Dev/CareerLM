@@ -58,12 +58,12 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Circular progress + Score Breakdown side by side */}
-      <div className="grid md:grid-cols-2 gap-6">
+    <div className="space-y-4 md:space-y-6">
+      {/* Circular progress + Score Breakdown + ATS Analysis in one row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
         {/* Circular progress indicator */}
         <div className="flex flex-col items-center justify-center">
-          <svg width="120" height="120" viewBox="0 0 120 120">
+          <svg width="100" height="100" viewBox="0 0 120 120" className="md:w-[120px] md:h-[120px]">
             <circle cx="60" cy="60" r={radius} fill="transparent" stroke="hsl(var(--muted))" strokeWidth="10" />
             <circle
               cx="60" cy="60" r={radius} fill="transparent"
@@ -79,12 +79,12 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
               {score}
             </text>
           </svg>
-          <div className="text-sm font-medium text-muted-foreground mt-2">ATS Score</div>
+          <div className="text-xs md:text-sm font-medium text-muted-foreground mt-2">ATS Score</div>
         </div>
 
         {/* Component scores */}
-        <div>
-          <h4 className="text-base font-semibold mb-4">Score Breakdown</h4>
+        <div className="sm:col-span-1">
+          <h4 className="text-sm md:text-base font-semibold mb-3 md:mb-4">Score Breakdown</h4>
           {componentScores && (
             <div className="space-y-3">
               {formatComponentScore("Structure", componentScores.structure_score)}
@@ -94,40 +94,40 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
             </div>
           )}
         </div>
+
+        {/* Justification */}
+        {justification && justification.length > 0 && (
+          <div className="bg-muted/50 rounded-lg p-3 md:p-4 sm:col-span-2 md:col-span-1">
+            <h4 className="text-sm md:text-base font-semibold mb-2 md:mb-3">ATS Analysis</h4>
+            <ul className="space-y-1.5 md:space-y-2">
+              {justification.map((item, index) => (
+                <li key={index} className="flex items-start gap-2 text-xs md:text-sm text-muted-foreground">
+                  <span className="text-primary mt-0.5">•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
-      {/* Justification */}
-      {justification && justification.length > 0 && (
-        <div className="bg-muted/50 rounded-lg p-4">
-          <h4 className="text-base font-semibold mb-3">ATS Analysis</h4>
-          <ul className="space-y-2">
-            {justification.map((item, index) => (
-              <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <span className="text-primary mt-0.5">•</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {/* AI Analysis */}
-      <div className="bg-muted/50 rounded-lg p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-base font-semibold">Improvement Suggestions</h4>
+      <div className="bg-muted/50 rounded-lg p-3 md:p-4">
+        <div className="flex items-center justify-between mb-2 md:mb-3">
+          <h4 className="text-sm md:text-base font-semibold">Improvement Suggestions</h4>
           <button
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-xs md:text-sm text-muted-foreground hover:text-foreground transition-colors"
             onClick={() => setIsExpanded(!isExpanded)}
           >
             {isExpanded ? (
               <>
-                <ChevronUp className="w-4 h-4" />
-                <span>Show Less</span>
+                <ChevronUp className="w-3 h-3 md:w-4 md:h-4" />
+                <span className="hidden sm:inline">Show Less</span>
               </>
             ) : (
               <>
-                <ChevronDown className="w-4 h-4" />
-                <span>Show More</span>
+                <ChevronDown className="w-3 h-3 md:w-4 md:h-4" />
+                <span className="hidden sm:inline">Show More</span>
               </>
             )}
           </button>
@@ -137,7 +137,7 @@ const ATSScore = ({ score, componentScores, justification, aiAnalysis }) => {
             {aiAnalysis ? (
               renderFormattedSuggestions(aiAnalysis)
             ) : (
-              <p className="text-sm text-muted-foreground">No AI analysis available</p>
+              <p className="text-xs md:text-sm text-muted-foreground">No AI analysis available</p>
             )}
           </div>
         )}

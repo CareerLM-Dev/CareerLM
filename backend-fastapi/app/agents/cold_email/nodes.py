@@ -4,8 +4,15 @@ from typing import Dict, Any
 from app.agents.llm_config import EMAIL_LLM
 from .state import ColdEmailState
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_contact_details(text: str) -> str:
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[YOUR-EMAIL]", text)
+    text = re.sub(r"\+?\d[\d\s().-]{7,}\d", "[YOUR-NUMBER]", text)
+    return text
 
 
 def writer_agent(state: ColdEmailState) -> Dict[str, Any]:
@@ -22,11 +29,22 @@ def writer_agent(state: ColdEmailState) -> Dict[str, Any]:
     job_desc = state.get("job_description", "")
     resume_text = state.get("resume_text", "")
     projects_section = state.get("projects_section", "")
+    template_subject = state.get("template_subject") or ""
+    template_body = state.get("template_body") or ""
 
     # Organize skills
     skills_str = ', '.join(skills[:10]) if skills else 'various technical skills'
     
     # Build context-rich prompt using actual resume data
+    template_section = ""
+    if template_subject or template_body:
+        template_section = f"""
+SAVED TEMPLATE (use structure + tone, update details with latest resume data):
+SUBJECT: {template_subject or '[Use your own subject if missing]'}
+BODY:
+{template_body or '[No template body provided]'}
+"""
+
     prompt = f"""
 Write a professional, personalized cold email using ONLY the information provided from the candidate's actual resume. DO NOT generate, invent, or create any fake projects, experiences, or details.
 
@@ -42,6 +60,8 @@ CANDIDATE INFORMATION:
 {projects_section if projects_section else 'No projects section provided'}
 --- END RESUME CONTENT ---
 
+{template_section}
+
 TARGET POSITION:
 - Company: {target_company}
 - Role: {target_role}
@@ -51,12 +71,14 @@ INSTRUCTIONS:
 1. Start with "Hello [Hiring Manager],"
 2. Opening paragraph: Introduce {user_name} as a professional expressing interest in the {target_role} role at {target_company}
 3. Skills paragraph: Mention 3-4 most relevant skills from the provided skills list that match the role
-4. Experience/Projects paragraph:
-   - Use ACTUAL projects and experiences from the resume text above
-   - Extract real project names, technologies used, and outcomes from the resume
-   - If specific projects are mentioned in the projects section, reference them directly
-   - Use exact details from the resume - don't make anything up
-   - If no projects section exists, extract work experience or achievements from the resume text
+4. Experience paragraph:
+    - Use ONLY work experience from the resume text
+    - Do NOT mention projects here
+    - If no experience exists, keep it brief and general
+5. Projects paragraph:
+    - Use ONLY the projects section
+    - Do NOT mention work experience here
+    - If no projects section exists, keep it brief and general
 5. Value proposition: Brief statement about interest in {target_company} and how skills align
 6. Closing: Professional call to action
 
@@ -64,9 +86,13 @@ CRITICAL RULES:
 - Use ONLY information present in the resume text provided
 - Extract and use real project names and descriptions from the resume
 - DO NOT create fictional projects or experiences
+- DO NOT include any phone numbers or email addresses; use [YOUR-NUMBER] and [YOUR-EMAIL] placeholders
+- If a saved template is provided, keep its structure and tone while updating details to match the target company/role
 - If information is missing, keep that section brief and general
 - 200-250 words maximum
 - Professional tone
+- No bold, italics, or markdown formatting
+- Do not use em dashes
 
 Generate a subject line (under 60 chars) specific to {target_company} and {target_role}.
 
@@ -84,6 +110,9 @@ BODY:
     parts = email_content.split("BODY:", 1)
     subject = parts[0].replace("SUBJECT:", "").strip()
     body = parts[1].strip() if len(parts) > 1 else email_content
+
+    body = _sanitize_contact_details(body)
+    body = body.replace("—", "-")
 
     return {
         "email_subject": subject,

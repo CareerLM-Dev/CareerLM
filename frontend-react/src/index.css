@@ -53,12 +53,26 @@
   * {
     @apply border-border;
   }
+  html, body, #root {
+    @apply h-full overflow-hidden;
+  }
   body {
     @apply bg-background text-foreground;
   }
 }
 
 @layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Hide scrollbar for IE, Edge and Firefox */
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
   .animate-float {
     animation: float 6s ease-in-out infinite;
   }
@@ -74,5 +88,38 @@
     50% {
       transform: translateY(-20px);
     }
+  }
+  
+  /* Markdown content styling */
+  .markdown-content h1 {
+    @apply text-2xl font-bold mt-6 mb-4;
+  }
+  
+  .markdown-content h2 {
+    @apply text-xl font-bold mt-6 mb-4;
+  }
+  
+  .markdown-content h3 {
+    @apply text-lg font-semibold mt-4 mb-3;
+  }
+  
+  .markdown-content p {
+    @apply mb-4 leading-relaxed;
+  }
+  
+  .markdown-content ul {
+    @apply list-disc mb-4 pl-6 space-y-2;
+  }
+  
+  .markdown-content li {
+    @apply leading-relaxed;
+  }
+  
+  .markdown-content strong {
+    @apply font-semibold text-foreground;
+  }
+  
+  .markdown-content hr {
+    @apply my-6 border-border;
   }
 }

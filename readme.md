@@ -1,4 +1,4 @@
-# CareerLM 🚀
+# CareerLM
 
 AI-powered career assistant that helps job seekers optimize resumes, identify skill gaps, and prepare for interviews.
 

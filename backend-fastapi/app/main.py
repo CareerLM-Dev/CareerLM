@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api import routes_resume, routes_user, routes_onboarding, routes_cold_email
+from app.api import routes_resume, routes_user, routes_onboarding, routes_cold_email, routes_interview
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -25,6 +25,9 @@ app.include_router(routes_cold_email.router, prefix="/api/v1/cold-email", tags=[
 
 # Include Onboarding routes
 app.include_router(routes_onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
+
+# Include Interview routes
+app.include_router(routes_interview.router, prefix="/api/v1/interview", tags=["Interview"])
 
 @app.get("/")
 async def root():
