@@ -37,6 +37,13 @@ RESUME_LLM = ChatGroq(
     temperature=0.7
 )
 
+# ===== INTERVIEW MODULE =====
+INTERVIEW_LLM = ChatGroq(
+    api_key=os.getenv("GROQ_API_KEY"),
+    model="llama-3.3-70b-versatile",
+    temperature=0.7
+)
+
 # ===== COLD EMAIL MODULE =====
 EMAIL_LLM = ChatGroq(
     api_key=os.getenv("OSS_API_KEY"),
@@ -57,6 +64,7 @@ __all__ = [
     "GROQ_CLIENT",
     "GEMINI_CLIENT",
     "RESUME_LLM",
+    "INTERVIEW_LLM",
     "EMAIL_LLM",
     "GROQ_DEFAULT_MODEL",
     "GROQ_SKILLGAP_MODEL",

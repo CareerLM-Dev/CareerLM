@@ -13,6 +13,8 @@ import {
   XCircle
 } from "lucide-react";
 import { supabase } from "../api/supabaseClient";
+import StagePerformanceRadar from "./StagePerformanceRadar";
+import TimeManagementChart from "./TimeManagementChart";
 
 const ROLE_LABELS = {
   "software_engineer": "Software Engineer",
@@ -802,7 +804,8 @@ function MockInterview({ resumeData }) {
             
             <button
               onClick={skipQuestion}
-              className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+              disabled={currentAnswer.trim().length > 0}
+              className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {currentQuestionIndex < questions.length - 1 ? 'Skip' : 'Skip & Submit'}
             </button>
@@ -862,6 +865,12 @@ function MockInterview({ resumeData }) {
     };
     
     const metrics = parseMetrics(feedback);
+    const timingCount = Math.max(questions.length, questionTimes.length);
+    const calculatedTimingArray = Array.from({ length: timingCount }, (_, index) => ({
+      question: `Q${index + 1}`,
+      timeInSeconds: Number(questionTimes?.[index]) || 0,
+      fullQuestion: questions?.[index]?.question || "",
+    }));
     
     // Helper to get color for readiness level
     const getReadinessColor = (level) => {
@@ -871,18 +880,6 @@ function MockInterview({ resumeData }) {
         case 'nearly ready': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
         case 'needs practice': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
         case 'early stage': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
-        default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      }
-    };
-    
-    // Helper to get color for stage performance
-    const getStageColor = (level) => {
-      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      switch(level.toLowerCase()) {
-        case 'strong': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
-        case 'solid': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
-        case 'growing': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
-        case 'needs work': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
         default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
       }
     };
@@ -1018,47 +1015,14 @@ function MockInterview({ resumeData }) {
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
         )}
 
-        {/* Stage Performance Breakdown */}
-        {feedback?.stage_performance && (
-          <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
-              <h3 className="text-xl font-bold flex items-center gap-3">
-                <span className="text-2xl">📊</span>
-                <span>Stage Performance</span>
-              </h3>
-            </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Resume Validation</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.resume_validation)}`}>
-                  {feedback.stage_performance.resume_validation}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Project Deep Dive</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.project_deep_dive)}`}>
-                  {feedback.stage_performance.project_deep_dive}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Core Technical</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.core_technical)}`}>
-                  {feedback.stage_performance.core_technical}
-                </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Behavioral</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.behavioral)}`}>
-                  {feedback.stage_performance.behavioral}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <StagePerformanceRadar stagePerformance={feedback?.stage_performance} />
+
+        <TimeManagementChart timingData={calculatedTimingArray} />
         
         {/* Executive Summary & Action Plan */}
         <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">

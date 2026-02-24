@@ -23,6 +23,7 @@ class InterviewState(TypedDict, total=False):
     target_role: str
     difficulty: str  # "easy", "medium", "hard"
     user_skills: Optional[List[str]]
+    previous_questions: Optional[List[str]]  # Previously asked questions for this user/role
     
     # ===== INPUTS (Feedback Generation) =====
     questions: Optional[List[Dict[str, Any]]]  # List of question dicts with id, category, question, follow_up_hint
@@ -41,6 +42,7 @@ class InterviewState(TypedDict, total=False):
     total_questions: Optional[int]
     answered_count: Optional[int]
     skipped_count: Optional[int]
+    response_quality: Optional[Dict[str, Any]]  # Low-signal/gibberish quality indicators
     metrics: Optional[Dict[str, Any]]  # {"answer_quality_score": int, "technical_competency": str, ...}
     is_valid: Optional[bool]  # Validation flag for question generation
     validation_error: Optional[str]  # Validation error for retries/diagnostics
