@@ -29,10 +29,15 @@ logger = logging.getLogger(__name__)
 
 
 # ===== CONSTANTS =====
+# DIFFICULTY_GUIDANCE = {
+#     "easy": "Use beginner-friendly, practical questions suitable for junior/entry-level developers. Avoid edge cases, trick questions, and overly deep system internals.",
+#     "medium": "Use accessible foundational-to-intermediate questions with practical context. Keep scenarios realistic and avoid punishing complexity.",
+#     "hard": "Use moderately advanced but still approachable questions. Prioritize clarity and real-world relevance over obscure trivia."
+# }
 DIFFICULTY_GUIDANCE = {
-    "easy": "Use beginner-friendly, practical questions suitable for junior/entry-level developers. Avoid edge cases, trick questions, and overly deep system internals.",
-    "medium": "Use accessible foundational-to-intermediate questions with practical context. Keep scenarios realistic and avoid punishing complexity.",
-    "hard": "Use moderately advanced but still approachable questions. Prioritize clarity and real-world relevance over obscure trivia."
+        "easy": "Focus on fundamental concepts, basic terminology, and straightforward scenarios. Questions should be answerable by entry-level candidates.",
+        "medium": "Mix of fundamental and intermediate concepts. Include some problem-solving scenarios and practical applications. Suitable for mid-level candidates.",
+        "hard": "Advanced concepts, complex scenarios, optimization problems, and deep technical knowledge. Challenge the candidate with edge cases and architectural decisions."
 }
 
 QUESTION_DISTRIBUTIONS = {

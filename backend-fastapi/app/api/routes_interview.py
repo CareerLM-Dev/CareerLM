@@ -212,12 +212,19 @@ async def generate_questions(
         workflow_result = question_generation_workflow.invoke(input_state)
         questions = workflow_result.get("questions_generated", [])
         
-        # Create interview session record
+        # Validate that questions were actually generated
+        if not questions:
+            validation_error = workflow_result.get("validation_error", "Question generation failed")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate questions: {validation_error}"
+            )
+        
+        # Create interview session record (without questions column - stored in interview_report on feedback)
         session_data = {
             "user_id": request.user_id,
             "resume_id": resume_data["resume_id"],
             "target_role": request.target_role,
-            "questions": questions,
             "status": "in_progress",
             "created_at": datetime.utcnow().isoformat()
         }
@@ -314,24 +321,34 @@ async def generate_feedback(
             logger.error("Feedback workflow returned empty or invalid JSON")
             raise HTTPException(status_code=500, detail="Feedback generation returned an empty report. Please retry.")
         
-        # Store feedback in database (optional)
+        # Store interview session in database (optional)
         try:
-            feedback_data = {
+            difficulty_by_count = {5: "easy", 10: "medium", 15: "hard"}
+            difficulty = difficulty_by_count.get(len(request.questions), "medium")
+            user_details = {
+                "id": getattr(user, "id", None),
+                "email": getattr(user, "email", None),
+                "user_metadata": getattr(user, "user_metadata", None)
+            }
+
+            session_data = {
                 "user_id": request.user_id,
                 "target_role": request.target_role,
-                "transcript": {
+                "difficulty": difficulty,
+                "interview_report": {
                     "questions": request.questions,
-                    "answers": request.answers
+                    "answers": request.answers,
+                    "analysis": feedback_json
                 },
-                "feedback_json": feedback_json,
+                "user_details": user_details,
                 "created_at": datetime.utcnow().isoformat()
             }
             
-            supabase.table("interview_feedback")\
-                .insert(feedback_data)\
+            supabase.table("interview_sessions")\
+                .insert(session_data)\
                 .execute()
         except Exception as db_error:
-            logger.warning(f"Failed to store feedback in DB: {str(db_error)}")
+            logger.warning(f"Failed to store interview session in DB: {str(db_error)}")
         
         return {
             "success": True,
@@ -362,8 +379,8 @@ async def get_interview_history(
         }
     """
     try:
-        # Fetch interview feedback history
-        result = supabase.table("interview_feedback")\
+        # Fetch interview session history
+        result = supabase.table("interview_sessions")\
             .select("*")\
             .eq("user_id", user.id)\
             .order("created_at", desc=True)\

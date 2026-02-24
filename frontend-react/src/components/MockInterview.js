@@ -84,6 +84,7 @@ function MockInterview({ resumeData }) {
   const synthRef = useRef(window.speechSynthesis);
   const questionStartRef = useRef(null);
   const questionTimesRef = useRef([]);
+  const listeningBaseAnswerRef = useRef("");
   
   // Fetch user's saved roles on mount
   useEffect(() => {
@@ -121,27 +122,25 @@ function MockInterview({ resumeData }) {
   
   // Initialize Speech Recognition
   useEffect(() => {
-    if (!('webkitSpeechRecognition' in window)) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
       setError("Speech recognition is not supported in this browser. Please use Chrome.");
       return;
     }
-    
-    const SpeechRecognition = window.webkitSpeechRecognition;
+
     recognitionRef.current = new SpeechRecognition();
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = true;
     
     recognitionRef.current.onresult = (event) => {
-      let finalTranscript = '';
-      
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        }
+      let fullTranscript = "";
+
+      for (let i = 0; i < event.results.length; i++) {
+        fullTranscript += event.results[i][0].transcript;
       }
-      
-      setCurrentAnswer(prev => prev + finalTranscript);
+
+      setCurrentAnswer(`${listeningBaseAnswerRef.current}${fullTranscript}`);
     };
     
     recognitionRef.current.onerror = (event) => {
@@ -263,9 +262,12 @@ function MockInterview({ resumeData }) {
         console.warn("Speech recognition already running");
         return;
       }
+
+      listeningBaseAnswerRef.current = currentAnswer;
       
       recognitionRef.current.start();
       setIsListening(true);
+      setError("");
     } catch (error) {
       console.error("Error starting speech recognition:", error);
       // If error occurs, ensure state is reset
@@ -280,6 +282,7 @@ function MockInterview({ resumeData }) {
     try {
       if (isListening) {
         recognitionRef.current.stop();
+        listeningBaseAnswerRef.current = currentAnswer;
         setIsListening(false);
       }
     } catch (error) {
@@ -772,6 +775,10 @@ function MockInterview({ resumeData }) {
                 </>
               )}
             </button>
+
+            {isListening && (
+              <span className="text-xs text-primary animate-pulse">Listening... text appears as you speak</span>
+            )}
             
             {currentQuestionIndex > 0 && (
               <button

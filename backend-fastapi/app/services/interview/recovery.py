@@ -10,7 +10,8 @@ def recover_questions_from_error(error_text: str) -> List[Dict[str, Any]]:
     if not error_text:
         return []
 
-    tag_match = re.search(r"<function=QuestionList>\s*(.*?)\s*</function>", error_text, flags=re.DOTALL)
+    # Handle both </function> and /function closing variants
+    tag_match = re.search(r"<function=QuestionList>\s*(.*?)\s*(?:</function>|/function)", error_text, flags=re.DOTALL)
     if tag_match:
         tagged_payload = tag_match.group(1).strip()
 
@@ -89,7 +90,8 @@ def recover_feedback_from_error(error_text: str) -> Optional[FeedbackOutput]:
     if not error_text:
         return None
 
-    tag_match = re.search(r"<function=FeedbackOutput>\s*(.*?)\s*</function>", error_text, flags=re.DOTALL)
+    # Handle both </function> and /function closing variants
+    tag_match = re.search(r"<function=FeedbackOutput>\s*(.*?)\s*(?:</function>|/function)", error_text, flags=re.DOTALL)
     if tag_match:
         tagged_payload = tag_match.group(1).strip()
 

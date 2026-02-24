@@ -170,7 +170,6 @@ async def optimize_resume(
         "content": json.dumps(content_data),
         "resume_analysis": json.dumps(resume_analysis_data),
         "skill_gap": json.dumps(skill_gap_data),
-        "content": json.dumps(analysis_data),  # Store analysis data with sections
         "ats_score": result.get("ats_score"),
         "raw_file_path": result.get("filename"),
         "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
