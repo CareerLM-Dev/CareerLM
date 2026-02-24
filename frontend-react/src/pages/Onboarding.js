@@ -264,25 +264,26 @@ function Onboarding() {
   // Student vs Professional — shown only to new OAuth users
   if (phase === "status") {
     return (
-      <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
-        <div className="w-full max-w-2xl">
-          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
-            <CardHeader className="text-center space-y-3">
-              <CardTitle className="text-3xl font-bold text-primary">
+      <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+        <div className="min-h-full flex items-center justify-center py-4 px-5">
+        <div className="w-full max-w-lg">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+            <CardHeader className="text-center space-y-1 pt-5 pb-3">
+              <CardTitle className="text-2xl font-bold text-primary">
                 Welcome to CareerLM!
               </CardTitle>
-              <CardDescription className="text-base text-muted-foreground">
+              <CardDescription className="text-sm text-muted-foreground">
                 Tell us a bit about yourself to personalise your experience
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4 pb-8">
+            <CardContent className="space-y-3 pb-6">
               <p className="text-center text-sm font-medium text-muted-foreground">I am a&hellip;</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
                   onClick={() => handleStatusSelect("student")}
-                  className="flex flex-col items-center gap-3 rounded-xl border-2 border-border bg-background p-8 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-border bg-background p-5 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <GraduationCap className="h-10 w-10 text-primary" />
+                  <GraduationCap className="h-8 w-8 text-primary" />
                   <div>
                     <p className="font-semibold text-foreground text-lg">Student</p>
                     <p className="text-sm text-muted-foreground mt-1">Learning &amp; breaking into tech</p>
@@ -290,9 +291,9 @@ function Onboarding() {
                 </button>
                 <button
                   onClick={() => handleStatusSelect("professional")}
-                  className="flex flex-col items-center gap-3 rounded-xl border-2 border-border bg-background p-8 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="flex flex-col items-center gap-2 rounded-xl border-2 border-border bg-background p-5 text-center transition-all hover:border-primary hover:bg-primary/5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <Briefcase className="h-10 w-10 text-primary" />
+                  <Briefcase className="h-8 w-8 text-primary" />
                   <div>
                     <p className="font-semibold text-foreground text-lg">Professional</p>
                     <p className="text-sm text-muted-foreground mt-1">Already working in the industry</p>
@@ -302,6 +303,7 @@ function Onboarding() {
             </CardContent>
           </Card>
         </div>
+        </div>
       </div>
     );
   }
@@ -309,18 +311,19 @@ function Onboarding() {
   // Professional path: company name entry
   if (phase === "professional") {
     return (
-      <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
-        <div className="w-full max-w-2xl">
-          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
-            <CardHeader className="text-center space-y-3">
-              <CardTitle className="text-3xl font-bold text-primary">
+      <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+        <div className="min-h-full flex items-center justify-center py-4 px-5">
+        <div className="w-full max-w-md">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+            <CardHeader className="text-center space-y-1 pt-5 pb-3">
+              <CardTitle className="text-2xl font-bold text-primary">
                 Your Company
               </CardTitle>
-              <CardDescription className="text-base text-muted-foreground">
+              <CardDescription className="text-sm text-muted-foreground">
                 Where are you currently working? (optional)
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
+            <CardContent className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="company" className="text-sm font-medium">
                   Current Company
@@ -341,7 +344,7 @@ function Onboarding() {
                 </Alert>
               )}
             </CardContent>
-            <CardFooter className="flex flex-col gap-3 border-t border-border pt-6">
+            <CardFooter className="flex flex-col gap-2 border-t border-border pt-4">
               <Button
                 onClick={handleProfessionalComplete}
                 disabled={loading}
@@ -371,26 +374,28 @@ function Onboarding() {
             </CardFooter>
           </Card>
         </div>
+        </div>
       </div>
     );
   }
 
   // Questionnaire (student path — email students and OAuth students both land here)
   return (
-    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
-      <div className="w-full max-w-2xl">
-        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
+    <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+      <div className="min-h-full flex items-center justify-center py-4 px-5">
+      <div className="w-full max-w-xl">
+        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
           {/* Header */}
-          <CardHeader className="text-center space-y-3">
-            <CardTitle className="text-3xl font-bold text-primary">
+          <CardHeader className="text-center space-y-1 pt-5 pb-2">
+            <CardTitle className="text-2xl font-bold text-primary">
               Let's Get to Know You!
             </CardTitle>
-            <CardDescription className="text-base text-muted-foreground">
+            <CardDescription className="text-sm text-muted-foreground">
               Just a few quick questions to personalize your learning experience
             </CardDescription>
 
             {/* Progress Bar */}
-            <div className="pt-2 space-y-2">
+            <div className="pt-1 space-y-1">
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
@@ -404,9 +409,9 @@ function Onboarding() {
           </CardHeader>
 
           {/* Question Content */}
-          <CardContent className="space-y-5">
+          <CardContent className="space-y-3">
             <div className="space-y-1">
-              <h2 className="text-xl font-semibold text-foreground">
+              <h2 className="text-lg font-semibold text-foreground">
                 {currentQuestion.title}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -415,7 +420,7 @@ function Onboarding() {
             </div>
 
             {/* Options */}
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               {currentQuestion.options.map((option) => {
                 const isChecked = answers[currentQuestion.field].includes(
                   option.value,
@@ -423,7 +428,7 @@ function Onboarding() {
                 return (
                   <label
                     key={option.value}
-                    className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
                       isChecked
                         ? "border-primary bg-primary/10 shadow-sm"
                         : "border-border bg-background hover:border-primary/40 hover:bg-accent"
@@ -469,7 +474,7 @@ function Onboarding() {
           </CardContent>
 
           {/* Navigation Buttons */}
-          <CardFooter className="flex flex-col gap-3 border-t border-border pt-6">
+          <CardFooter className="flex flex-col gap-2 border-t border-border pt-4">
             <div className="flex w-full items-center justify-between gap-3">
               {currentStep > 1 ? (
                 <Button
@@ -526,6 +531,7 @@ function Onboarding() {
             </Button>
           </CardFooter>
         </Card>
+      </div>
       </div>
     </div>
   );
