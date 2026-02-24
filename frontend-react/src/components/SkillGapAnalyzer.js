@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { cleanMarkdown } from "../utils/textFormatter";
 import { Button } from "./ui/button";
-import { Upload, TrendingUp, Target, Briefcase, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, TrendingUp, Target, Briefcase, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
 function SkillGapAnalyzer({ resumeData }) {
   const [resumeFile, setResumeFile] = useState(null);

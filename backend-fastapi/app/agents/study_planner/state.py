@@ -32,6 +32,22 @@ class SkillRoadmap(TypedDict):
     learning_path: list[RoadmapStep]
 
 
+class SkillScheduleEntry(TypedDict):
+    """Per-skill schedule breakdown."""
+    skill: str
+    est_hours: float
+    est_weeks: float
+
+
+class ScheduleSummary(TypedDict):
+    """Overall study schedule summary."""
+    total_hours: float
+    hours_per_week: float
+    total_weeks: float
+    per_skill: list[SkillScheduleEntry]
+    note: str
+
+
 class StudyPlannerState(TypedDict):
     """State for the study planner workflow."""
     target_career: str
@@ -41,4 +57,5 @@ class StudyPlannerState(TypedDict):
     skill_gap_report: NotRequired[list[SkillRoadmap]]
     study_plan: NotRequired[list[dict]]
     urls_validated: NotRequired[bool]
+    schedule_summary: NotRequired[Optional[ScheduleSummary]]
     error: NotRequired[Optional[str]]

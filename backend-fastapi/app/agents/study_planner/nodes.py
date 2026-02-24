@@ -2,10 +2,17 @@
 Nodes for the study planner agent.
 Uses Gemini 2.0 Flash with Google Search grounding to fetch
 live, verified learning resources for each missing skill.
+
+Improvements:
+- Per-skill Gemini calls instead of one massive prompt
+- Retry with simplified prompt before falling to curated fallback
+- Schedule builder that rolls up durations into a weekly timeline
 """
 
 import json
 import logging
+import math
+import re as _re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
@@ -129,14 +136,273 @@ Output ONLY the JSON array, nothing else."""
 
 
 # ────────────────────────────────────────────────────────
-# Node 3: Fetch live resources via Gemini + Google Search
+# Node 3: Fetch live resources via Gemini — PER-SKILL calls
 # ────────────────────────────────────────────────────────
+
+# Maximum Gemini retry attempts per skill before curated fallback
+_GEMINI_MAX_RETRIES = 2
+
+
+def _build_personalisation_block(qa: dict) -> str:
+    """Build the personalisation context block from questionnaire answers."""
+    if not qa:
+        return ""
+
+    parts = []
+
+    # Target role
+    roles = qa.get("target_role", [])
+    if roles:
+        readable = [r.replace("_", " ").title() for r in roles]
+        parts.append(f"- **Target Role(s):** {', '.join(readable)}")
+
+    # Primary goal
+    goals = qa.get("primary_goal", [])
+    goal_map = {
+        "get_first_job": "Land their first job — focus on fundamentals, portfolio-ready projects, and interview prep",
+        "switch_careers": "Switch careers — bridge transferable skills, emphasise practical projects",
+        "upskill": "Upskill in current role — intermediate/advanced resources, real-world depth",
+        "freelance": "Freelance — practical, client-ready skills and portfolio pieces",
+        "build_projects": "Build projects — hands-on, project-based learning",
+        "interview_prep": "Interview prep — algorithmic practice, system design, mock interviews",
+        "learn_technology": "Learn a new technology — structured beginner-to-advanced path",
+    }
+    if goals:
+        goal_descs = [goal_map.get(g) or g.replace("_", " ").title() for g in goals]
+        parts.append(f"- **Primary Goal(s):** {'; '.join(goal_descs)}")
+
+    # Learning preference
+    prefs = qa.get("learning_preference", [])
+    pref_map = {
+        "video_tutorials": "Video tutorials (prioritise YouTube playlists & video courses)",
+        "hands_on": "Hands-on / project-based (prioritise interactive labs, coding challenges, build-along projects)",
+        "reading": "Reading & documentation (prioritise official docs, books, written tutorials)",
+        "interactive": "Interactive platforms (prioritise Codecademy, freeCodeCamp, LeetCode-style sites)",
+        "mentor": "Mentorship / community (include Discord/community links, mentorship platforms)",
+        "mixed": "Mixed / no strong preference",
+    }
+    if prefs:
+        pref_descs = [pref_map.get(p) or p.replace("_", " ").title() for p in prefs]
+        parts.append(f"- **Learning Style:** {'; '.join(pref_descs)}")
+
+    # Time commitment
+    time = qa.get("time_commitment", [])
+    time_map = {
+        "5_hours_week": "~5 hours/week — keep each step concise (micro-learning, short videos, bite-sized docs)",
+        "10_hours_week": "~10 hours/week — moderate depth, one skill at a time",
+        "20_hours_week": "~20 hours/week — immersive roadmap, can handle longer courses",
+        "30_hours_week": "~30 hours/week — intensive bootcamp-style pace",
+        "flexible": "Flexible schedule — provide estimated durations but no strict pacing",
+    }
+    if time:
+        time_descs = [time_map.get(t) or t.replace("_", " ") for t in time]
+        parts.append(f"- **Time Commitment:** {'; '.join(time_descs)}")
+
+    if not parts:
+        return ""
+
+    return (
+        "\n\nUser Profile (tailor resource choice, difficulty, and durations accordingly):\n"
+        + "\n".join(parts)
+        + "\n\nPersonalisation rules:\n"
+        "• If the user prefers VIDEO learning, make at least 2 out of 3 resources video-based.\n"
+        "• If the user prefers READING, make at least 2 out of 3 resources documentation or article-based.\n"
+        "• If the user prefers HANDS-ON, include interactive labs, coding challenges, or project-based resources.\n"
+        "• Match est_time values to the user's weekly time commitment.\n"
+        "• Adjust difficulty to match the user's goal.\n"
+    )
+
+
+def _build_skill_prompt(skill: str, target_career: str, personalisation: str) -> str:
+    """
+    Build a focused Gemini prompt for a SINGLE skill.
+    Much shorter than the monolithic multi-skill prompt → better output quality.
+    """
+    return f"""Role: Professional Resource Scout.
+
+Context: The user wants to become a **{target_career}** and needs to learn **{skill}**.
+{personalisation}
+Task: Provide a 3-step learning roadmap for **{skill}** with EXACT, DIRECT resource URLs.
+
+Rules:
+- Include a **roadmap_url** linking to roadmap.sh (e.g. https://roadmap.sh/python). Use the closest parent roadmap if no exact page exists.
+- Provide exactly 3 resources, each from a DIFFERENT platform.
+  Platforms: YouTube (freeCodeCamp, Fireship, Traversy Media, etc.), Udemy, Coursera, edX, freeCodeCamp, Codecademy, Exercism, Kaggle, Scrimba, official docs, MDN, etc.
+- Every URL must be a DIRECT link — no google.com/search or youtube.com/results links.
+- For each step, also provide 2 alt_platforms with name + direct URL.
+
+Output strictly JSON, no preamble:
+{{
+  "skill": "{skill}",
+  "roadmap_url": "https://roadmap.sh/...",
+  "roadmap": [
+    {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "...",
+      "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
+    }},
+    {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "...", "url": "https://...", "est_time": "...",
+      "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
+    }},
+    {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "...", "platform": "...", "url": "https://...", "est_time": "...",
+      "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
+    }}
+  ]
+}}"""
+
+
+def _simplified_retry_prompt(skill: str, target_career: str) -> str:
+    """
+    Simplified retry prompt — no personalisation, stricter format.
+    Used when the first attempt fails or returns bad JSON.
+    """
+    return f"""Find 3 learning resources for **{skill}** (career goal: {target_career}).
+
+Return ONLY this JSON (no extra text):
+{{
+  "skill": "{skill}",
+  "roadmap_url": "https://roadmap.sh/...",
+  "roadmap": [
+    {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "2-3 hours", "alt_platforms": []}},
+    {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "...", "url": "https://...", "est_time": "4-6 hours", "alt_platforms": []}},
+    {{"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "...", "url": "https://...", "est_time": "1-2 weeks", "alt_platforms": []}}
+  ]
+}}"""
+
+
+def _parse_skill_response(raw: str, skill: str) -> dict | None:
+    """
+    Parse Gemini response for a single skill.
+    Returns normalised skill_gap_report entry or None on failure.
+    """
+    if not raw:
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try to extract JSON object from surrounding text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start == -1 or end <= start:
+            return None
+        try:
+            data = json.loads(raw[start:end])
+        except json.JSONDecodeError:
+            return None
+
+    roadmap = data.get("roadmap", [])
+    if not roadmap:
+        return None
+
+    learning_path = []
+    for step in roadmap:
+        learning_path.append({
+            "step": step.get("step"),
+            "label": step.get("label", ""),
+            "type": step.get("type", "Resource"),
+            "title": step.get("title", ""),
+            "url": step.get("url", ""),
+            "platform": step.get("platform", ""),
+            "est_time": step.get("est_time", ""),
+            "cost": "Free",
+            "alt_platforms": step.get("alt_platforms", []),
+        })
+
+    return {
+        "skill": data.get("skill", skill),
+        "roadmap_url": data.get("roadmap_url", ""),
+        "learning_path": learning_path,
+    }
+
+
+def _fetch_single_skill(
+    skill: str,
+    target_career: str,
+    personalisation: str,
+    gemini_client,
+    types_module,
+) -> dict | None:
+    """
+    Fetch resources for ONE skill with retry logic.
+
+    Attempt 1: Full personalised prompt.
+    Attempt 2: Simplified prompt (fewer instructions, stricter format).
+    Returns parsed result or None if both attempts fail.
+    """
+    prompts = [
+        _build_skill_prompt(skill, target_career, personalisation),
+        _simplified_retry_prompt(skill, target_career),
+    ]
+
+    for attempt, prompt in enumerate(prompts, 1):
+        try:
+            response = gemini_client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=types_module.GenerateContentConfig(
+                    tools=[types_module.Tool(google_search=types_module.GoogleSearch())],
+                    response_mime_type="application/json",
+                ),
+            )
+            raw = response.text or ""
+            if not raw:
+                logger.warning(f"[Study Planner] Skill '{skill}' attempt {attempt}: empty response")
+                continue
+
+            result = _parse_skill_response(raw, skill)
+            if result:
+                logger.info(f"[Study Planner] Skill '{skill}' succeeded on attempt {attempt}")
+                return result
+            else:
+                logger.warning(f"[Study Planner] Skill '{skill}' attempt {attempt}: bad JSON structure")
+
+        except Exception as exc:
+            logger.warning(f"[Study Planner] Skill '{skill}' attempt {attempt} failed: {exc}")
+
+    logger.warning(f"[Study Planner] Skill '{skill}' exhausted all {len(prompts)} attempts")
+    return None
+
+
+def _get_curated_skill_entry(skill: str) -> dict:
+    """
+    Build a curated fallback entry for a skill.
+    Used when Gemini fails both attempts.
+    """
+    key = skill.strip().lower()
+    roadmap_url = _get_roadmap_url(skill)
+
+    if key in CURATED_RESOURCES:
+        return {
+            "skill": skill,
+            "roadmap_url": roadmap_url,
+            "learning_path": [dict(step) for step in CURATED_RESOURCES[key]],
+        }
+
+    doc_url = _get_doc_url(skill)
+    return {
+        "skill": skill,
+        "roadmap_url": roadmap_url,
+        "learning_path": [
+            {"step": 1, "label": "Read Basics", "type": "Documentation",
+             "title": f"Official {skill} Documentation", "url": doc_url,
+             "est_time": "2-3 hours", "cost": "Free", "alt_platforms": []},
+            {"step": 2, "label": "Visual Roadmap", "type": "Roadmap",
+             "title": f"{skill} Learning Roadmap (roadmap.sh)", "url": roadmap_url,
+             "est_time": "1 hour", "cost": "Free", "alt_platforms": []},
+            {"step": 3, "label": "Hands-on Practice", "type": "Interactive",
+             "title": f"{skill} Track on Exercism", "platform": "Exercism",
+             "url": f"https://exercism.org/tracks/{key.replace(' ', '-')}",
+             "est_time": "2-4 weeks", "cost": "Free", "alt_platforms": []},
+        ],
+    }
+
 
 def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     """
     Call Gemini 2.0 Flash with Google Search grounding to get
-    live learning resources for each missing skill.
-    Incorporates questionnaire answers for personalisation.
+    live learning resources — ONE call per skill for better quality.
+
+    Each skill gets up to 2 attempts (full prompt → simplified retry).
+    Skills that exhaust both attempts fall through to curated resources.
     """
     if state.get("error"):
         return {}
@@ -147,209 +413,51 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
         return {"error": "GEMINI_API_KEY not configured"}
 
     gemini_client = GEMINI_CLIENT
-
     missing_skills = state["missing_skills"]
     target_career = state["target_career"]
-    skills_query = ", ".join(missing_skills)
 
-    # ── Build personalisation context from questionnaire ──
+    # Build personalisation block once (shared across skills)
     qa = state.get("questionnaire_answers") or {}
+    personalisation = _build_personalisation_block(qa)
 
-    personalisation_block = ""
-    if qa:
-        parts = []
+    # Fetch each skill sequentially (Gemini rate limits make parallel risky)
+    skill_gap_report: list[dict] = []
+    study_plan: list[dict] = []
+    gemini_successes = 0
+    curated_fallbacks = 0
 
-        # Target role
-        roles = qa.get("target_role", [])
-        if roles:
-            readable = [r.replace("_", " ").title() for r in roles]
-            parts.append(f"- **Target Role(s):** {', '.join(readable)}")
+    for skill in missing_skills:
+        result = _fetch_single_skill(skill, target_career, personalisation, gemini_client, types)
 
-        # Primary goal
-        goals = qa.get("primary_goal", [])
-        goal_map = {
-            "get_first_job": "Land their first job — focus on fundamentals, portfolio-ready projects, and interview prep",
-            "switch_careers": "Switch careers — bridge transferable skills, emphasise practical projects",
-            "upskill": "Upskill in current role — intermediate/advanced resources, real-world depth",
-            "freelance": "Freelance — practical, client-ready skills and portfolio pieces",
-            "build_projects": "Build projects — hands-on, project-based learning",
-            "interview_prep": "Interview prep — algorithmic practice, system design, mock interviews",
-            "learn_technology": "Learn a new technology — structured beginner-to-advanced path",
-        }
-        if goals:
-            goal_descs = [goal_map.get(g) or g.replace("_", " ").title() for g in goals]
-            parts.append(f"- **Primary Goal(s):** {'; '.join(goal_descs)}")
+        if result:
+            skill_gap_report.append(result)
+            study_plan.append({"skill": result["skill"], "roadmap": result.get("learning_path", [])})
+            gemini_successes += 1
+        else:
+            # Both attempts failed — use curated fallback for this skill
+            curated_entry = _get_curated_skill_entry(skill)
+            skill_gap_report.append(curated_entry)
+            study_plan.append({"skill": curated_entry["skill"], "roadmap": curated_entry["learning_path"]})
+            curated_fallbacks += 1
+            logger.info(f"[Study Planner] Skill '{skill}' fell through to curated resources")
 
-        # Learning preference
-        prefs = qa.get("learning_preference", [])
-        pref_map = {
-            "video_tutorials": "Video tutorials (prioritise YouTube playlists & video courses)",
-            "hands_on": "Hands-on / project-based (prioritise interactive labs, coding challenges, build-along projects)",
-            "reading": "Reading & documentation (prioritise official docs, books, written tutorials)",
-            "interactive": "Interactive platforms (prioritise Codecademy, freeCodeCamp, LeetCode-style sites)",
-            "mentor": "Mentorship / community (include Discord/community links, mentorship platforms)",
-            "mixed": "Mixed / no strong preference",
-        }
-        if prefs:
-            pref_descs = [pref_map.get(p) or p.replace("_", " ").title() for p in prefs]
-            parts.append(f"- **Learning Style:** {'; '.join(pref_descs)}")
+    logger.info(
+        f"[Study Planner] Completed: {gemini_successes} from Gemini, "
+        f"{curated_fallbacks} from curated fallback"
+    )
 
-        # Time commitment
-        time = qa.get("time_commitment", [])
-        time_map = {
-            "5_hours_week": "~5 hours/week — keep each step concise (micro-learning, short videos, bite-sized docs)",
-            "10_hours_week": "~10 hours/week — moderate depth, one skill at a time",
-            "20_hours_week": "~20 hours/week — immersive roadmap, can handle longer courses",
-            "30_hours_week": "~30 hours/week — intensive bootcamp-style pace",
-            "flexible": "Flexible schedule — provide estimated durations but no strict pacing",
-        }
-        if time:
-            time_descs = [time_map.get(t) or t.replace("_", " ") for t in time]
-            parts.append(f"- **Time Commitment:** {'; '.join(time_descs)}")
-
-        if parts:
-            personalisation_block = (
-                "\n\nUser Profile (from onboarding questionnaire — use this to tailor resource selection, "
-                "difficulty level, resource types, and estimated durations):\n"
-                + "\n".join(parts)
-                + "\n\nIMPORTANT personalisation rules:\n"
-                "• If the user prefers VIDEO learning, make at least 2 out of 3 resources per skill video-based (YouTube, Udemy, Coursera video).\n"
-                "• If the user prefers READING, make at least 2 out of 3 resources documentation or article-based.\n"
-                "• If the user prefers HANDS-ON, include interactive labs, coding challenges, or project-based resources.\n"
-                "• Match est_time values to the user's weekly time commitment (e.g. shorter for 5 hrs/week).\n"
-                "• Adjust difficulty to match the user's goal (beginner-friendly for first-job seekers, advanced for upskill).\n"
-                "• When the user has expressed interest in specific target roles, prioritise resources "
-                "that are most relevant and commonly required for those roles. Frame each skill "
-                "in the context of the interested role(s) so the user understands *why* it matters.\n"
-            )
-
-    prompt = f"""
-Role: Professional Resource Scout & Study Architect.
-
-Context: The user wants to become a **{target_career}** and is missing the following skills: {skills_query}.
-{personalisation_block}
-Task: Convert the skill gaps into a structured learning roadmap with EXACT, DIRECT resource URLs.
-
-RESOURCE DIVERSITY RULES (MUST follow):
-- For each skill, include a **roadmap_url** linking to the matching roadmap.sh page (e.g. https://roadmap.sh/python, https://roadmap.sh/docker, https://roadmap.sh/devops).
-  If no exact roadmap.sh page exists for the skill, use the closest parent roadmap (e.g. https://roadmap.sh/backend for FastAPI).
-- Resources MUST come from a MIX of platforms. Each skill gets exactly 3 resources; each resource MUST be from a DIFFERENT platform.
-  Choose the best resource for each step from any of these (DO NOT favour any single platform):
-    * YouTube channels: freeCodeCamp, Fireship, Traversy Media, Tech With Tim, The Net Ninja, etc.
-    * Course platforms: Udemy, Coursera, edX, Pluralsight, LinkedIn Learning, Boot.dev, Khan Academy
-    * Aggregators: Class Central (link to the specific course page it indexes, not a search page)
-    * Interactive/hands-on: freeCodeCamp, Codecademy, Exercism, HackerRank, LeetCode, Kaggle, Scrimba
-    * Documentation: Official docs, MDN, DevDocs, W3Schools
-    * Open courseware: MIT OCW, Stanford Online
-    * Books/reading: O'Reilly, dev.to, real-world blog posts
-- NEVER put 2+ resources from the same platform within a single skill.
-- Across the ENTIRE study plan, vary platforms — do NOT always pick the same platform for step 3.
-- Pick the highest-rated, most recommended resource regardless of platform.
-
-CRITICAL URL RULES:
-- Every URL MUST be a direct link to the actual resource page, NOT a Google search link or search results page.
-- Documentation URLs must point to the official docs site (e.g. https://docs.python.org, https://react.dev, https://kubernetes.io/docs).
-- YouTube URLs must be direct video or playlist links (e.g. https://www.youtube.com/watch?v=... or https://www.youtube.com/playlist?list=...), NOT youtube.com/results search pages.
-- Course URLs must link to the specific course page (e.g. https://www.coursera.org/learn/machine-learning, https://www.udemy.com/course/...), NOT search/browse pages.
-- NEVER output google.com/search links, youtube.com/results links, or any search-results URL.
-
-Execution Steps:
-1. Search Grounding -- Use live Google Search to discover the exact page URL for each resource.
-2. Verification -- Confirm every URL is a direct page link, not a search or results page.
-3. Actionable Output -- For each skill, provide the roadmap.sh link + exactly three resources forming a "Start to Finish" learning path.
-4. Platform Alternatives -- For EACH resource step, also provide 2-3 **alt_platforms**: alternative places the user can find an equivalent resource. Each entry needs a platform name + direct URL.
-
-Constraint: Output strictly JSON. No conversational preamble.
-
-JSON Schema:
-{{
-  "study_plan": [
-    {{
-      "skill": "Skill Name",
-      "roadmap_url": "https://roadmap.sh/relevant-roadmap",
-      "roadmap": [
-        {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Exact Doc Page Title", "url": "https://exact-docs-site.com/path", "est_time": "Duration",
-          "alt_platforms": [
-            {{"name": "DevDocs", "url": "https://devdocs.io/..."}},
-            {{"name": "W3Schools", "url": "https://www.w3schools.com/..."}}
-          ]
-        }},
-        {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Exact Video/Playlist Title", "url": "https://www.youtube.com/watch?v=XXXXX", "est_time": "Duration",
-          "alt_platforms": [
-            {{"name": "Udemy", "url": "https://www.udemy.com/course/..."}},
-            {{"name": "Coursera", "url": "https://www.coursera.org/learn/..."}}
-          ]
-        }},
-        {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "Exact Course Title", "platform": "Platform Name", "url": "https://platform.com/learn/exact-course", "est_time": "Duration",
-          "alt_platforms": [
-            {{"name": "edX", "url": "https://www.edx.org/learn/..."}},
-            {{"name": "Class Central", "url": "https://www.classcentral.com/course/..."}}
-          ]
-        }}
-      ]
-    }}
-  ]
-}}
-"""
-
-    try:
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                response_mime_type="application/json",
-            ),
-        )
-
-        raw = response.text or ""
-        logger.info(f"[Gemini Study Planner] Raw response length: {len(raw)}")
-        if not raw:
-            return {
-                "study_plan": [],
-                "skill_gap_report": [],
-                "error": "Gemini returned empty response",
-            }
-        data = json.loads(raw)
-
-        study_plan = data.get("study_plan", [])
-
-        # Normalise into skill_gap_report shape the frontend expects
-        skill_gap_report = []
-        for item in study_plan:
-            learning_path = []
-            for step in item.get("roadmap", []):
-                learning_path.append({
-                    "step": step.get("step"),
-                    "label": step.get("label", ""),
-                    "type": step.get("type", "Resource"),
-                    "title": step.get("title", ""),
-                    "url": step.get("url", ""),
-                    "platform": step.get("platform", ""),
-                    "est_time": step.get("est_time", ""),
-                    "cost": "Free",
-                    "alt_platforms": step.get("alt_platforms", []),
-                })
-            skill_gap_report.append({
-                "skill": item.get("skill", "Unknown"),
-                "roadmap_url": item.get("roadmap_url", ""),
-                "learning_path": learning_path,
-            })
-
+    # If at least some results came back, don't set error
+    if skill_gap_report:
         return {
             "study_plan": study_plan,
             "skill_gap_report": skill_gap_report,
         }
 
-    except Exception as exc:
-        traceback.print_exc()
-        logger.error(f"[Gemini Study Planner] Error: {exc}")
-        # Fall through to fallback node
-        return {
-            "study_plan": [],
-            "skill_gap_report": [],
-            "error": f"Gemini search failed: {exc}",
-        }
+    return {
+        "study_plan": [],
+        "skill_gap_report": [],
+        "error": "All Gemini calls failed and no curated resources available",
+    }
 
 
 # ────────────────────────────────────────────────────────
@@ -767,7 +875,127 @@ def validate_urls_node(state: StudyPlannerState) -> dict:
 
 
 # ────────────────────────────────────────────────────────
-# Node 5: Fallback resources (curated, no search links)
+# Node 5: Build schedule summary
+# ────────────────────────────────────────────────────────
+
+# Maps questionnaire time_commitment keys → numeric hours per week
+_TIME_COMMITMENT_HOURS = {
+    "5_hours_week": 5,
+    "10_hours_week": 10,
+    "20_hours_week": 20,
+    "30_hours_week": 30,
+    "flexible": 10,  # sensible default
+}
+
+_DEFAULT_HOURS_PER_WEEK = 10
+
+
+def _parse_est_time_to_hours(est_time: str) -> float:
+    """
+    Convert an est_time string like '3-4 hours', '2 weeks', '6 hours',
+    '1-2 weeks', '10 hours' into a single float of hours.
+
+    Heuristics:
+    - 'X hours' or 'X-Y hours' → average hours
+    - 'X weeks' or 'X-Y weeks' → average weeks × 10 hrs/week
+    - 'X months' → months × 40 hrs
+    - Falls back to 3 hours if unparseable.
+    """
+    if not est_time:
+        return 3.0
+
+    text = est_time.strip().lower()
+
+    # Match patterns like "3-4 hours", "6 hours", "1.5 hours"
+    hours_match = _re.search(r'(\d+(?:\.\d+)?)\s*[-–to]+\s*(\d+(?:\.\d+)?)\s*hour', text)
+    if hours_match:
+        return (float(hours_match.group(1)) + float(hours_match.group(2))) / 2
+
+    single_hours = _re.search(r'(\d+(?:\.\d+)?)\s*hour', text)
+    if single_hours:
+        return float(single_hours.group(1))
+
+    # Match patterns like "2-4 weeks", "1 week"
+    weeks_match = _re.search(r'(\d+(?:\.\d+)?)\s*[-–to]+\s*(\d+(?:\.\d+)?)\s*week', text)
+    if weeks_match:
+        avg_weeks = (float(weeks_match.group(1)) + float(weeks_match.group(2))) / 2
+        return avg_weeks * 10  # assume ~10 hrs/week for a "week" of study
+
+    single_weeks = _re.search(r'(\d+(?:\.\d+)?)\s*week', text)
+    if single_weeks:
+        return float(single_weeks.group(1)) * 10
+
+    # Match months
+    months_match = _re.search(r'(\d+(?:\.\d+)?)\s*month', text)
+    if months_match:
+        return float(months_match.group(1)) * 40
+
+    return 3.0  # default
+
+
+def build_schedule_node(state: StudyPlannerState) -> dict:
+    """
+    Roll up per-step est_time values into a total-hours estimate,
+    then divide by the user's weekly time commitment to produce a
+    concrete schedule summary like '~16 weeks at 10 hrs/week'.
+    """
+    skill_gap_report = state.get("skill_gap_report") or []
+    if not skill_gap_report:
+        return {}
+
+    # Determine hours/week from questionnaire
+    qa = state.get("questionnaire_answers") or {}
+    time_commitments = qa.get("time_commitment", [])
+    if time_commitments and isinstance(time_commitments, list):
+        hours_per_week = _TIME_COMMITMENT_HOURS.get(time_commitments[0], _DEFAULT_HOURS_PER_WEEK)
+    elif isinstance(time_commitments, str):
+        hours_per_week = _TIME_COMMITMENT_HOURS.get(time_commitments, _DEFAULT_HOURS_PER_WEEK)
+    else:
+        hours_per_week = _DEFAULT_HOURS_PER_WEEK
+
+    # Sum up per-skill
+    per_skill: list[dict] = []
+    total_hours = 0.0
+
+    for skill_entry in skill_gap_report:
+        skill_name = skill_entry.get("skill", "Unknown")
+        skill_hours = 0.0
+
+        for step in skill_entry.get("learning_path", []):
+            skill_hours += _parse_est_time_to_hours(step.get("est_time", ""))
+
+        skill_weeks = skill_hours / hours_per_week if hours_per_week > 0 else 0
+        per_skill.append({
+            "skill": skill_name,
+            "est_hours": round(skill_hours, 1),
+            "est_weeks": round(skill_weeks, 1),
+        })
+        total_hours += skill_hours
+
+    total_weeks = total_hours / hours_per_week if hours_per_week > 0 else 0
+
+    schedule_summary = {
+        "total_hours": round(total_hours, 1),
+        "hours_per_week": hours_per_week,
+        "total_weeks": round(total_weeks, 1),
+        "per_skill": per_skill,
+        "note": (
+            f"At {hours_per_week} hrs/week, this plan will take approximately "
+            f"{math.ceil(total_weeks)} weeks (~{round(total_weeks / 4.3, 1)} months). "
+            f"Skills are ordered by prerequisite — complete them in sequence for best results."
+        ),
+    }
+
+    logger.info(
+        f"[Study Planner] Schedule: {round(total_hours, 1)} total hours, "
+        f"~{math.ceil(total_weeks)} weeks at {hours_per_week} hrs/week"
+    )
+
+    return {"schedule_summary": schedule_summary}
+
+
+# ────────────────────────────────────────────────────────
+# Node 6: Fallback resources (curated, no search links)
 # ────────────────────────────────────────────────────────
 
 def fallback_resources_node(state: StudyPlannerState) -> dict:

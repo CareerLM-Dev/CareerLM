@@ -2,10 +2,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
+import GoogleCalendarSync from "./GoogleCalendarSync";
 import {
   BookOpen, ExternalLink, FileText, GraduationCap,
   ChevronDown, ChevronUp, Star, TrendingUp, Plus,
   RefreshCw, Sparkles, Target, Layers, Map,
+  Clock, CalendarDays,
 } from "lucide-react";
 
 function StudyPlanner({ resumeData }) {
@@ -52,6 +54,7 @@ function StudyPlanner({ resumeData }) {
             plans[p.target_career] = {
               skill_gap_report: p.skill_gap_report,
               study_plan: p.study_plan,
+              schedule_summary: p.schedule_summary || null,
               cached_at: p.cached_at,
             };
           }
@@ -138,6 +141,7 @@ function StudyPlanner({ resumeData }) {
           [careerName]: {
             skill_gap_report: data.skill_gap_report,
             study_plan: data.study_plan,
+            schedule_summary: data.schedule_summary || null,
             cached_at: new Date().toISOString(),
           },
         }));
@@ -466,7 +470,7 @@ function StudyPlanner({ resumeData }) {
 
       {/* Summary Cards */}
       {activePlan && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-primary">{skillReport.length}</div>
             <div className="text-sm text-muted-foreground">Skills to Learn</div>
@@ -474,6 +478,67 @@ function StudyPlanner({ resumeData }) {
           <div className="bg-card border border-border rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-primary">{totalResources}</div>
             <div className="text-sm text-muted-foreground">Resources</div>
+          </div>
+          {activePlan.schedule_summary && (
+            <>
+              <div className="bg-card border border-border rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-primary flex items-center justify-center gap-1">
+                  <Clock className="w-5 h-5" />
+                  {activePlan.schedule_summary.total_hours}h
+                </div>
+                <div className="text-sm text-muted-foreground">Total Hours</div>
+              </div>
+              <div className="bg-card border border-border rounded-lg p-4 text-center">
+                <div className="text-2xl font-bold text-primary flex items-center justify-center gap-1">
+                  <CalendarDays className="w-5 h-5" />
+                  {activePlan.schedule_summary.total_weeks}w
+                </div>
+                <div className="text-sm text-muted-foreground">Est. Duration</div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Schedule Summary & Google Calendar */}
+      {activePlan?.schedule_summary && (
+        <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-5 h-5 text-primary" />
+              <h3 className="font-semibold">Study Schedule</h3>
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                {activePlan.schedule_summary.hours_per_week}h/week
+              </span>
+            </div>
+          </div>
+
+          {/* Per-skill breakdown */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {activePlan.schedule_summary.skills?.map((s, i) => (
+              <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 border border-border">
+                <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                  {i + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{s.skill}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {s.hours}h &middot; {s.sessions} session{s.sessions !== 1 ? 's' : ''}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Google Calendar Sync */}
+          <div className="pt-2 border-t border-border">
+            <p className="text-xs text-muted-foreground mb-3">
+              Add your study sessions directly to Google Calendar. Events are spread across weekdays based on your time commitment.
+            </p>
+            <GoogleCalendarSync
+              targetCareer={activeCareer}
+              disabled={loading}
+            />
           </div>
         </div>
       )}

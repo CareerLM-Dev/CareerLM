@@ -133,9 +133,32 @@ CAREER_CLUSTERS = {
 }
 
 
+# Short skill names (≤2 chars) that need stricter matching context
+# to avoid false positives (e.g. "R" matching in "R&D", "HR", etc.)
+_SHORT_SKILL_CONTEXT = {
+    "r": [
+        r"\br\s+(programming|language|studio|script|markdown|package|cran|tidyverse|ggplot|dplyr|shiny)",
+        r"(programming|language|statistical|statistics|data\s+analysis|analysis|modeling|visualization)\s+(in|with|using)\s+r\b",
+        r"\br\s*[,;/|]\s*(python|julia|matlab|sas|spss|stata)",
+        r"(python|julia|matlab|sas|spss|stata)\s*[,;/|]\s*r\b",
+        r"\brstudio\b",
+        r"\bcran\b",
+    ],
+    "c": [
+        r"\bc\s+(programming|language)",
+        r"(programming|language)\s+(in|with)\s+c\b",
+        r"\bc\s*[,;/|]\s*(c\+\+|java|python|assembly)",
+        r"(c\+\+|assembly)\s*[,;/|]\s*c\b",
+        r"\bc/c\+\+",
+    ],
+}
+
+
 def extract_skills_from_resume(resume_text: str) -> list:
     """
     Extract skills from resume text using pattern matching.
+    Uses word-boundary matching and contextual patterns for short skills
+    to avoid false positives (e.g. 'R' from 'R&D').
     
     Args:
         resume_text: The extracted resume text.
@@ -143,6 +166,7 @@ def extract_skills_from_resume(resume_text: str) -> list:
     Returns:
         List of found skills.
     """
+    import re
     resume_lower = resume_text.lower()
     found_skills = set()
     
@@ -151,9 +175,20 @@ def extract_skills_from_resume(resume_text: str) -> list:
     for cluster_data in CAREER_CLUSTERS.values():
         all_skills.update(cluster_data["skills"])
     
-    # Find skills in resume
+    # Find skills in resume with proper boundary matching
     for skill in all_skills:
-        if skill.lower() in resume_lower:
+        skill_lower = skill.lower()
+
+        # Short skills (≤2 chars) need contextual matching to avoid false positives
+        if len(skill_lower) <= 2 and skill_lower in _SHORT_SKILL_CONTEXT:
+            context_patterns = _SHORT_SKILL_CONTEXT[skill_lower]
+            if any(re.search(p, resume_lower) for p in context_patterns):
+                found_skills.add(skill)
+            continue
+
+        # Use word-boundary matching for all skills
+        pattern = r"(?<![a-zA-Z])" + re.escape(skill_lower) + r"(?![a-zA-Z])"
+        if re.search(pattern, resume_lower):
             found_skills.add(skill)
     
     return list(found_skills)

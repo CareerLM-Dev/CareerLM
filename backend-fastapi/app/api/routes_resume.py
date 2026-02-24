@@ -22,6 +22,33 @@ from supabase_client import supabase
 router = APIRouter()
 
 
+def ensure_user_row(user_id: str):
+    """Make sure a row exists in the `user` table for this auth user.
+    Avoids FK violations when inserting into `resumes` or other tables."""
+    try:
+        existing = (
+            supabase.table("user")
+            .select("id")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not existing.data:
+            supabase.table("user").insert({
+                "id": user_id,
+                "name": "User",
+                "email": None,
+                "password": None,
+                "status": "student",
+                "questionnaire_answered": False,
+                "questionnaire_answers": None,
+            }).execute()
+            logger.info(f"Auto-created user row for {user_id}")
+    except Exception as e:
+        # Row might already exist (race condition) — ignore
+        logger.debug(f"ensure_user_row {user_id}: {e}")
+
+
 async def get_current_user_optional(authorization: Optional[str] = Header(None)):
     """Extract user from JWT token (returns None if not authenticated)."""
     if not authorization or not authorization.startswith("Bearer "):
@@ -118,6 +145,9 @@ async def optimize_resume(
         
         "summary": "",  # Keep for backward compatibility
     }
+
+    # Ensure user row exists (prevents FK violation on first use)
+    ensure_user_row(user_id)
 
     # Insert/Update Supabase
     existing_resume = supabase.table("resumes").select("*").eq("user_id", user_id).execute()
@@ -301,12 +331,33 @@ async def get_study_materials_cache(
         )
 
         if result.data:
+            # Load questionnaire answers once for schedule computation
+            questionnaire_answers = None
+            if user:
+                try:
+                    q_result = (
+                        supabase.table("user")
+                        .select("questionnaire_answers")
+                        .eq("id", user.id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if q_result.data and q_result.data[0].get("questionnaire_answers"):
+                        questionnaire_answers = q_result.data[0]["questionnaire_answers"]
+                except Exception:
+                    pass
+
+            from app.services.google_calendar import compute_schedule_summary
+
             plans = []
             for row in result.data:
+                sgr = row.get("skill_gap_report", [])
+                sched = compute_schedule_summary(sgr, questionnaire_answers) if sgr else None
                 plans.append({
                     "target_career": row.get("target_career", ""),
-                    "skill_gap_report": row.get("skill_gap_report", []),
+                    "skill_gap_report": sgr,
                     "study_plan": [],
+                    "schedule_summary": sched,
                     "cached_at": row.get("created_at"),
                 })
             return JSONResponse({
@@ -576,11 +627,19 @@ async def generate_study_materials_simple(
             except Exception as cache_err:
                 logger.warning(f"Failed to cache study materials: {cache_err}")
 
+        # Recompute schedule_summary with consistent field names
+        from app.services.google_calendar import compute_schedule_summary
+        schedule_summary = compute_schedule_summary(
+            result.get("skill_gap_report", []),
+            questionnaire_answers,
+        )
+
         return JSONResponse({
             "success": True,
             "target_career": result.get("target_career", target_career),
             "skill_gap_report": result.get("skill_gap_report", []),
             "study_plan": result.get("study_plan", []),
+            "schedule_summary": schedule_summary,
         })
 
     except Exception as e:
@@ -591,5 +650,323 @@ async def generate_study_materials_simple(
                 "success": False,
                 "error": str(e),
                 "message": "Failed to generate study materials",
+            },
+        )
+
+
+# ────────────────────────────────────────────────────────
+# Google Calendar sync endpoints
+# ────────────────────────────────────────────────────────
+
+@router.get("/calendar-sync-status")
+async def get_calendar_sync_status(
+    target_career: str = Query(...),
+    user=Depends(get_current_user_optional),
+):
+    """
+    Check if a study plan has been synced to Google Calendar and whether
+    the user's questionnaire preferences have changed since the last sync.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Authentication required"},
+        )
+
+    try:
+        # 1. Load sync record
+        sync_result = (
+            supabase.table("calendar_sync")
+            .select("*")
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .limit(1)
+            .execute()
+        )
+
+        if not sync_result.data:
+            return JSONResponse({
+                "success": True,
+                "synced": False,
+            })
+
+        sync_row = sync_result.data[0]
+
+        # 2. Load current questionnaire answers
+        current_qa = None
+        try:
+            q_result = (
+                supabase.table("user")
+                .select("questionnaire_answers")
+                .eq("id", user.id)
+                .limit(1)
+                .execute()
+            )
+            if q_result.data:
+                current_qa = q_result.data[0].get("questionnaire_answers")
+        except Exception:
+            pass
+
+        # 3. Check if preferences changed
+        snapshot = sync_row.get("questionnaire_snapshot")
+        preferences_changed = _preferences_changed(snapshot, current_qa)
+
+        return JSONResponse({
+            "success": True,
+            "synced": True,
+            "event_count": sync_row.get("event_count", 0),
+            "synced_at": sync_row.get("synced_at"),
+            "preferences_changed": preferences_changed,
+        })
+
+    except Exception as e:
+        logger.warning(f"Calendar sync status error: {e}")
+        return JSONResponse({"success": True, "synced": False})
+
+
+def _preferences_changed(snapshot: dict | None, current: dict | None) -> bool:
+    """Compare questionnaire snapshots to detect preference changes."""
+    if snapshot is None and current is None:
+        return False
+    if snapshot is None or current is None:
+        return True
+    # Compare the fields that affect scheduling
+    schedule_fields = ["time_commitment", "learning_preference"]
+    for field in schedule_fields:
+        if snapshot.get(field) != current.get(field):
+            return True
+    return False
+
+
+@router.post("/sync-to-google-calendar")
+async def sync_to_google_calendar(
+    target_career: str = Form(...),
+    google_access_token: str = Form(...),
+    timezone: str = Form("Asia/Kolkata"),
+    user=Depends(get_current_user_optional),
+):
+    """
+    Sync a user's study plan to Google Calendar.
+
+    - On first sync: creates events and saves their IDs in `calendar_sync`.
+    - On re-sync: deletes old events from Google Calendar first, then creates
+      new ones (no duplicates).
+    - Stores a snapshot of the questionnaire answers used so the frontend
+      can detect when preferences change.
+    """
+    try:
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "error": "Authentication required"},
+            )
+
+        # 1. Load cached study plan for this career
+        cache_result = (
+            supabase.table("study_materials_cache")
+            .select("skill_gap_report")
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .limit(1)
+            .execute()
+        )
+
+        if not cache_result.data or not cache_result.data[0].get("skill_gap_report"):
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "error": f"No cached study plan found for '{target_career}'. Generate one first.",
+                },
+            )
+
+        skill_gap_report = cache_result.data[0]["skill_gap_report"]
+
+        # 2. Load questionnaire answers
+        questionnaire_answers = None
+        try:
+            q_result = (
+                supabase.table("user")
+                .select("questionnaire_answers")
+                .eq("id", user.id)
+                .limit(1)
+                .execute()
+            )
+            if q_result.data and q_result.data[0].get("questionnaire_answers"):
+                questionnaire_answers = q_result.data[0]["questionnaire_answers"]
+        except Exception as qa_err:
+            logger.warning(f"Failed to load questionnaire answers: {qa_err}")
+
+        # 3. Delete old events if this career was synced before
+        from app.services.google_calendar import (
+            build_calendar_events,
+            delete_events_from_google_calendar,
+            sync_events_to_google_calendar,
+        )
+
+        old_sync = (
+            supabase.table("calendar_sync")
+            .select("event_ids")
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .limit(1)
+            .execute()
+        )
+
+        old_event_ids = []
+        if old_sync.data and old_sync.data[0].get("event_ids"):
+            old_event_ids = old_sync.data[0]["event_ids"]
+
+        if old_event_ids:
+            delete_result = await delete_events_from_google_calendar(
+                access_token=google_access_token,
+                event_ids=old_event_ids,
+            )
+            logger.info(
+                f"Deleted {delete_result['deleted_count']} old events for "
+                f"user {user.id} / career {target_career}"
+            )
+
+        # 4. Build new calendar events
+        events = build_calendar_events(
+            skill_gap_report=skill_gap_report,
+            questionnaire_answers=questionnaire_answers,
+            target_career=target_career,
+            timezone=timezone,
+        )
+
+        if not events:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "No events to create from this study plan"},
+            )
+
+        # 5. Push to Google Calendar
+        result = await sync_events_to_google_calendar(
+            access_token=google_access_token,
+            events=events,
+        )
+
+        # 6. Persist sync state (upsert)
+        new_event_ids = [e["id"] for e in result.get("created_events", []) if e.get("id")]
+        sync_data = {
+            "user_id": user.id,
+            "target_career": target_career,
+            "event_ids": new_event_ids,
+            "event_count": result["created_count"],
+            "timezone": timezone,
+            "questionnaire_snapshot": questionnaire_answers,
+            "synced_at": datetime.utcnow().isoformat(),
+        }
+
+        try:
+            # Upsert: delete then insert (Supabase doesn't have native upsert on composite keys easily)
+            supabase.table("calendar_sync") \
+                .delete() \
+                .eq("user_id", user.id) \
+                .eq("target_career", target_career) \
+                .execute()
+            supabase.table("calendar_sync").insert(sync_data).execute()
+        except Exception as db_err:
+            logger.warning(f"Failed to persist calendar sync state: {db_err}")
+
+        logger.info(
+            f"Calendar sync for user {user.id}: "
+            f"{result['created_count']}/{result['total']} events created"
+        )
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Created {result['created_count']} study sessions in Google Calendar",
+            "replaced_old": len(old_event_ids) > 0,
+            "old_events_deleted": len(old_event_ids),
+            **result,
+        })
+
+    except Exception as e:
+        logger.exception(f"Google Calendar sync error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to sync to Google Calendar",
+            },
+        )
+
+
+@router.post("/remove-from-google-calendar")
+async def remove_from_google_calendar(
+    target_career: str = Form(...),
+    google_access_token: str = Form(...),
+    user=Depends(get_current_user_optional),
+):
+    """
+    Remove previously synced study events from Google Calendar
+    and clear the sync record from the database.
+    """
+    try:
+        if not user:
+            return JSONResponse(
+                status_code=401,
+                content={"success": False, "error": "Authentication required"},
+            )
+
+        # 1. Load stored event IDs
+        sync_result = (
+            supabase.table("calendar_sync")
+            .select("event_ids")
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .limit(1)
+            .execute()
+        )
+
+        if not sync_result.data or not sync_result.data[0].get("event_ids"):
+            return JSONResponse({
+                "success": True,
+                "message": "No synced events found to remove",
+                "deleted_count": 0,
+            })
+
+        event_ids = sync_result.data[0]["event_ids"]
+
+        # 2. Delete events from Google Calendar
+        from app.services.google_calendar import delete_events_from_google_calendar
+
+        delete_result = await delete_events_from_google_calendar(
+            access_token=google_access_token,
+            event_ids=event_ids,
+        )
+
+        # 3. Remove sync record from DB
+        try:
+            supabase.table("calendar_sync") \
+                .delete() \
+                .eq("user_id", user.id) \
+                .eq("target_career", target_career) \
+                .execute()
+        except Exception as db_err:
+            logger.warning(f"Failed to delete calendar_sync record: {db_err}")
+
+        logger.info(
+            f"Removed {delete_result['deleted_count']}/{len(event_ids)} "
+            f"calendar events for user {user.id} / career {target_career}"
+        )
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Removed {delete_result['deleted_count']} events from Google Calendar",
+            **delete_result,
+        })
+
+    except Exception as e:
+        logger.exception(f"Google Calendar remove error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to remove events from Google Calendar",
             },
         )

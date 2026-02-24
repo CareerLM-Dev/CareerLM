@@ -358,7 +358,7 @@ function Profile() {
                       {question.options.map((option) => (
                         <label
                           key={option.value}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                          className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
                             draftValues.includes(option.value)
                               ? "border-primary bg-primary/5 text-foreground"
                               : "border-border bg-background hover:border-primary/40 text-muted-foreground"

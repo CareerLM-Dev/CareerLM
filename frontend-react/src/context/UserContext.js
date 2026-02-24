@@ -36,8 +36,11 @@ export const UserProvider = ({ children }) => {
         applySession(currentSession);
         setLoading(false);
         initialised.current = true;
-        // Note: OAuth user-row creation is handled by AuthCallback, not here.
-        // This keeps the flow linear and avoids race conditions.
+
+        // Auto-create user row for first-time sign-ups (all providers)
+        if (event === "SIGNED_IN" && currentSession?.user) {
+          ensureUserRow(currentSession.user);
+        }
       }, 0);
     });
 
@@ -68,6 +71,7 @@ export const UserProvider = ({ children }) => {
 
     return () => subscription.unsubscribe();
   }, [applySession]); // ensureUserRow removed — owned by AuthCallback
+  }, [applySession, ensureUserRow]);
 
   const signOut = async () => {
     try {
