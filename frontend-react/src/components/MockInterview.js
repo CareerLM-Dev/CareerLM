@@ -412,27 +412,27 @@ function MockInterview({ resumeData }) {
   };
   
   // Go to previous question
-  const goToPreviousQuestion = async () => {
-    stopListening();
-    captureCurrentQuestionTime();
+  // const goToPreviousQuestion = async () => {
+  //   stopListening();
+  //   captureCurrentQuestionTime();
     
-    if (currentQuestionIndex > 0) {
-      // Save current answer before going back
-      const newAnswers = [...answers];
-      newAnswers[currentQuestionIndex] = currentAnswer;
-      setAnswers(newAnswers);
+  //   if (currentQuestionIndex > 0) {
+  //     // Save current answer before going back
+  //     const newAnswers = [...answers];
+  //     newAnswers[currentQuestionIndex] = currentAnswer;
+  //     setAnswers(newAnswers);
       
-      // Move to previous question
-      const prevIndex = currentQuestionIndex - 1;
-      setCurrentQuestionIndex(prevIndex);
-      setCurrentAnswer(answers[prevIndex] || "");
+  //     // Move to previous question
+  //     const prevIndex = currentQuestionIndex - 1;
+  //     setCurrentQuestionIndex(prevIndex);
+  //     setCurrentAnswer(answers[prevIndex] || "");
       
-      // Optionally speak the previous question
-      if (questions[prevIndex]?.question) {
-        await speakText(questions[prevIndex].question);
-      }
-    }
-  };
+  //     // Optionally speak the previous question
+  //     if (questions[prevIndex]?.question) {
+  //       await speakText(questions[prevIndex].question);
+  //     }
+  //   }
+  // };
   
   // Quit interview and return to setup
   const quitInterview = () => {
@@ -780,16 +780,16 @@ function MockInterview({ resumeData }) {
               <span className="text-xs text-primary animate-pulse">Listening... text appears as you speak</span>
             )}
             
-            {currentQuestionIndex > 0 && (
+            {/* {currentQuestionIndex > 0 && (
               <button
-                onClick={goToPreviousQuestion}
+                onClick={}
                 disabled={answers[currentQuestionIndex - 1] && answers[currentQuestionIndex - 1] !== "[Skipped]"}
                 className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 title={answers[currentQuestionIndex - 1] && answers[currentQuestionIndex - 1] !== "[Skipped]" ? "Cannot go back to answered questions" : ""}
               >
                 ← Previous
               </button>
-            )}
+            )} */}
             
             <button
               onClick={submitAnswer}
