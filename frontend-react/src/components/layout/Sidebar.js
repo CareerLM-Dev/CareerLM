@@ -8,6 +8,7 @@ import {
   Mic, 
   Mail, 
   BookOpen,
+  Briefcase,
   PanelLeftClose,
   PanelLeftOpen
 } from "lucide-react";
@@ -49,6 +50,11 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
       id: "study_planner",
       label: "Study Planner",
       icon: BookOpen,
+    },
+    {
+      id: "job_matcher",
+      label: "Job Matcher",
+      icon: Briefcase,
     },
   ];
 

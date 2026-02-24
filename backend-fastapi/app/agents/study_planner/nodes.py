@@ -7,14 +7,24 @@ live, verified learning resources for each missing skill.
 import json
 import logging
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+
+import requests
+
 from .state import StudyPlannerState
-from app.agents.llm_config import GEMINI_CLIENT, GEMINI_MODEL
+from app.agents.llm_config import GEMINI_CLIENT, GEMINI_MODEL, GROQ_CLIENT, GROQ_DEFAULT_MODEL
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+# ────────────────────────────────────────────────────────
+# URL validation timeout (seconds) for HEAD requests
+# ────────────────────────────────────────────────────────
+URL_CHECK_TIMEOUT = 5
+URL_CHECK_MAX_WORKERS = 10
 
 
 def validate_input_node(state: StudyPlannerState) -> dict:
@@ -43,6 +53,84 @@ def validate_input_node(state: StudyPlannerState) -> dict:
         "missing_skills": clean_skills,
     }
 
+
+# ────────────────────────────────────────────────────────
+# Node 2: Sequence skills by prerequisite dependency
+# ────────────────────────────────────────────────────────
+
+def sequence_skills_node(state: StudyPlannerState) -> dict:
+    """
+    Use an LLM to order the missing skills by prerequisite dependency.
+    Skills that are foundations (e.g. Python) come before skills that
+    depend on them (e.g. Django, FastAPI).
+    """
+    if state.get("error"):
+        return {}
+
+    missing_skills = state["missing_skills"]
+
+    # If 1 skill, no ordering needed
+    if len(missing_skills) <= 1:
+        return {"ordered_skills": missing_skills}
+
+    skills_list = ", ".join(missing_skills)
+
+    prompt = f"""You are an expert curriculum designer. Given these skills a student needs to learn:
+
+{skills_list}
+
+Order them from first-to-learn to last-to-learn based on prerequisite dependencies.
+A foundational skill (e.g. Python, HTML, SQL) should come before any skill that builds on it (e.g. Django, React, PostgreSQL).
+
+Rules:
+- Return ONLY a JSON array of the skill names in the correct learning order.
+- Use the EXACT skill names provided — do not rename, merge, or add skills.
+- If two skills are independent, keep their relative order.
+
+Example input: "Django, Python, REST API, Docker"
+Example output: ["Python", "REST API", "Django", "Docker"]
+
+Output ONLY the JSON array, nothing else."""
+
+    try:
+        response = GROQ_CLIENT.chat.completions.create(
+            model=GROQ_DEFAULT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=300,
+        )
+        content = response.choices[0].message.content
+        if not content:
+            logger.warning("[Study Planner] Skill ordering returned empty, using original order")
+            return {"ordered_skills": missing_skills}
+        raw = content.strip()
+
+        # Extract JSON array from response
+        start = raw.find("[")
+        end = raw.rfind("]") + 1
+        if start != -1 and end > start:
+            ordered = json.loads(raw[start:end])
+            # Validate: must contain exactly the same skills
+            ordered_lower = {s.lower() for s in ordered}
+            original_lower = {s.lower() for s in missing_skills}
+            if ordered_lower == original_lower:
+                # Map back to original casing
+                original_map = {s.lower(): s for s in missing_skills}
+                ordered_skills = [original_map[s.lower()] for s in ordered]
+                logger.info(f"[Study Planner] Skills ordered: {ordered_skills}")
+                return {"ordered_skills": ordered_skills, "missing_skills": ordered_skills}
+
+        logger.warning("[Study Planner] Skill ordering response invalid, using original order")
+        return {"ordered_skills": missing_skills}
+
+    except Exception as exc:
+        logger.warning(f"[Study Planner] Skill ordering failed ({exc}), using original order")
+        return {"ordered_skills": missing_skills}
+
+
+# ────────────────────────────────────────────────────────
+# Node 3: Fetch live resources via Gemini + Google Search
+# ────────────────────────────────────────────────────────
 
 def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     """
@@ -89,7 +177,7 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
             "learn_technology": "Learn a new technology — structured beginner-to-advanced path",
         }
         if goals:
-            goal_descs = [goal_map.get(g, g.replace("_", " ").title()) for g in goals]
+            goal_descs = [goal_map.get(g) or g.replace("_", " ").title() for g in goals]
             parts.append(f"- **Primary Goal(s):** {'; '.join(goal_descs)}")
 
         # Learning preference
@@ -103,7 +191,7 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
             "mixed": "Mixed / no strong preference",
         }
         if prefs:
-            pref_descs = [pref_map.get(p, p.replace("_", " ").title()) for p in prefs]
+            pref_descs = [pref_map.get(p) or p.replace("_", " ").title() for p in prefs]
             parts.append(f"- **Learning Style:** {'; '.join(pref_descs)}")
 
         # Time commitment
@@ -116,7 +204,7 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
             "flexible": "Flexible schedule — provide estimated durations but no strict pacing",
         }
         if time:
-            time_descs = [time_map.get(t, t.replace("_", " ")) for t in time]
+            time_descs = [time_map.get(t) or t.replace("_", " ") for t in time]
             parts.append(f"- **Time Commitment:** {'; '.join(time_descs)}")
 
         if parts:
@@ -214,8 +302,14 @@ JSON Schema:
             ),
         )
 
-        raw = response.text
+        raw = response.text or ""
         logger.info(f"[Gemini Study Planner] Raw response length: {len(raw)}")
+        if not raw:
+            return {
+                "study_plan": [],
+                "skill_gap_report": [],
+                "error": "Gemini returned empty response",
+            }
         data = json.loads(raw)
 
         study_plan = data.get("study_plan", [])
@@ -257,6 +351,10 @@ JSON Schema:
             "error": f"Gemini search failed: {exc}",
         }
 
+
+# ────────────────────────────────────────────────────────
+# Static resource maps
+# ────────────────────────────────────────────────────────
 
 # Well-known roadmap.sh mappings for common skills / careers
 KNOWN_ROADMAPS = {
@@ -304,7 +402,7 @@ def _get_roadmap_url(skill: str) -> str:
     key = skill.strip().lower()
     if key in KNOWN_ROADMAPS:
         return KNOWN_ROADMAPS[key]
-    return f"https://roadmap.sh/best-practices"
+    return "https://roadmap.sh/best-practices"
 
 
 # Well-known official documentation sites for common technologies
@@ -362,14 +460,320 @@ def _get_doc_url(skill: str) -> str:
     key = skill.strip().lower()
     if key in KNOWN_DOCS:
         return KNOWN_DOCS[key]
-    # DevDocs covers many technologies with direct pages
     return f"https://devdocs.io/{key.replace(' ', '-')}/"
 
 
+# ────────────────────────────────────────────────────────
+# Curated fallback resources — DIRECT URLs, no search links
+# Each skill maps to 3 verified, specific resource URLs
+# covering: Documentation → Video → Hands-on
+# ────────────────────────────────────────────────────────
+CURATED_RESOURCES = {
+    "python": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "The Python Tutorial (Official Docs)", "url": "https://docs.python.org/3/tutorial/", "est_time": "3-4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Real Python", "url": "https://realpython.com/python-first-steps/"}, {"name": "W3Schools", "url": "https://www.w3schools.com/python/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Python for Beginners – Full Course (Programming with Mosh)", "url": "https://www.youtube.com/watch?v=_uQrJ0TkZlc", "est_time": "6 hours", "cost": "Free",
+         "alt_platforms": [{"name": "freeCodeCamp", "url": "https://www.youtube.com/watch?v=rfscVS0vtbw"}, {"name": "Corey Schafer", "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTt2d9bfVyTiXJA-UTHn6WwU"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Python Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/python", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Codecademy", "url": "https://www.codecademy.com/learn/learn-python-3"}, {"name": "HackerRank", "url": "https://www.hackerrank.com/domains/python"}]},
+    ],
+    "javascript": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "JavaScript Guide (MDN Web Docs)", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide", "est_time": "3-4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "javascript.info", "url": "https://javascript.info/"}, {"name": "W3Schools", "url": "https://www.w3schools.com/js/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "JavaScript Full Course for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=PkZNo7MFNFg", "est_time": "3.5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Traversy Media", "url": "https://www.youtube.com/watch?v=hdI2bqOjy3c"}, {"name": "Fireship", "url": "https://www.youtube.com/watch?v=lkIFF4maKMU"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "JavaScript Algorithms and Data Structures (freeCodeCamp)", "platform": "freeCodeCamp", "url": "https://www.freecodecamp.org/learn/javascript-algorithms-and-data-structures/", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Exercism", "url": "https://exercism.org/tracks/javascript"}, {"name": "Codecademy", "url": "https://www.codecademy.com/learn/introduction-to-javascript"}]},
+    ],
+    "react": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "React Quick Start (Official Docs)", "url": "https://react.dev/learn", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "W3Schools", "url": "https://www.w3schools.com/react/"}, {"name": "MDN", "url": "https://developer.mozilla.org/en-US/docs/Learn/Tools_and_testing/Client-side_JavaScript_frameworks/React_getting_started"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "React Course for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=bMknfKXIFA8", "est_time": "12 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Traversy Media", "url": "https://www.youtube.com/watch?v=LDB4uaJ87e0"}, {"name": "Net Ninja", "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9gZD-Tvwfod2gaISzfRiP9d"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Learn React (Scrimba)", "platform": "Scrimba", "url": "https://scrimba.com/learn/learnreact", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Codecademy", "url": "https://www.codecademy.com/learn/react-101"}, {"name": "freeCodeCamp", "url": "https://www.freecodecamp.org/learn/front-end-development-libraries/#react"}]},
+    ],
+    "docker": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Docker Get Started Guide", "url": "https://docs.docker.com/get-started/", "est_time": "2 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Docker Labs", "url": "https://github.com/docker/labs"}, {"name": "DevDocs", "url": "https://devdocs.io/docker/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Docker Tutorial for Beginners (TechWorld with Nana)", "url": "https://www.youtube.com/watch?v=3c-iBn73dDE", "est_time": "3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "freeCodeCamp", "url": "https://www.youtube.com/watch?v=fqMOX6JJhGo"}, {"name": "Fireship", "url": "https://www.youtube.com/watch?v=gAkwW2tuIqE"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Play with Docker (Docker Labs)", "platform": "Docker", "url": "https://labs.play-with-docker.com/", "est_time": "1-2 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "KodeKloud", "url": "https://kodekloud.com/courses/docker-for-the-absolute-beginner/"}, {"name": "Katacoda (O'Reilly)", "url": "https://www.oreilly.com/"}]},
+    ],
+    "sql": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "SQL Tutorial (W3Schools)", "url": "https://www.w3schools.com/sql/", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "SQLBolt", "url": "https://sqlbolt.com/"}, {"name": "Mode SQL Tutorial", "url": "https://mode.com/sql-tutorial/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "SQL Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=HXV3zeQKqGY", "est_time": "4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Programming with Mosh", "url": "https://www.youtube.com/watch?v=7S_tz1z_5bA"}, {"name": "Fireship", "url": "https://www.youtube.com/watch?v=zsjvFFKOm3c"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "SQLZoo Interactive Exercises", "platform": "SQLZoo", "url": "https://sqlzoo.net/wiki/SQL_Tutorial", "est_time": "1-2 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "HackerRank SQL", "url": "https://www.hackerrank.com/domains/sql"}, {"name": "LeetCode Database", "url": "https://leetcode.com/problemset/database/"}]},
+    ],
+    "git": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Pro Git Book (Official)", "url": "https://git-scm.com/book/en/v2", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Atlassian Git Tutorial", "url": "https://www.atlassian.com/git/tutorials"}, {"name": "GitHub Docs", "url": "https://docs.github.com/en/get-started/using-git"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Git and GitHub for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=RGOj5yH7evk", "est_time": "1 hour", "cost": "Free",
+         "alt_platforms": [{"name": "Fireship", "url": "https://www.youtube.com/watch?v=HkdAHXoRtos"}, {"name": "Traversy Media", "url": "https://www.youtube.com/watch?v=SWYqp7iY_Tc"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Learn Git Branching", "platform": "learngitbranching.js.org", "url": "https://learngitbranching.js.org/", "est_time": "3-5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "GitHub Skills", "url": "https://skills.github.com/"}, {"name": "Exercism", "url": "https://exercism.org/"}]},
+    ],
+    "java": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "The Java Tutorials (Oracle)", "url": "https://docs.oracle.com/javase/tutorial/", "est_time": "3-4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "W3Schools", "url": "https://www.w3schools.com/java/"}, {"name": "Dev.java", "url": "https://dev.java/learn/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Java Full Course for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=GoXwIVyNvX0", "est_time": "10 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Programming with Mosh", "url": "https://www.youtube.com/watch?v=eIrMbAQSU34"}, {"name": "Bro Code", "url": "https://www.youtube.com/watch?v=xk4_1vDrzzo"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Java Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/java", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "HackerRank", "url": "https://www.hackerrank.com/domains/java"}, {"name": "Codecademy", "url": "https://www.codecademy.com/learn/learn-java"}]},
+    ],
+    "typescript": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "TypeScript Handbook (Official)", "url": "https://www.typescriptlang.org/docs/handbook/intro.html", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "TypeScript Deep Dive", "url": "https://basarat.gitbook.io/typescript/"}, {"name": "W3Schools", "url": "https://www.w3schools.com/typescript/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "TypeScript Full Course (Net Ninja)", "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9gUgr39Q_yD6v-bSyMwKPUI", "est_time": "3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "freeCodeCamp", "url": "https://www.youtube.com/watch?v=30LWjhZzg50"}, {"name": "Fireship", "url": "https://www.youtube.com/watch?v=zQnBQ4tB3ZA"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "TypeScript Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/typescript", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Type Challenges", "url": "https://github.com/type-challenges/type-challenges"}, {"name": "Codecademy", "url": "https://www.codecademy.com/learn/learn-typescript"}]},
+    ],
+    "node.js": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Introduction to Node.js (Official)", "url": "https://nodejs.org/en/learn/getting-started/introduction-to-nodejs", "est_time": "2 hours", "cost": "Free",
+         "alt_platforms": [{"name": "W3Schools", "url": "https://www.w3schools.com/nodejs/"}, {"name": "MDN", "url": "https://developer.mozilla.org/en-US/docs/Learn/Server-side/Express_Nodejs"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Node.js and Express.js Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=Oe421EPjeBE", "est_time": "8 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Traversy Media", "url": "https://www.youtube.com/watch?v=fBNz5xF-Kx4"}, {"name": "Net Ninja", "url": "https://www.youtube.com/playlist?list=PL4cUxeGkcC9jsz4LDYc6kv3ymONOKxwBU"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "learnyounode (NodeSchool)", "platform": "NodeSchool", "url": "https://nodeschool.io/", "est_time": "1-2 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Exercism", "url": "https://exercism.org/tracks/javascript"}, {"name": "freeCodeCamp", "url": "https://www.freecodecamp.org/learn/back-end-development-and-apis/"}]},
+    ],
+    "kubernetes": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Kubernetes Basics Tutorial (Official)", "url": "https://kubernetes.io/docs/tutorials/kubernetes-basics/", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Kubernetes by Example", "url": "https://kubernetesbyexample.com/"}, {"name": "DevDocs", "url": "https://devdocs.io/kubernetes/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Kubernetes Tutorial for Beginners (TechWorld with Nana)", "url": "https://www.youtube.com/watch?v=X48VuDVv0do", "est_time": "4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "freeCodeCamp", "url": "https://www.youtube.com/watch?v=d6WC5n9G_sM"}, {"name": "Fireship", "url": "https://www.youtube.com/watch?v=PziYflu8cB8"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Play with Kubernetes", "platform": "Kubernetes", "url": "https://labs.play-with-k8s.com/", "est_time": "1-2 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "KodeKloud", "url": "https://kodekloud.com/courses/kubernetes-for-the-absolute-beginners-hands-on/"}, {"name": "Killer Shell", "url": "https://killer.sh/"}]},
+    ],
+    "aws": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "AWS Getting Started Resource Center", "url": "https://aws.amazon.com/getting-started/", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "AWS Well-Architected", "url": "https://aws.amazon.com/architecture/well-architected/"}, {"name": "AWS Skill Builder", "url": "https://skillbuilder.aws/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "AWS Certified Cloud Practitioner (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=SOTamWNgDKc", "est_time": "14 hours", "cost": "Free",
+         "alt_platforms": [{"name": "TechWorld with Nana", "url": "https://www.youtube.com/watch?v=ZB5ONbD_SMY"}, {"name": "Stephane Maarek", "url": "https://www.youtube.com/watch?v=ulprqHHWlng"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Course", "title": "AWS Cloud Quest (AWS Skill Builder)", "platform": "AWS", "url": "https://explore.skillbuilder.aws/learn/course/external/view/elearning/11458/aws-cloud-quest-cloud-practitioner", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "A Cloud Guru", "url": "https://acloudguru.com/"}, {"name": "Coursera AWS", "url": "https://www.coursera.org/aws"}]},
+    ],
+    "machine learning": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Google ML Crash Course", "url": "https://developers.google.com/machine-learning/crash-course", "est_time": "4-5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "scikit-learn Tutorial", "url": "https://scikit-learn.org/stable/tutorial/"}, {"name": "ML Glossary", "url": "https://ml-cheatsheet.readthedocs.io/en/latest/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Machine Learning Course for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=NWONeJKn6kc", "est_time": "10 hours", "cost": "Free",
+         "alt_platforms": [{"name": "StatQuest", "url": "https://www.youtube.com/playlist?list=PLblh5JKOoLUICTaGLRoHQDuF_7q2GfuJF"}, {"name": "3Blue1Brown", "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Intro to Machine Learning (Kaggle Learn)", "platform": "Kaggle", "url": "https://www.kaggle.com/learn/intro-to-machine-learning", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Coursera ML (Andrew Ng)", "url": "https://www.coursera.org/learn/machine-learning"}, {"name": "fast.ai", "url": "https://course.fast.ai/"}]},
+    ],
+    "django": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Django Official Tutorial (Part 1)", "url": "https://docs.djangoproject.com/en/stable/intro/tutorial01/", "est_time": "3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Django Girls Tutorial", "url": "https://tutorial.djangogirls.org/"}, {"name": "MDN Django", "url": "https://developer.mozilla.org/en-US/docs/Learn/Server-side/Django"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Python Django Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=F5mRW0jo-U4", "est_time": "4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Corey Schafer", "url": "https://www.youtube.com/playlist?list=PL-osiE80TeTtoQCKZ03TU5fNfx2UY6U4p"}, {"name": "Dennis Ivy", "url": "https://www.youtube.com/watch?v=PtQiiknWUcI"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Course", "title": "Django for Everybody (Coursera / Univ. Michigan)", "platform": "Coursera", "url": "https://www.coursera.org/specializations/django", "est_time": "3-4 weeks", "cost": "Free (audit)",
+         "alt_platforms": [{"name": "Codecademy", "url": "https://www.codecademy.com/learn/paths/build-python-web-apps-with-django"}, {"name": "Real Python", "url": "https://realpython.com/tutorials/django/"}]},
+    ],
+    "fastapi": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "FastAPI Official Tutorial", "url": "https://fastapi.tiangolo.com/tutorial/", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "TestDriven.io", "url": "https://testdriven.io/blog/fastapi-crud/"}, {"name": "Real Python", "url": "https://realpython.com/fastapi-python-web-apis/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "FastAPI Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=0sOvCWFmrtA", "est_time": "6 hours", "cost": "Free",
+         "alt_platforms": [{"name": "ArjanCodes", "url": "https://www.youtube.com/watch?v=SORiTsvnU28"}, {"name": "Bitfumes", "url": "https://www.youtube.com/watch?v=7t2alSnE2-I"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Course", "title": "FastAPI Beyond CRUD (freeCodeCamp)", "platform": "freeCodeCamp", "url": "https://www.youtube.com/watch?v=TO4aQ3ghFOc", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "TestDriven.io", "url": "https://testdriven.io/courses/tdd-fastapi/"}, {"name": "Udemy", "url": "https://www.udemy.com/course/completefastapi/"}]},
+    ],
+    "deep learning": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Deep Learning Specialization Overview (deeplearning.ai)", "url": "https://www.deeplearning.ai/courses/deep-learning-specialization/", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "PyTorch Tutorials", "url": "https://pytorch.org/tutorials/"}, {"name": "TensorFlow Tutorials", "url": "https://www.tensorflow.org/tutorials"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Deep Learning Crash Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=VyWAvY2CF9c", "est_time": "6 hours", "cost": "Free",
+         "alt_platforms": [{"name": "3Blue1Brown Neural Networks", "url": "https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi"}, {"name": "Sentdex", "url": "https://www.youtube.com/playlist?list=PLQVvvaa0QuDdeMyHEYc0gxFpYwHY2Qfdh"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Practical Deep Learning for Coders (fast.ai)", "platform": "fast.ai", "url": "https://course.fast.ai/", "est_time": "4-6 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Kaggle Deep Learning", "url": "https://www.kaggle.com/learn/intro-to-deep-learning"}, {"name": "Coursera Deep Learning", "url": "https://www.coursera.org/specializations/deep-learning"}]},
+    ],
+    "data science": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Python Data Science Handbook (Jake VanderPlas)", "url": "https://jakevdp.github.io/PythonDataScienceHandbook/", "est_time": "4-5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Kaggle Learn", "url": "https://www.kaggle.com/learn"}, {"name": "pandas Docs", "url": "https://pandas.pydata.org/docs/getting_started/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Data Science Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=ua-CiDNNj30", "est_time": "12 hours", "cost": "Free",
+         "alt_platforms": [{"name": "StatQuest", "url": "https://www.youtube.com/c/joshstarmer"}, {"name": "Ken Jee", "url": "https://www.youtube.com/c/KenJee1"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Intro to Data Science (Kaggle Learn)", "platform": "Kaggle", "url": "https://www.kaggle.com/learn/pandas", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "DataCamp", "url": "https://www.datacamp.com/"}, {"name": "Coursera IBM Data Science", "url": "https://www.coursera.org/professional-certificates/ibm-data-science"}]},
+    ],
+    "rust": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "The Rust Programming Language (The Book)", "url": "https://doc.rust-lang.org/book/", "est_time": "4-5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Rust by Example", "url": "https://doc.rust-lang.org/rust-by-example/"}, {"name": "Rustlings", "url": "https://github.com/rust-lang/rustlings"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Rust Programming Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=BpPEoZW5IiY", "est_time": "14 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Let's Get Rusty", "url": "https://www.youtube.com/c/LetsGetRusty"}, {"name": "No Boilerplate", "url": "https://www.youtube.com/c/NoBoilerplate"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Rust Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/rust", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Rustlings", "url": "https://github.com/rust-lang/rustlings"}, {"name": "Advent of Code", "url": "https://adventofcode.com/"}]},
+    ],
+    "go": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "A Tour of Go (Official)", "url": "https://go.dev/tour/welcome/1", "est_time": "2-3 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Go by Example", "url": "https://gobyexample.com/"}, {"name": "Effective Go", "url": "https://go.dev/doc/effective_go"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Go Programming Full Course (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=un6ZyFkqFKo", "est_time": "7 hours", "cost": "Free",
+         "alt_platforms": [{"name": "TechWorld with Nana", "url": "https://www.youtube.com/watch?v=yyUHQIec83I"}, {"name": "Traversy Media", "url": "https://www.youtube.com/watch?v=SqrbIlUwR0U"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "Go Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/go", "est_time": "2-3 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Boot.dev Go", "url": "https://www.boot.dev/courses/learn-golang"}, {"name": "Codecademy Go", "url": "https://www.codecademy.com/learn/learn-go"}]},
+    ],
+    "linux": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "Linux Journey", "url": "https://linuxjourney.com/", "est_time": "3-4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "Linux Handbook", "url": "https://linuxhandbook.com/"}, {"name": "Ubuntu Wiki", "url": "https://help.ubuntu.com/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "Linux for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=sWbUDq4S6Y8", "est_time": "5 hours", "cost": "Free",
+         "alt_platforms": [{"name": "NetworkChuck", "url": "https://www.youtube.com/watch?v=VbEx7B_PTOE"}, {"name": "LearnLinuxTV", "url": "https://www.youtube.com/c/LearnLinuxtv"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "OverTheWire Bandit (Linux Wargame)", "platform": "OverTheWire", "url": "https://overthewire.org/wargames/bandit/", "est_time": "1-2 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "Linux Survival", "url": "https://linuxsurvival.com/"}, {"name": "Exercism Bash", "url": "https://exercism.org/tracks/bash"}]},
+    ],
+    "c++": [
+        {"step": 1, "label": "Read Basics", "type": "Documentation", "title": "C++ Reference (cppreference.com)", "url": "https://en.cppreference.com/w/cpp/language", "est_time": "3-4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "LearnCpp", "url": "https://www.learncpp.com/"}, {"name": "W3Schools C++", "url": "https://www.w3schools.com/cpp/"}]},
+        {"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "C++ Full Course for Beginners (freeCodeCamp)", "url": "https://www.youtube.com/watch?v=vLnPwxZdW4Y", "est_time": "4 hours", "cost": "Free",
+         "alt_platforms": [{"name": "The Cherno", "url": "https://www.youtube.com/playlist?list=PLlrATfBNZ98dudnM48yfGUldqGD0S4FFb"}, {"name": "Bro Code", "url": "https://www.youtube.com/watch?v=-TkoO8Z07hI"}]},
+        {"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "C++ Track on Exercism", "platform": "Exercism", "url": "https://exercism.org/tracks/cpp", "est_time": "2-4 weeks", "cost": "Free",
+         "alt_platforms": [{"name": "HackerRank C++", "url": "https://www.hackerrank.com/domains/cpp"}, {"name": "LeetCode", "url": "https://leetcode.com/"}]},
+    ],
+}
+
+
+# ────────────────────────────────────────────────────────
+# Node 4: Validate URLs via HEAD requests
+# ────────────────────────────────────────────────────────
+
+def _check_url(url: str) -> tuple[str, bool]:
+    """
+    Check if a URL is reachable via HEAD request.
+    Returns (url, is_alive).
+    """
+    if not url or not url.startswith("http"):
+        return url, False
+    try:
+        resp = requests.head(
+            url,
+            timeout=URL_CHECK_TIMEOUT,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (CareerLM StudyPlanner URL Checker)"},
+        )
+        # Accept 2xx and 3xx; some sites return 405 for HEAD, try GET
+        if resp.status_code < 400:
+            return url, True
+        if resp.status_code == 405:
+            resp = requests.get(
+                url,
+                timeout=URL_CHECK_TIMEOUT,
+                allow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (CareerLM StudyPlanner URL Checker)"},
+                stream=True,  # Don't download body
+            )
+            return url, resp.status_code < 400
+        return url, False
+    except (requests.RequestException, Exception):
+        return url, False
+
+
+def _get_curated_fallback_url(skill: str, step_index: int) -> dict | None:
+    """
+    Get a curated fallback resource for a specific skill and step.
+    Returns the curated step dict or None if no curated resource exists.
+    """
+    key = skill.strip().lower()
+    curated = CURATED_RESOURCES.get(key)
+    if curated and step_index < len(curated):
+        return curated[step_index]
+    return None
+
+
+def validate_urls_node(state: StudyPlannerState) -> dict:
+    """
+    Validate every URL in skill_gap_report. Dead links are replaced
+    with curated fallback URLs or known documentation links.
+    """
+    if state.get("error") or not state.get("skill_gap_report"):
+        return {}
+
+    skill_gap_report: list = state.get("skill_gap_report") or []  # type: ignore[assignment]
+
+    # Collect all URLs to check in parallel
+    urls_to_check: list[str] = []
+    url_locations: list[tuple[int, int, str]] = []  # (skill_idx, step_idx, field)
+
+    for s_idx, skill_entry in enumerate(skill_gap_report):
+        for st_idx, step in enumerate(skill_entry.get("learning_path", [])):
+            url = step.get("url", "")
+            if url:
+                urls_to_check.append(url)
+                url_locations.append((s_idx, st_idx, "url"))
+            for alt_idx, alt in enumerate(step.get("alt_platforms", [])):
+                alt_url = alt.get("url", "") if isinstance(alt, dict) else ""
+                if alt_url:
+                    urls_to_check.append(alt_url)
+                    url_locations.append((s_idx, st_idx, f"alt_{alt_idx}"))
+
+    if not urls_to_check:
+        return {"urls_validated": True}
+
+    # Check all URLs in parallel
+    url_status: dict[str, bool] = {}
+    with ThreadPoolExecutor(max_workers=URL_CHECK_MAX_WORKERS) as executor:
+        futures = {executor.submit(_check_url, url): url for url in set(urls_to_check)}
+        for future in as_completed(futures):
+            url, is_alive = future.result()
+            url_status[url] = is_alive
+
+    dead_count = sum(1 for alive in url_status.values() if not alive)
+    total = len(url_status)
+    logger.info(f"[URL Validator] {total - dead_count}/{total} URLs alive, {dead_count} dead")
+
+    # Replace dead primary URLs with curated fallbacks
+    updated_report = []
+    for s_idx, skill_entry in enumerate(skill_gap_report):
+        skill_name = skill_entry.get("skill", "")
+        updated_path = []
+
+        for st_idx, step in enumerate(skill_entry.get("learning_path", [])):
+            step = dict(step)  # Make a mutable copy
+            primary_url = step.get("url", "")
+
+            if primary_url and not url_status.get(str(primary_url), False):
+                # Primary URL is dead — try curated fallback
+                curated = _get_curated_fallback_url(skill_name, st_idx)
+                if curated:
+                    logger.info(f"[URL Validator] Replacing dead URL for '{skill_name}' step {st_idx + 1}: {primary_url} → {curated['url']}")
+                    step["url"] = curated["url"]
+                    step["title"] = curated["title"]
+                    if curated.get("platform"):
+                        step["platform"] = curated["platform"]
+                else:
+                    # No curated fallback — try known docs as last resort
+                    doc_url = _get_doc_url(skill_name)
+                    logger.info(f"[URL Validator] Replacing dead URL for '{skill_name}' step {st_idx + 1} with docs: {primary_url} → {doc_url}")
+                    step["url"] = doc_url
+                    step["title"] = f"Official {skill_name} Documentation"
+
+            # Filter out dead alt_platform URLs (just remove them, don't replace)
+            alt_list = step.get("alt_platforms", [])
+            if alt_list and isinstance(alt_list, list):
+                step["alt_platforms"] = [
+                    alt for alt in alt_list
+                    if isinstance(alt, dict) and url_status.get(str(alt.get("url", "")), True)
+                ]
+
+            updated_path.append(step)
+
+        updated_entry = dict(skill_entry)
+        updated_entry["learning_path"] = updated_path
+        updated_report.append(updated_entry)
+
+    return {
+        "skill_gap_report": updated_report,
+        "urls_validated": True,
+    }
+
+
+# ────────────────────────────────────────────────────────
+# Node 5: Fallback resources (curated, no search links)
+# ────────────────────────────────────────────────────────
+
 def fallback_resources_node(state: StudyPlannerState) -> dict:
     """
-    If the previous node failed or returned empty results,
-    generate fallback resources using known direct URLs.
+    If Gemini failed or returned empty results, generate fallback
+    resources using curated direct URLs. No search links.
     """
     # If we already have valid data, skip fallback
     if state.get("skill_gap_report") and not state.get("error"):
@@ -377,57 +781,58 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
 
     missing_skills = state.get("missing_skills", [])
     skill_gap_report = []
-    for skill in missing_skills:
-        doc_url = _get_doc_url(skill)
-        roadmap_url = _get_roadmap_url(skill)
-        slug = skill.replace(" ", "+")
 
-        skill_gap_report.append({
-            "skill": skill,
-            "roadmap_url": roadmap_url,
-            "learning_path": [
-                {
-                    "step": 1,
-                    "label": "Read Basics",
-                    "type": "Documentation",
-                    "title": f"Official {skill} Documentation",
-                    "url": doc_url,
-                    "est_time": "2-3 hours",
-                    "cost": "Free",
-                    "alt_platforms": [
-                        {"name": "DevDocs", "url": f"https://devdocs.io/{skill.lower().replace(' ', '-')}/"},
-                        {"name": "W3Schools", "url": f"https://www.w3schools.com/{skill.lower().replace(' ', '')}/"},
-                    ],
-                },
-                {
-                    "step": 2,
-                    "label": "Deep Dive",
-                    "type": "YouTube",
-                    "title": f"{skill} -- freeCodeCamp Full Course",
-                    "url": f"https://www.youtube.com/@freecodecamp/search?query={slug}",
-                    "est_time": "4-6 hours",
-                    "cost": "Free",
-                    "alt_platforms": [
-                        {"name": "Udemy", "url": f"https://www.udemy.com/courses/search/?q={slug}"},
-                        {"name": "Coursera", "url": f"https://www.coursera.org/search?query={slug}"},
-                    ],
-                },
-                {
-                    "step": 3,
-                    "label": "Hands-on Practice",
-                    "type": "Course",
-                    "title": f"{skill} -- Top-rated Course on Udemy",
-                    "platform": "Udemy",
-                    "url": f"https://www.udemy.com/courses/search/?q={slug}",
-                    "est_time": "2-4 weeks",
-                    "cost": "Paid",
-                    "alt_platforms": [
-                        {"name": "edX", "url": f"https://www.edx.org/search?q={slug}"},
-                        {"name": "Class Central", "url": f"https://www.classcentral.com/search?q={slug}"},
-                    ],
-                },
-            ],
-        })
+    for skill in missing_skills:
+        key = skill.strip().lower()
+        roadmap_url = _get_roadmap_url(skill)
+
+        # Use curated resources if available
+        if key in CURATED_RESOURCES:
+            skill_gap_report.append({
+                "skill": skill,
+                "roadmap_url": roadmap_url,
+                "learning_path": [dict(step) for step in CURATED_RESOURCES[key]],
+            })
+        else:
+            # For uncurated skills, use known docs + roadmap.sh (still no search links)
+            doc_url = _get_doc_url(skill)
+            skill_gap_report.append({
+                "skill": skill,
+                "roadmap_url": roadmap_url,
+                "learning_path": [
+                    {
+                        "step": 1,
+                        "label": "Read Basics",
+                        "type": "Documentation",
+                        "title": f"Official {skill} Documentation",
+                        "url": doc_url,
+                        "est_time": "2-3 hours",
+                        "cost": "Free",
+                        "alt_platforms": [],
+                    },
+                    {
+                        "step": 2,
+                        "label": "Visual Roadmap",
+                        "type": "Roadmap",
+                        "title": f"{skill} Learning Roadmap (roadmap.sh)",
+                        "url": roadmap_url,
+                        "est_time": "1 hour",
+                        "cost": "Free",
+                        "alt_platforms": [],
+                    },
+                    {
+                        "step": 3,
+                        "label": "Hands-on Practice",
+                        "type": "Interactive",
+                        "title": f"{skill} Track on Exercism",
+                        "platform": "Exercism",
+                        "url": f"https://exercism.org/tracks/{key.replace(' ', '-')}",
+                        "est_time": "2-4 weeks",
+                        "cost": "Free",
+                        "alt_platforms": [],
+                    },
+                ],
+            })
 
     return {
         "study_plan": [],

@@ -10,6 +10,7 @@ import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
 import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
+import JobMatcher from "../components/JobMatcher";
 import { formatText } from "../utils/textFormatter";
 
 
@@ -216,6 +217,8 @@ function Dashboard() {
         return <ColdEmailGenerator resumeData={resumeData} />;
       case "study_planner":
         return <StudyPlanner resumeData={resumeData} />;
+      case "job_matcher":
+        return <JobMatcher resumeData={resumeData} setCurrentPage={setCurrentPage} />;
       default:
         return (
           <div className="w-full">

@@ -6,6 +6,12 @@ from typing import TypedDict, Optional
 from typing_extensions import NotRequired
 
 
+class AltPlatform(TypedDict):
+    """An alternative platform for a learning resource."""
+    name: str
+    url: str
+
+
 class RoadmapStep(TypedDict):
     """A single step in a skill learning roadmap."""
     step: int
@@ -16,11 +22,13 @@ class RoadmapStep(TypedDict):
     platform: NotRequired[str]
     est_time: str
     cost: str
+    alt_platforms: NotRequired[list[AltPlatform]]
 
 
 class SkillRoadmap(TypedDict):
     """Roadmap for a single skill."""
     skill: str
+    roadmap_url: NotRequired[str]
     learning_path: list[RoadmapStep]
 
 
@@ -28,7 +36,9 @@ class StudyPlannerState(TypedDict):
     """State for the study planner workflow."""
     target_career: str
     missing_skills: list[str]
+    ordered_skills: NotRequired[list[str]]
     questionnaire_answers: NotRequired[Optional[dict]]
     skill_gap_report: NotRequired[list[SkillRoadmap]]
     study_plan: NotRequired[list[dict]]
+    urls_validated: NotRequired[bool]
     error: NotRequired[Optional[str]]
