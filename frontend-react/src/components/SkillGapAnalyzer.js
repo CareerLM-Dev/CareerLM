@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { cleanMarkdown } from "../utils/textFormatter";
 import { Button } from "./ui/button";
-import { Upload, TrendingUp, Target, Briefcase, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Upload, TrendingUp, Target, Briefcase, CheckCircle, XCircle, AlertCircle, ChevronDown, ChevronUp } from "lucide-react";
 
 function SkillGapAnalyzer({ resumeData }) {
   const [resumeFile, setResumeFile] = useState(null);
@@ -12,6 +12,7 @@ function SkillGapAnalyzer({ resumeData }) {
   const [error, setError] = useState(null);
   const [selectedCareer, setSelectedCareer] = useState(null);
   const [showAllCareers, setShowAllCareers] = useState(false);
+  const [showSkillsModal, setShowSkillsModal] = useState(false);
 
   // Auto-load career analysis from resumeData if available
   React.useEffect(() => {
@@ -179,70 +180,66 @@ function SkillGapAnalyzer({ resumeData }) {
         </div>
       )}
 
-      {/* Info Banner */}
-      {analysisResult && resumeData?.careerAnalysis && (
-        <div className="bg-primary/10 border border-primary/20 text-primary px-4 py-3 rounded-lg flex items-center gap-2">
-          <CheckCircle className="w-4 h-4" />
-          <span className="text-sm">Analysis loaded from: <strong>{resumeData.filename}</strong></span>
-        </div>
-      )}
+
 
       {/* Results */}
       {analysisResult && (
         <div className="space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-card border border-border rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <Target className="w-8 h-8 text-primary" />
-                <div>
-                  <div className="text-2xl font-bold">{analysisResult.total_skills_found || 0}</div>
-                  <div className="text-sm text-muted-foreground">Skills Detected</div>
+          {/* Summary Cards - Redesigned Layout */}
+          <div className="grid md:grid-cols-2 gap-4 items-start">
+            {/* Left Column */}
+            <div className="space-y-4">
+              {/* Analysis Source */}
+              <div className="bg-primary/10 border border-primary/20 text-primary px-4 py-3 rounded-lg flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                <span className="text-sm">Analysis loaded from: <strong>{resumeData?.filename || 'Uploaded Resume'}</strong></span>
+              </div>
+              
+              {/* Skills Detected - Click to View */}
+              <div 
+                className="bg-card border border-border rounded-lg p-4 cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => setShowSkillsModal(true)}
+              >
+                <div className="flex items-center gap-3">
+                  <Target className="w-8 h-8 text-primary" />
+                  <div>
+                    <div className="text-2xl font-bold">{analysisResult.total_skills_found || 0}</div>
+                    <div className="text-sm text-muted-foreground">Skills Detected (Click to view)</div>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="bg-card border border-border rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <Briefcase className="w-8 h-8 text-secondary" />
-                <div>
-                  <div className="text-sm font-medium line-clamp-2">{analysisResult.analysis_summary?.best_match || "N/A"}</div>
-                  <div className="text-xs text-muted-foreground">Best Match</div>
+            
+            {/* Right Column */}
+            <div className="space-y-4 self-start">
+              {/* Combined Best Match, Match Score, and Career Paths Card */}
+              <div className="bg-card border border-border rounded-lg p-4">
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    <Briefcase className="w-8 h-8 text-secondary" />
+                    <div>
+                      <div className="text-lg font-semibold line-clamp-2">{analysisResult.analysis_summary?.best_match || "N/A"}</div>
+                      <div className="text-xs text-muted-foreground">Best Match</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-6 h-6 text-primary" />
+                    <div>
+                      <div className="text-2xl font-bold">{analysisResult.analysis_summary?.best_match_probability || 0}%</div>
+                      <div className="text-xs text-muted-foreground">Match Score</div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className="bg-card border border-border rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <TrendingUp className="w-8 h-8 text-primary" />
-                <div>
-                  <div className="text-2xl font-bold">{analysisResult.analysis_summary?.best_match_probability || 0}%</div>
-                  <div className="text-sm text-muted-foreground">Match Score</div>
-                </div>
-              </div>
-            </div>
-            <div className="bg-card border border-border rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <Briefcase className="w-8 h-8 text-accent-foreground" />
-                <div>
-                  <div className="text-2xl font-bold">{analysisResult.career_matches?.length || 0}</div>
-                  <div className="text-sm text-muted-foreground">Career Paths</div>
+                <div className="flex items-center gap-3 pt-2 mt-2 border-t border-border">
+                  <Briefcase className="w-8 h-8 text-accent-foreground" />
+                  <div>
+                    <div className="text-2xl font-bold">{analysisResult.career_matches?.length || 0}</div>
+                    <div className="text-sm text-muted-foreground">Career Paths</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-
-          {/* Your Skills */}
-          {analysisResult?.user_skills && analysisResult.user_skills.length > 0 && (
-            <div className="bg-card border border-border rounded-lg p-6">
-              <h3 className="text-lg font-semibold mb-4">Your Detected Skills</h3>
-              <div className="flex flex-wrap gap-2">
-                {analysisResult.user_skills.map((skill, idx) => (
-                  <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
-                    {cleanMarkdown(skill)}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Career Matches */}
           <div className="bg-card border border-border rounded-lg p-6">
@@ -303,95 +300,135 @@ function SkillGapAnalyzer({ resumeData }) {
             </div>
           </div>
 
-          {/* Selected Career Details */}
+          {/* Selected Career Details - Redesigned Layout */}
           {selectedCareer && (
-            <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-              <h3 className="text-xl font-semibold">{selectedCareer.career} - Detailed Analysis</h3>
+            <div className="bg-card border border-border rounded-lg p-6">
+              <h3 className="text-xl font-semibold mb-6">{selectedCareer.career} - Detailed Analysis</h3>
 
               <div className="grid md:grid-cols-2 gap-6">
-                {/* Matched Skills */}
-                <div>
-                  <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-primary" />
-                    Your Matching Skills ({selectedCareer?.matched_skills?.length || 0})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedCareer?.matched_skills && selectedCareer.matched_skills.length > 0 ? (
-                      selectedCareer.matched_skills.map((skill, idx) => (
-                        <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
-                          {cleanMarkdown(skill)}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No matching skills found</p>
-                    )}
+                {/* Left Column - Skills */}
+                <div className="space-y-6">
+                  {/* Matched Skills */}
+                  <div>
+                    <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
+                      <CheckCircle className="w-5 h-5 text-primary" />
+                      Your Matching Skills ({selectedCareer?.matched_skills?.length || 0})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCareer?.matched_skills && selectedCareer.matched_skills.length > 0 ? (
+                        selectedCareer.matched_skills.map((skill, idx) => (
+                          <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
+                            {cleanMarkdown(skill)}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No matching skills found</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Missing Skills */}
+                  <div>
+                    <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-destructive" />
+                      Skills to Learn ({selectedCareer?.missing_skills?.length || 0})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCareer?.missing_skills && selectedCareer.missing_skills.length > 0 ? (
+                        selectedCareer.missing_skills.map((skill, idx) => (
+                          <span key={idx} className="inline-block px-3 py-1 bg-destructive/10 text-destructive text-sm rounded-full border border-destructive/20">
+                            {cleanMarkdown(skill)}
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No missing skills identified</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Missing Skills */}
+                {/* Right Column - Match Breakdown */}
                 <div>
-                  <h4 className="text-base font-semibold mb-3 flex items-center gap-2">
-                    <AlertCircle className="w-5 h-5 text-destructive" />
-                    Skills to Learn ({selectedCareer?.missing_skills?.length || 0})
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedCareer?.missing_skills && selectedCareer.missing_skills.length > 0 ? (
-                      selectedCareer.missing_skills.map((skill, idx) => (
-                        <span key={idx} className="inline-block px-3 py-1 bg-destructive/10 text-destructive text-sm rounded-full border border-destructive/20">
-                          {cleanMarkdown(skill)}
-                        </span>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">No missing skills identified</p>
-                    )}
+                  <h4 className="text-base font-semibold mb-4">Match Breakdown</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Skill Match</span>
+                        <span className="font-medium">{selectedCareer?.skill_match_percentage || 0}%</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all"
+                          style={{ width: `${selectedCareer?.skill_match_percentage || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Semantic Match</span>
+                        <span className="font-medium">{selectedCareer?.semantic_match_percentage || 0}%</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-secondary rounded-full transition-all"
+                          style={{ width: `${selectedCareer?.semantic_match_percentage || 0}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span>Overall Probability</span>
+                        <span className="font-medium">{selectedCareer?.probability || 0}%</span>
+                      </div>
+                      <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${selectedCareer?.probability || 0}%`,
+                            backgroundColor: getProbabilityColor(selectedCareer?.probability || 0),
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
+            </div>
+          )}
 
-              {/* Match Breakdown */}
-              <div>
-                <h4 className="text-base font-semibold mb-4">Match Breakdown</h4>
-                <div className="space-y-3">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Skill Match</span>
-                      <span className="font-medium">{selectedCareer?.skill_match_percentage || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full transition-all"
-                        style={{ width: `${selectedCareer?.skill_match_percentage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Semantic Match</span>
-                      <span className="font-medium">{selectedCareer?.semantic_match_percentage || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-secondary rounded-full transition-all"
-                        style={{ width: `${selectedCareer?.semantic_match_percentage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Overall Probability</span>
-                      <span className="font-medium">{selectedCareer?.probability || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${selectedCareer?.probability || 0}%`,
-                          backgroundColor: getProbabilityColor(selectedCareer?.probability || 0),
-                        }}
-                      />
-                    </div>
-                  </div>
+          {/* Skills Modal */}
+          {showSkillsModal && (
+            <div 
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => setShowSkillsModal(false)}
+            >
+              <div 
+                className="bg-card border border-border rounded-lg p-6 max-w-4xl w-full max-h-[80vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold flex items-center gap-2">
+                    <Target className="w-6 h-6 text-primary" />
+                    Your Detected Skills ({analysisResult.total_skills_found || 0})
+                  </h3>
+                  <button 
+                    onClick={() => setShowSkillsModal(false)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <XCircle className="w-6 h-6" />
+                  </button>
                 </div>
+                {analysisResult?.user_skills && analysisResult.user_skills.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {analysisResult.user_skills.map((skill, idx) => (
+                      <span key={idx} className="inline-block px-3 py-1 bg-primary/10 text-primary text-sm rounded-full border border-primary/20">
+                        {cleanMarkdown(skill)}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No skills detected</p>
+                )}
               </div>
             </div>
           )}
