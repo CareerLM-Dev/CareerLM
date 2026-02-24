@@ -232,6 +232,72 @@ async def get_previously_asked_questions(user_id: str, target_role: str) -> List
         return []
 
 
+async def get_previously_asked_questions(user_id: str, target_role: str) -> List[str]:
+    """Fetch previously asked interview questions from interview_sessions for this user/role."""
+    try:
+        result = supabase.table("interview_sessions")\
+            .select("target_role, interview_report")\
+            .eq("user_id", user_id)\
+            .order("created_at", desc=True)\
+            .limit(100)\
+            .execute()
+
+        if not result.data:
+            return []
+
+        normalized_target = (target_role or "").strip().lower()
+        collected_questions: List[str] = []
+        seen = set()
+
+        for row in result.data:
+            row_role = str(row.get("target_role") or "").strip().lower()
+            if normalized_target and row_role and row_role != normalized_target:
+                continue
+
+            interview_report = row.get("interview_report") or {}
+            if isinstance(interview_report, str):
+                try:
+                    interview_report = json.loads(interview_report)
+                except Exception:
+                    interview_report = {}
+
+            if not isinstance(interview_report, dict):
+                continue
+
+            questions = interview_report.get("questions") or []
+            if isinstance(questions, list):
+                for item in questions:
+                    question_text = ""
+                    if isinstance(item, dict):
+                        question_text = str(item.get("question") or "").strip()
+                    elif isinstance(item, str):
+                        question_text = item.strip()
+
+                    if question_text:
+                        normalized = question_text.lower()
+                        if normalized not in seen:
+                            seen.add(normalized)
+                            collected_questions.append(question_text)
+
+            question_breakdown = interview_report.get("analysis", {}).get("question_breakdown", [])
+            if isinstance(question_breakdown, list):
+                for item in question_breakdown:
+                    if not isinstance(item, dict):
+                        continue
+                    question_text = str(item.get("question") or "").strip()
+                    if question_text:
+                        normalized = question_text.lower()
+                        if normalized not in seen:
+                            seen.add(normalized)
+                            collected_questions.append(question_text)
+
+        return collected_questions
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch previous interview questions: {str(e)}")
+        return []
+
+
 # ============ API Endpoints ============
 
 @router.post("/generate-questions")

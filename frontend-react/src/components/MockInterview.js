@@ -8,7 +8,6 @@ import {
   PlayCircle,
   CheckCircle,
   AlertCircle,
-  FileText,
   Loader2,
   XCircle
 } from "lucide-react";
@@ -30,35 +29,6 @@ const ROLE_LABELS = {
   "business_analyst": "Business Analyst",
   "mobile_developer": "Mobile Developer",
   "undecided": "Undecided"
-};
-
-// Markdown renderer
-const renderMarkdown = (text) => {
-  if (!text) return "";
-  
-  let html = text
-    // Headers
-    .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold mt-6 mb-4">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>')
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    // Bullet points
-    .replace(/^- (.*$)/gim, '<li class="ml-4">$1</li>')
-    .replace(/^• (.*$)/gim, '<li class="ml-4">$1</li>')
-    // Horizontal rule
-    .replace(/^---$/gim, '<hr class="my-6 border-border" />')
-    // Line breaks
-    .replace(/\n\n/g, '</p><p class="mb-4">')
-    .replace(/\n/g, '<br />');
-  
-  // Wrap in paragraph tags
-  html = '<p class="mb-4">' + html + '</p>';
-  
-  // Wrap consecutive list items in ul tags
-  html = html.replace(/(<li class="ml-4">.*?<\/li>)+/gs, '<ul class="list-disc mb-4">$&</ul>');
-  
-  return html;
 };
 
 function MockInterview({ resumeData }) {
@@ -1023,72 +993,57 @@ function MockInterview({ resumeData }) {
         <StagePerformanceRadar stagePerformance={feedback?.stage_performance} />
 
         <TimeManagementChart timingData={calculatedTimingArray} />
-        
-        {/* Executive Summary & Action Plan */}
-        <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
-            <h3 className="text-xl font-bold flex items-center gap-3">
-              <FileText className="w-6 h-6 text-primary" />
-              <span>Detailed Feedback</span>
-            </h3>
+
+        {feedback?.action_plan && (
+          <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <h4 className="text-lg font-semibold mb-4 text-primary">Action Plan</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {feedback.action_plan.stop_doing?.length > 0 && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-red-700 dark:text-red-400 mb-2">Stop Doing</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.stop_doing.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {feedback.action_plan.start_doing?.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">Start Doing</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.start_doing.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {feedback.action_plan.study_focus?.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-amber-700 dark:text-amber-400 mb-2">Study Focus</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.study_focus.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {feedback.action_plan.next_steps?.length > 0 && (
+                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-purple-700 dark:text-purple-400 mb-2">Next Steps</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.next_steps.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="p-8 space-y-6">
-            {/* Executive Summary */}
-            {feedback?.executive_summary && (
-              <div>
-                <h4 className="text-lg font-semibold mb-3 text-primary">Executive Summary</h4>
-                <p className="text-foreground leading-relaxed">{feedback.executive_summary}</p>
-              </div>
-            )}
-            
-            {/* Action Plan */}
-            {feedback?.action_plan && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                {feedback.action_plan.stop_doing?.length > 0 && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-red-700 dark:text-red-400 mb-2">🛑 Stop Doing</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.stop_doing.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.start_doing?.length > 0 && (
-                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-green-700 dark:text-green-400 mb-2">✅ Start Doing</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.start_doing.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.study_focus?.length > 0 && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">📚 Study Focus</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.study_focus.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.next_steps?.length > 0 && (
-                  <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-purple-700 dark:text-purple-400 mb-2">🎯 Next Steps</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.next_steps.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
+        )}
             
             {/* Question Breakdown */}
             {feedback?.question_breakdown?.length > 0 && (
@@ -1116,8 +1071,6 @@ function MockInterview({ resumeData }) {
                 </div>
               </div>
             )}
-          </div>
-        </div>
       </div>
     );
   }
