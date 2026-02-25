@@ -1,5 +1,12 @@
 // src/context/UserContext.js
-import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from "react";
+import React, {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { supabase } from "../api/supabaseClient";
 
 const UserContext = createContext();
@@ -36,11 +43,6 @@ export const UserProvider = ({ children }) => {
         applySession(currentSession);
         setLoading(false);
         initialised.current = true;
-
-        // Auto-create user row for first-time sign-ups (all providers)
-        if (event === "SIGNED_IN" && currentSession?.user) {
-          ensureUserRow(currentSession.user);
-        }
       }, 0);
     });
 
@@ -70,8 +72,7 @@ export const UserProvider = ({ children }) => {
     initSession();
 
     return () => subscription.unsubscribe();
-  }, [applySession]); // ensureUserRow removed — owned by AuthCallback
-  }, [applySession, ensureUserRow]);
+  }, [applySession]);
 
   const signOut = async () => {
     try {

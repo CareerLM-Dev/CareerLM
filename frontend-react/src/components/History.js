@@ -2,13 +2,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "./ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
@@ -25,7 +19,6 @@ import {
   Inbox,
 } from "lucide-react";
 import { Alert, AlertDescription } from "./ui/alert";
-
 
 function History() {
   const { session, loading: authLoading } = useUser();
@@ -50,7 +43,7 @@ function History() {
             headers: {
               Authorization: `Bearer ${session.access_token}`,
             },
-          }
+          },
         );
 
         setHistory(response.data.data || []);
@@ -101,7 +94,9 @@ function History() {
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading your history...</p>
+          <p className="text-sm text-muted-foreground">
+            Loading your history...
+          </p>
         </div>
       </div>
     );
@@ -194,8 +189,8 @@ function History() {
                           item.ats_score >= 70
                             ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
                             : item.ats_score >= 40
-                            ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
-                            : "bg-destructive/10 text-destructive border-destructive/20"
+                              ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                              : "bg-destructive/10 text-destructive border-destructive/20"
                         }`}
                         variant="outline"
                       >
@@ -229,7 +224,9 @@ function History() {
                     item.total_skills_found !== undefined && (
                       <div className="flex items-center gap-2 text-sm">
                         <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Skills Found:</span>
+                        <span className="text-muted-foreground">
+                          Skills Found:
+                        </span>
                         <span className="text-foreground font-medium">
                           {item.total_skills_found}
                         </span>

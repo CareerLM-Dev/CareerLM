@@ -1,10 +1,23 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
-import { Mail, Copy, Sparkles, Building2, Briefcase, FileText, AlertCircle, CheckCircle, RefreshCw, Bookmark, X, Trash2 } from "lucide-react";
+import {
+  Mail,
+  Copy,
+  Sparkles,
+  Building2,
+  Briefcase,
+  FileText,
+  AlertCircle,
+  CheckCircle,
+  RefreshCw,
+  Bookmark,
+  X,
+  Trash2,
+} from "lucide-react";
 
 function ColdEmailGenerator({ resumeData }) {
   const [formData, setFormData] = useState({
@@ -24,10 +37,12 @@ function ColdEmailGenerator({ resumeData }) {
   const [saveMessage, setSaveMessage] = useState(null);
   const [activeTemplate, setActiveTemplate] = useState(null);
 
-  const fetchPrefill = async () => {
+  const fetchPrefill = useCallback(async () => {
     if (hasPrefilled) return;
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) {
       return;
     }
@@ -39,7 +54,7 @@ function ColdEmailGenerator({ resumeData }) {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -58,18 +73,20 @@ function ColdEmailGenerator({ resumeData }) {
     } catch (err) {
       console.error("Failed to prefill cold email data:", err);
     }
-  };
+  }, [hasPrefilled]);
 
   useEffect(() => {
     fetchPrefill();
-  }, [hasPrefilled]);
+  }, [fetchPrefill]);
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const fetchSavedEmails = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) {
       setSavedError("Please login to view saved emails");
       return;
@@ -78,11 +95,14 @@ function ColdEmailGenerator({ resumeData }) {
     try {
       setSavedLoading(true);
       setSavedError(null);
-      const response = await fetch("http://localhost:8000/api/v1/cold-email/saved", {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
+      const response = await fetch(
+        "http://localhost:8000/api/v1/cold-email/saved",
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
         },
-      });
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -108,7 +128,9 @@ function ColdEmailGenerator({ resumeData }) {
     setError(null);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
       if (!session) {
         setError("Please login to generate emails");
@@ -137,7 +159,7 @@ function ColdEmailGenerator({ resumeData }) {
             template_subject: template?.subject || null,
             template_body: template?.body || null,
           }),
-        }
+        },
       );
 
       if (!response.ok) {
@@ -157,7 +179,9 @@ function ColdEmailGenerator({ resumeData }) {
   const handleSaveEmail = async () => {
     if (!generatedEmail) return;
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) {
       setSaveMessage("Please login to save emails");
       return;
@@ -165,19 +189,24 @@ function ColdEmailGenerator({ resumeData }) {
 
     try {
       setSaveMessage(null);
-      const title = generatedEmail.subject?.trim() || `Saved email ${new Date().toLocaleDateString()}`;
-      const response = await fetch("http://localhost:8000/api/v1/cold-email/saved", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+      const title =
+        generatedEmail.subject?.trim() ||
+        `Saved email ${new Date().toLocaleDateString()}`;
+      const response = await fetch(
+        "http://localhost:8000/api/v1/cold-email/saved",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title,
+            subject: generatedEmail.subject || "",
+            body: generatedEmail.body || "",
+          }),
         },
-        body: JSON.stringify({
-          title,
-          subject: generatedEmail.subject || "",
-          body: generatedEmail.body || "",
-        }),
-      });
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -193,7 +222,9 @@ function ColdEmailGenerator({ resumeData }) {
   };
 
   const handleDeleteSaved = async (templateId) => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) {
       setSavedError("Please login to manage saved emails");
       return;
@@ -207,7 +238,7 @@ function ColdEmailGenerator({ resumeData }) {
           headers: {
             Authorization: `Bearer ${session.access_token}`,
           },
-        }
+        },
       );
 
       if (!response.ok) {
@@ -246,7 +277,9 @@ function ColdEmailGenerator({ resumeData }) {
             Saved Templates
           </Button>
         </div>
-        <p className="text-muted-foreground">Generate personalized cold emails for job applications</p>
+        <p className="text-muted-foreground">
+          Generate personalized cold emails for job applications
+        </p>
       </div>
 
       {/* Form */}
@@ -261,7 +294,9 @@ function ColdEmailGenerator({ resumeData }) {
               type="text"
               placeholder="Enter Company"
               value={formData.targetCompany}
-              onChange={(e) => handleInputChange("targetCompany", e.target.value)}
+              onChange={(e) =>
+                handleInputChange("targetCompany", e.target.value)
+              }
             />
           </div>
 
@@ -288,7 +323,9 @@ function ColdEmailGenerator({ resumeData }) {
             placeholder="Paste the job description here..."
             rows={4}
             value={formData.jobDescription}
-            onChange={(e) => handleInputChange("jobDescription", e.target.value)}
+            onChange={(e) =>
+              handleInputChange("jobDescription", e.target.value)
+            }
           />
         </div>
 
@@ -368,7 +405,9 @@ function ColdEmailGenerator({ resumeData }) {
               </div>
             </div>
             {saveMessage && (
-              <div className="mt-3 text-xs text-muted-foreground">{saveMessage}</div>
+              <div className="mt-3 text-xs text-muted-foreground">
+                {saveMessage}
+              </div>
             )}
           </div>
 
@@ -384,13 +423,20 @@ function ColdEmailGenerator({ resumeData }) {
                   onClick={() => handleCopy(generatedEmail.subject, "subject")}
                 >
                   {copied === "subject" ? (
-                    <><CheckCircle className="w-3 h-3 mr-1 text-green-500" /> Copied!</>
+                    <>
+                      <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
+                      Copied!
+                    </>
                   ) : (
-                    <><Copy className="w-3 h-3 mr-1" /> Copy</>
+                    <>
+                      <Copy className="w-3 h-3 mr-1" /> Copy
+                    </>
                   )}
                 </Button>
               </div>
-              <div className="bg-muted/50 rounded-lg p-3 text-sm font-medium">{generatedEmail.subject}</div>
+              <div className="bg-muted/50 rounded-lg p-3 text-sm font-medium">
+                {generatedEmail.subject}
+              </div>
             </div>
 
             {/* Email Body */}
@@ -404,9 +450,14 @@ function ColdEmailGenerator({ resumeData }) {
                   onClick={() => handleCopy(generatedEmail.body, "body")}
                 >
                   {copied === "body" ? (
-                    <><CheckCircle className="w-3 h-3 mr-1 text-green-500" /> Copied!</>
+                    <>
+                      <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
+                      Copied!
+                    </>
                   ) : (
-                    <><Copy className="w-3 h-3 mr-1" /> Copy</>
+                    <>
+                      <Copy className="w-3 h-3 mr-1" /> Copy
+                    </>
                   )}
                 </Button>
               </div>
@@ -429,7 +480,9 @@ function ColdEmailGenerator({ resumeData }) {
               <div className="flex items-center justify-between px-4 py-4 border-b border-border">
                 <div>
                   <h3 className="text-lg font-semibold">Saved Templates</h3>
-                  <p className="text-xs text-muted-foreground">Up to 5 favorites</p>
+                  <p className="text-xs text-muted-foreground">
+                    Up to 5 favorites
+                  </p>
                 </div>
                 <button
                   className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-accent"
@@ -441,7 +494,9 @@ function ColdEmailGenerator({ resumeData }) {
 
               <div className="p-4 space-y-3 overflow-y-auto max-h-[70vh]">
                 {savedLoading && (
-                  <div className="text-sm text-muted-foreground">Loading saved emails...</div>
+                  <div className="text-sm text-muted-foreground">
+                    Loading saved emails...
+                  </div>
                 )}
 
                 {savedError && (
@@ -451,13 +506,22 @@ function ColdEmailGenerator({ resumeData }) {
                 )}
 
                 {!savedLoading && savedEmails.length === 0 && (
-                  <div className="text-sm text-muted-foreground">No saved emails yet.</div>
+                  <div className="text-sm text-muted-foreground">
+                    No saved emails yet.
+                  </div>
                 )}
 
                 {savedEmails.map((item) => (
-                  <div key={item.id} className="border border-border rounded-lg p-3 space-y-2">
-                    <div className="text-sm font-semibold text-foreground truncate">{item.title}</div>
-                    <div className="text-xs text-muted-foreground truncate">{item.subject}</div>
+                  <div
+                    key={item.id}
+                    className="border border-border rounded-lg p-3 space-y-2"
+                  >
+                    <div className="text-sm font-semibold text-foreground truncate">
+                      {item.title}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {item.subject}
+                    </div>
                     <div className="text-xs text-muted-foreground whitespace-pre-wrap max-h-16 overflow-hidden">
                       {item.body}
                     </div>
