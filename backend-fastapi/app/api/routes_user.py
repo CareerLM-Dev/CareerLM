@@ -139,10 +139,7 @@ async def get_history_item(
         # Merge back into a single object for frontend compatibility
         merged_content = {**content}
         if resume_analysis:
-            merged_content["ats_score"] = resume_analysis.get("ats_score")
-            merged_content["ats_analysis"] = resume_analysis.get("ats_analysis")
-            merged_content["analysis"] = resume_analysis.get("analysis")
-            merged_content["agentic_metadata"] = resume_analysis.get("agentic_metadata")
+            merged_content.update(resume_analysis)
         if skill_gap:
             merged_content["careerAnalysis"] = skill_gap
         

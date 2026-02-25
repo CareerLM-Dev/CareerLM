@@ -62,6 +62,7 @@ function Onboarding() {
     primary_goal: [],
     learning_preference: [],
     time_commitment: [],
+    year_of_study: [],
   });
 
   const questions = [
@@ -133,6 +134,21 @@ function Onboarding() {
         { value: "20_hours_week", label: "20 hours/week" },
         { value: "30_hours_week", label: "30+ hours/week (Full-time)" },
         { value: "flexible", label: "Flexible/As Available" },
+      ],
+    },
+    {
+      step: 5,
+      title: "What Year of Study Are You In?",
+      description: "This helps us tailor resume advice for your stage (e.g. fresher vs final year)",
+      field: "year_of_study",
+      type: "select",
+      options: [
+        { value: "1", label: "Year 1 / Freshman" },
+        { value: "2", label: "Year 2 / Sophomore" },
+        { value: "3", label: "Year 3 / Junior" },
+        { value: "4", label: "Year 4 / Senior (Final Year)" },
+        { value: "postgrad", label: "Postgraduate / Masters" },
+        { value: "recent_grad", label: "Recent Graduate" },
       ],
     },
   ];
@@ -246,6 +262,7 @@ function Onboarding() {
             primary_goal: answers.primary_goal,
             learning_preference: answers.learning_preference,
             time_commitment: answers.time_commitment,
+            year_of_study: answers.year_of_study[0] || null,
           }),
         },
       );
@@ -414,11 +431,11 @@ function Onboarding() {
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${(currentStep / 4) * 100}%` }}
-                />
-              </div>
+              style={{ width: `${(currentStep / 5) * 100}%` }}
+              />
+            </div>
               <p className="text-sm text-muted-foreground">
-                Question {currentStep} of 4
+                Question {currentStep} of 5
               </p>
             </div>
           </CardHeader>
@@ -505,7 +522,7 @@ function Onboarding() {
                 <div />
               )}
 
-              {currentStep < 4 ? (
+              {currentStep < 5 ? (
                 <Button
                   onClick={handleNext}
                   disabled={loading}
@@ -542,7 +559,7 @@ function Onboarding() {
               className="w-full text-muted-foreground hover:text-foreground gap-2"
             >
               <SkipForward className="h-4 w-4" />
-              {currentStep === 4 ? "Skip Questionnaire" : "Skip for Now"}
+              {currentStep === 5 ? "Skip Questionnaire" : "Skip for Now"}
             </Button>
           </CardFooter>
         </Card>

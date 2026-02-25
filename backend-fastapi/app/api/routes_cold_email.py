@@ -13,7 +13,7 @@ import json
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from app.agents.llm_config import EMAIL_LLM
+from app.agents.llm_config import RESUME_LLM
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ Job Description:
 {job_description[:2000]}
 """
 
-    response = EMAIL_LLM.invoke([
+    response = RESUME_LLM.invoke([
         SystemMessage(content="You extract company and role from job descriptions."),
         HumanMessage(content=prompt),
     ])

@@ -1,7 +1,7 @@
 # app/agents/cold_email/nodes.py
 
 from typing import Dict, Any
-from app.agents.llm_config import EMAIL_LLM
+from app.agents.llm_config import RESUME_LLM
 from .state import ColdEmailState
 import logging
 import re
@@ -103,7 +103,7 @@ BODY:
 [complete email body using actual resume content]
 """
 
-    response = EMAIL_LLM.invoke(prompt)
+    response = RESUME_LLM.invoke(prompt)
     email_content = response.content if hasattr(response, 'content') else str(response)
     
     # Parse subject and body

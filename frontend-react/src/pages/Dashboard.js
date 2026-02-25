@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../api/supabaseClient";
 import Sidebar from "../components/layout/Sidebar";
 import ResumeUpload from "../components/ResumeUpload";
-import ResumeOptimizer from "../components/ResumeOptimizer";
+import ResumeResultsView from "../components/ResumeResultsView";
 import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
 import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
@@ -17,7 +18,10 @@ import { formatText } from "../utils/textFormatter";
 
 function Dashboard() {
   const { session, loading: authLoading } = useUser();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const location = useLocation();
+  const [currentPage, setCurrentPage] = useState(
+    location.state?.initialPage ?? "dashboard"
+  );
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -71,20 +75,32 @@ function Dashboard() {
         // Transform the data to match the expected format
         const transformedData = {
           ats_score: content.ats_score || mostRecent.ats_score || 0,
-          ats_analysis: content.ats_analysis || {
-            component_scores: {
-              structure_score:
-                content.ats_analysis?.component_scores?.structure_score || 0,
-              content_score:
-                content.ats_analysis?.component_scores?.content_score || 0,
-              formatting_score:
-                content.ats_analysis?.component_scores?.formatting_score || 0,
-              keyword_score:
-                content.ats_analysis?.component_scores?.keyword_score || 0,
-            },
-          },
+          score_zone: content.score_zone || "",
+          structure_score: content.structure_score || 0,
+          completeness_score: content.completeness_score || 0,
+          relevance_score: content.relevance_score || 0,
+          impact_score: content.impact_score || 0,
+          ats_analysis: content.ats_analysis || {},
+          analysis: content.analysis || {},
+          // new top-level fields from optimizer
+          structure_suggestions: content.structure_suggestions || content.analysis?.structure_suggestions || [],
+          keyword_gap_table: content.keyword_gap_table || [],
+          skills_analysis: content.skills_analysis || [],
+          honest_improvements: content.honest_improvements || [],
+          human_reader_issues: content.human_reader_issues || [],
+          redundancy_issues: content.redundancy_issues || [],
+          bullet_rewrites: content.bullet_rewrites || [],
+          bullet_quality_breakdown: content.bullet_quality_breakdown || {},
+          learning_roadmap: content.learning_roadmap || [],
+          learning_priorities: content.learning_priorities || [],
+          job_readiness_estimate: content.job_readiness_estimate || null,
+          overall_readiness: content.overall_readiness || "",
+          ready_skills: content.ready_skills || [],
+          critical_gaps: content.critical_gaps || [],
+          has_job_description: content.has_job_description || false,
+          role_type: content.role_type || "",
+          year_of_study: content.year_of_study || null,
           // Keep the full careerAnalysis structure from database for SkillGapAnalyzer
-          // This matches the structure from skill_gap_analyzer.py backend service
           careerAnalysis: content.careerAnalysis || {
             user_skills: content.user_skills || [],
             total_skills_found: content.total_skills_found || 0,
@@ -97,12 +113,10 @@ function Dashboard() {
               skills_to_focus: [],
             },
           },
-          // Extract skills for cold email generator
           skills: content.careerAnalysis?.user_skills || [],
           gaps: content.analysis?.gaps || [],
           alignment_suggestions: content.analysis?.alignment_suggestions || [],
-          jobDescription:
-            content.analysis?.prompt || mostRecent.job_description || "",
+          jobDescription: content.analysis?.prompt || mostRecent.job_description || "",
           filename: mostRecent.filename || detailData.raw_file_path || "Resume",
         };
 
@@ -194,12 +208,13 @@ function Dashboard() {
 
   // Handle resume data update (now data is automatically stored in Supabase by backend)
   const handleResumeDataUpdate = async (data) => {
-    // Update local state for immediate UI feedback
+    // Update local state with the fresh analysis (preserves careerAnalysis from upload)
     setResumeData(data);
-
-    // Fetch fresh data from database to ensure we have the latest
-    // This also refreshes the score history for the chart
-    await fetchLatestResumeData();
+    // Show the compact results view directly inside Dashboard (no URL change)
+    setCurrentPage("resume_results");
+    // Note: Do NOT call fetchLatestResumeData() here — it would overwrite careerAnalysis
+    // with empty DB data before the career analysis save completes.
+    // History refreshes automatically when user navigates to the history tab.
   };
 
   // Generate SVG path from score history
@@ -238,8 +253,20 @@ function Dashboard() {
     switch (currentPage) {
       case "upload":
         return <ResumeUpload onResult={handleResumeDataUpdate} />;
+      case "resume_results":
+        return (
+          <ResumeResultsView
+            resumeData={resumeData}
+            onUploadAnother={() => setCurrentPage("upload")}
+          />
+        );
       case "resume_optimizer":
-        return <ResumeOptimizer resumeData={resumeData} />;
+        return (
+          <ResumeResultsView
+            resumeData={resumeData}
+            onUploadAnother={() => setCurrentPage("upload")}
+          />
+        );
       case "skill_gap":
         return <SkillGapAnalyzer resumeData={resumeData} />;
       case "mock_interview":
@@ -361,7 +388,7 @@ function Dashboard() {
                             <div className="flex items-center justify-between py-2 border-t border-primary/10">
                               <span className="text-xs text-muted-foreground">Keyword Match</span>
                               <span className="text-sm font-semibold text-primary">
-                                {resumeData?.ats_analysis?.component_scores?.keyword_score || 0}%
+                                {resumeData?.ats_analysis?.component_scores?.keyword_score ?? resumeData?.relevance_score ?? 0}%
                               </span>
                             </div>
                             <div className="flex items-center justify-between py-2 border-t border-primary/10">
@@ -401,12 +428,12 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.structure_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.structure_score ?? resumeData?.structure_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.structure_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.structure_score ?? resumeData?.structure_score ?? 0}%</span>
                             </div>
                           </div>
                           <p className="text-xs font-medium text-muted-foreground">Structure</p>
@@ -422,15 +449,15 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.content_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.content_score ?? resumeData?.completeness_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.content_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.content_score ?? resumeData?.completeness_score ?? 0}%</span>
                             </div>
                           </div>
-                          <p className="text-xs font-medium text-muted-foreground">Content</p>
+                          <p className="text-xs font-medium text-muted-foreground">Completeness</p>
                         </div>
                         <div className="flex flex-col items-center">
                           <div className="relative w-16 h-16 mb-2">
@@ -443,15 +470,15 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.formatting_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.formatting_score ?? resumeData?.impact_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.formatting_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.formatting_score ?? resumeData?.impact_score ?? 0}%</span>
                             </div>
                           </div>
-                          <p className="text-xs font-medium text-muted-foreground">Formatting</p>
+                          <p className="text-xs font-medium text-muted-foreground">Impact</p>
                         </div>
                       </div>
                       
@@ -460,7 +487,7 @@ function Dashboard() {
                         <div className="flex justify-between items-center">
                           <span className="text-xs text-muted-foreground">Keywords Match</span>
                           <span className="text-lg font-semibold text-primary">
-                            {resumeData?.ats_analysis?.component_scores?.keyword_score || 0}%
+                            {resumeData?.ats_analysis?.component_scores?.keyword_score ?? resumeData?.relevance_score ?? 0}%
                           </span>
                         </div>
                       </div>

@@ -65,158 +65,181 @@ async def get_current_user_optional(authorization: Optional[str] = Header(None))
 async def optimize_resume(
     user_id: str = Form(...),
     resume: UploadFile = File(...),
-    job_description: str = Form(...)
+    job_description: str = Form(""),           # Optional — empty string means no JD
+    role_type: Optional[str] = Form(None),     # e.g. "software_engineer"
+    year_of_study: Optional[str] = Form(None), # e.g. "2", "final"
 ):
     """
-    AGENTIC Resume Optimization Endpoint
-    Uses LangGraph multi-agent system to analyze and optimize resumes
+    Resume Upload & Optimization Endpoint — Career Advisor Framework
+
+    Dimensions scored:
+      1. Structure & Formatting
+      2. Section Completeness
+      3. Keyword & Relevance (JD match or role-archetype baseline)
+      4. Impact & Specificity
     """
-    
-    # Extract raw text using centralized parser
-    parser = get_parser()
-    resume_bytes = await resume.read()
-    resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
 
-    # Parse structured sections (lowercase keys for ATS compatibility)
-    sections = parser.parse_sections(resume_text)
+    try:
+        # Extract raw text using centralized parser
+        parser = get_parser()
+        resume_bytes = await resume.read()
+        resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
+        sections = parser.parse_sections(resume_text)
 
-    # Run AGENTIC optimizer logic (this now uses LangGraph!)
-    logger.info(f"Processing resume: {resume.filename}")
-    
-    analysis_result = optimize_resume_logic(
-        resume_bytes,
-        job_description,
-        filename=resume.filename,
-        resume_text=resume_text,
-        sections=sections
-    )
-    
-    logger.info(f"ATS Score: {analysis_result.get('ats_score')}/100")
-    
-    # Run Skill Gap Analysis in parallel
-    logger.info("Running skill gap analysis...")
-    from app.agents.skill_gap import analyze_skill_gap
-    skill_gap_result = analyze_skill_gap(
-        resume_text, filename=resume.filename, sections=sections
-    )
-    
-    logger.info(f"Skill gap analysis complete. Found {skill_gap_result.get('total_skills_found', 0)} skills")
+        logger.info(f"Parsed resume: {resume.filename} | sections: {list(sections.keys())}")
 
-    # Build comprehensive result
-    result = {
-        # Original fields (backward compatible)
-        "sections": sections,
-        "filename": resume.filename,
-        "resume_text": resume_text,  # Store full resume text for cold email generation
-        
-        # ATS Analysis
-        "ats_score": analysis_result.get("ats_score"),
-        "ats_analysis": analysis_result.get("ats_analysis", {}),
-        
-        # Optimization Suggestions
-        "analysis": {
-            "gaps": analysis_result.get("gaps", []),  # Skill gaps
-            "alignment_suggestions": analysis_result.get("alignment_suggestions", []),
-            "structure_suggestions": analysis_result.get("structure_suggestions", []),  # Only if ATS < 60
-        },
-        
-        # Career & Skill Gap Analysis (auto-populated)
-        "careerAnalysis": skill_gap_result if "error" not in skill_gap_result else {
-            "user_skills": [],
-            "total_skills_found": 0,
-            "career_matches": [],
-            "top_3_careers": [],
+        # If role_type or year_of_study not provided in request, try Supabase profile
+        if (not role_type or not year_of_study) and user_id:
+            try:
+                profile = supabase.table("user").select("questionnaire_answers").eq("id", user_id).execute()
+                if profile.data and profile.data[0].get("questionnaire_answers"):
+                    qa = profile.data[0]["questionnaire_answers"]
+                    if not role_type:
+                        target_roles = qa.get("target_role", [])
+                        # Use first selected role as primary
+                        if isinstance(target_roles, list) and target_roles:
+                            role_type = target_roles[0]
+                        elif isinstance(target_roles, str):
+                            role_type = target_roles
+                    if not year_of_study:
+                        year_of_study = qa.get("year_of_study") or None
+            except Exception as e:
+                logger.warning(f"Could not fetch user profile for role_type/year_of_study: {e}")
+
+        logger.info(f"Analysis context: role_type={role_type}, year_of_study={year_of_study}, has_jd={bool(job_description.strip())}")
+
+        # Run 3-agent career advisor workflow
+        optimization = optimize_resume_logic(
+            resume_bytes,
+            job_description=job_description,
+            filename=resume.filename,
+            resume_text=resume_text,
+            sections=sections,
+            role_type=role_type,
+            year_of_study=year_of_study,
+        )
+
+        # Run Skill Gap / Career Match analysis inline
+        logger.info("Running skill gap analysis...")
+        from app.agents.skill_gap import analyze_skill_gap
+        skill_gap_result = analyze_skill_gap(
+            resume_text, filename=resume.filename, sections=sections
+        )
+        career_analysis = skill_gap_result if "error" not in skill_gap_result else {
+            "user_skills": [], "total_skills_found": 0,
+            "career_matches": [], "top_3_careers": [],
             "ai_recommendations": "",
-            "analysis_summary": {
-                "best_match": None,
-                "best_match_probability": 0,
-                "skills_to_focus": []
-            }
-        },
-        
-        # Agentic Metadata (for debugging/UI)
-        "agentic_metadata": {
-            "agent_execution_log": analysis_result.get("agent_execution_log", []),
-            "total_iterations": analysis_result.get("total_iterations", 0),
-            "completed_steps": analysis_result.get("completed_steps", []),
-            "is_agentic": analysis_result.get("_agentic", False),
-            "version": analysis_result.get("_version", "1.0")
-        },
-        
-        "summary": "",  # Keep for backward compatibility
-    }
+            "analysis_summary": {"best_match": None, "best_match_probability": 0, "skills_to_focus": []},
+        }
+        logger.info(f"Skill gap analysis complete. Found {career_analysis.get('total_skills_found', 0)} skills")
 
-    # Ensure user row exists (prevents FK violation on first use)
-    ensure_user_row(user_id)
+        result = {
+            "success": True,
+            "filename": resume.filename,
+            "resume_text": resume_text,
+            "sections": sections,
+            # Score
+            "ats_score": optimization.get("ats_score"),
+            "score_zone": optimization.get("score_zone"),
+            "structure_score": optimization.get("structure_score"),
+            "completeness_score": optimization.get("completeness_score"),
+            "relevance_score": optimization.get("relevance_score"),
+            "impact_score": optimization.get("impact_score"),
+            # Analysis wrappers
+            "ats_analysis": optimization.get("ats_analysis", {}),
+            "analysis": optimization.get("analysis", {}),
+            # Relevance
+            "keyword_gap_table": optimization.get("keyword_gap_table", []),
+            "has_job_description": optimization.get("has_job_description", False),
+            "skills_analysis": optimization.get("skills_analysis", []),
+            "overall_readiness": optimization.get("overall_readiness"),
+            "ready_skills": optimization.get("ready_skills", []),
+            "critical_gaps": optimization.get("critical_gaps", []),
+            "learning_priorities": optimization.get("learning_priorities", []),
+            # Impact
+            "honest_improvements": optimization.get("honest_improvements", []),
+            "bullet_rewrites": optimization.get("bullet_rewrites", []),
+            "bullet_quality_breakdown": optimization.get("bullet_quality_breakdown", {}),
+            "human_reader_issues": optimization.get("human_reader_issues", []),
+            "redundancy_issues": optimization.get("redundancy_issues", []),
+            "learning_roadmap": optimization.get("learning_roadmap", []),
+            "job_readiness_estimate": optimization.get("job_readiness_estimate"),
+            # Context
+            "role_type": role_type,
+            "year_of_study": year_of_study,
+            "_status": optimization.get("_status", "completed"),
+            # Career analysis (inline, so frontend gets it immediately)
+            "careerAnalysis": career_analysis,
+        }
 
-    # Insert/Update Supabase
-    existing_resume = supabase.table("resumes").select("*").eq("user_id", user_id).execute()
+        # Store in Supabase
+        try:
+            existing_resume = supabase.table("resumes").select("*").eq("user_id", user_id).execute()
 
-    if existing_resume.data:
-        resume_id = existing_resume.data[0]["resume_id"]
-        new_version_number = existing_resume.data[0]["current_version"] + 1
+            if existing_resume.data:
+                resume_id = existing_resume.data[0]["resume_id"]
+                new_version_number = existing_resume.data[0]["current_version"] + 1
+                supabase.table("resumes").update({
+                    "current_version": new_version_number,
+                    "latest_update": datetime.utcnow().isoformat()
+                }).eq("resume_id", resume_id).execute()
+            else:
+                resp = supabase.table("resumes").insert({
+                    "user_id": user_id,
+                    "template_type": "default",
+                    "current_version": 1,
+                    "latest_update": datetime.utcnow().isoformat()
+                }).execute()
+                resume_id = resp.data[0]["resume_id"]
+                new_version_number = 1
 
-        supabase.table("resumes").update({
-            "current_version": new_version_number,
-            "latest_update": datetime.utcnow().isoformat()
-        }).eq("resume_id", resume_id).execute()
+            stored_sections = {k: v for k, v in sections.items() if k not in ["contact", "other"]}
+            content_data = {"sections": stored_sections}
 
-    else:
-        resp = supabase.table("resumes").insert({
-            "user_id": user_id,
-            "template_type": "default",
-            "current_version": 1,
-            "latest_update": datetime.utcnow().isoformat()
-        }).execute()
+            analysis_payload = {k: v for k, v in optimization.items() if k not in ["agent_execution_log"]}
+            analysis_payload["role_type"] = role_type
+            analysis_payload["year_of_study"] = year_of_study
 
-        resume_id = resp.data[0]["resume_id"]
-        new_version_number = 1
+            version_insert = supabase.table("resume_versions").insert({
+                "resume_id": resume_id,
+                "version_number": new_version_number,
+                "job_description": job_description,
+                "content": json.dumps(content_data),
+                "resume_analysis": json.dumps(analysis_payload),
+                "skill_gap": json.dumps({
+                    # Full career analysis — persisted so history/reload shows correct data
+                    **career_analysis,
+                    # Optimizer-derived skill fields
+                    "skills_analysis": optimization.get("skills_analysis", []),
+                    "keyword_gap_table": optimization.get("keyword_gap_table", []),
+                    "overall_readiness": optimization.get("overall_readiness"),
+                    "ready_skills": optimization.get("ready_skills", []),
+                    "critical_gaps": optimization.get("critical_gaps", []),
+                    "learning_priorities": optimization.get("learning_priorities", []),
+                }),
+                "ats_score": optimization.get("ats_score"),
+                "raw_file_path": resume.filename,
+                "notes": f"Career advisor analysis | role: {role_type} | year: {year_of_study} | has_jd: {bool(job_description.strip())}",
+            }).execute()
 
-    # Store resume text section-wise, excluding contact info
-    stored_sections = {
-        key: value
-        for key, value in (result.get("sections") or {}).items()
-        if key not in ["contact", "other"]
-    }
+            saved_version_id = version_insert.data[0]["version_id"] if version_insert.data else None
+            result["version_id"] = saved_version_id
 
-    content_data = {
-        "sections": stored_sections
-    }
+            logger.info(f"Resume stored for user {user_id}, version_id={saved_version_id}")
 
-    resume_analysis_data = {
-        "ats_score": result["ats_score"],
-        "ats_analysis": result["ats_analysis"],
-        "analysis": result["analysis"],
-        "agentic_metadata": result["agentic_metadata"],
-        "summary": result["summary"]
-    }
+        except Exception as db_err:
+            logger.warning(f"Failed to store resume in Supabase: {db_err}")
 
-    skill_gap_data = result["careerAnalysis"]
+        return JSONResponse(result)
 
-    stored_version = supabase.table("resume_versions").insert({
-        "resume_id": resume_id,
-        "version_number": new_version_number,
-        "job_description": job_description,
-        "content": json.dumps(content_data),
-        "resume_analysis": json.dumps(resume_analysis_data),
-        "skill_gap": json.dumps(skill_gap_data), # Store analysis data with sections
-        "ats_score": result.get("ats_score"),
-        "raw_file_path": result.get("filename"),
-        "notes": f"Agentic analysis v{result['agentic_metadata']['version']} - {result['agentic_metadata']['total_iterations']} iterations"
-    }).execute()
-
-    # print("resume_versions insert data=", getattr(stored_version, "data", None))
-    # print("resume_versions insert error=", getattr(stored_version, "error", None))
-
-    return JSONResponse({
-        "success": True,
-        "optimization": result,
-        "resume_id": resume_id,
-        "version_stored": stored_version.data
-    })
+    except Exception as e:
+        logger.exception(f"Error processing resume: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e), "message": "Failed to parse resume"},
+        )
 
 
-# Keep your other endpoints as-is
 @router.post("/skill-gap-analysis")
 async def skill_gap_analysis(resume: UploadFile = File(...)):
     """

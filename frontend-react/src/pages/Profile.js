@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { User, FileText, ClipboardList, Pencil, Save, X, Loader2 } from "lucide-react";
@@ -59,6 +59,18 @@ const questions = [
       { value: "flexible", label: "Flexible/As Available" },
     ],
   },
+  {
+    field: "year_of_study",
+    title: "What Year of Study Are You In?",
+    options: [
+      { value: "1", label: "Year 1 / Freshman" },
+      { value: "2", label: "Year 2 / Sophomore" },
+      { value: "3", label: "Year 3 / Junior" },
+      { value: "4", label: "Year 4 / Senior (Final Year)" },
+      { value: "postgrad", label: "Postgraduate / Masters" },
+      { value: "recent_grad", label: "Recent Graduate" },
+    ],
+  },
 ];
 
 function Profile() {
@@ -71,6 +83,7 @@ function Profile() {
   const [editingField, setEditingField] = useState(null);
   const [draftValues, setDraftValues] = useState([]);
   const [savingField, setSavingField] = useState(null);
+  const scrollRef = useRef(null);
 
   const optionsByField = useMemo(() => {
     return questions.reduce((acc, question) => {
@@ -140,9 +153,22 @@ function Profile() {
   };
 
   const toggleDraftValue = (value) => {
+    const container = scrollRef.current;
+    const previousScrollTop = container?.scrollTop ?? 0;
+    const previousWindowScroll = window.scrollY;
+
     setDraftValues((prev) =>
       prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
     );
+
+    requestAnimationFrame(() => {
+      if (container) {
+        container.scrollTop = previousScrollTop;
+      }
+      if (window.scrollY !== previousWindowScroll) {
+        window.scrollTo(0, previousWindowScroll);
+      }
+    });
   };
 
   const saveAnswers = async (field) => {
@@ -226,7 +252,7 @@ function Profile() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
+    <div ref={scrollRef} className="h-full overflow-y-auto bg-background">
       {/* Hero */}
       <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-b border-border">
         <div className="max-w-4xl mx-auto px-6 py-12">
@@ -343,6 +369,7 @@ function Profile() {
                   <h3 className="text-sm font-semibold text-foreground">{question.title}</h3>
                   {editingField !== question.field && (
                     <button
+                      type="button"
                       className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
                       onClick={() => startEdit(question.field)}
                     >
@@ -356,20 +383,17 @@ function Profile() {
                   <div className="mt-3 space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {question.options.map((option) => (
-                        <label
+                        <button
                           key={option.value}
-                          className={`relative flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer transition-colors ${
+                          type="button"
+                          onClick={() => toggleDraftValue(option.value)}
+                          aria-pressed={draftValues.includes(option.value)}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
                             draftValues.includes(option.value)
                               ? "border-primary bg-primary/5 text-foreground"
                               : "border-border bg-background hover:border-primary/40 text-muted-foreground"
                           }`}
                         >
-                          <input
-                            type="checkbox"
-                            checked={draftValues.includes(option.value)}
-                            onChange={() => toggleDraftValue(option.value)}
-                            className="sr-only"
-                          />
                           <div
                             className={`h-4 w-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
                               draftValues.includes(option.value)
@@ -384,11 +408,12 @@ function Profile() {
                             )}
                           </div>
                           <span className="text-sm">{option.label}</span>
-                        </label>
+                        </button>
                       ))}
                     </div>
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                         onClick={() => saveAnswers(question.field)}
                         disabled={savingField === question.field}
@@ -406,6 +431,7 @@ function Profile() {
                         )}
                       </button>
                       <button
+                        type="button"
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
                         onClick={cancelEdit}
                       >

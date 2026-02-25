@@ -4,12 +4,14 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
 import ResumeUpload from "../components/ResumeUpload";
+import Sidebar from "../components/layout/Sidebar";
 
 
 function ResumeUploadPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [isOnboardingFlow, setIsOnboardingFlow] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -19,7 +21,6 @@ function ResumeUploadPage() {
       }
     });
 
-    // Check if coming from onboarding (optional - you can persist this in local storage if needed)
     const fromOnboarding = sessionStorage.getItem("fromOnboarding");
     if (fromOnboarding) {
       setIsOnboardingFlow(true);
@@ -27,9 +28,12 @@ function ResumeUploadPage() {
     }
   }, [navigate]);
 
-  const handleResumeAnalysisComplete = () => {
-    // After resume is analyzed, redirect to dashboard to view results
-    navigate("/dashboard");
+  const handleResumeAnalysisComplete = (resumeData) => {
+    navigate("/resume-results", { state: { resumeData } });
+  };
+
+  const handleSetPage = (pageId) => {
+    navigate("/dashboard", { state: { initialPage: pageId } });
   };
 
   if (!session) {
@@ -44,20 +48,28 @@ function ResumeUploadPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="max-w-4xl mx-auto p-6 space-y-6">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            {isOnboardingFlow ? "Complete Your Profile" : "Upload Resume"}
-          </h1>
-          <p className="text-muted-foreground">
-            {isOnboardingFlow
-              ? "Upload your resume to get personalized career guidance"
-              : "Upload and optimize your resume against job descriptions"}
-          </p>
+    <div className="flex h-full bg-background">
+      <Sidebar
+        setCurrentPage={handleSetPage}
+        currentPage="upload"
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((p) => !p)}
+      />
+      <main className="flex-1 overflow-auto no-scrollbar">
+        <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">
+              {isOnboardingFlow ? "Complete Your Profile" : "Upload Resume"}
+            </h1>
+            <p className="text-muted-foreground">
+              {isOnboardingFlow
+                ? "Upload your resume to get personalized career guidance"
+                : "Upload and optimize your resume against job descriptions"}
+            </p>
+          </div>
+          <ResumeUpload onResult={handleResumeAnalysisComplete} />
         </div>
-        <ResumeUpload onResult={handleResumeAnalysisComplete} />
-      </div>
+      </main>
     </div>
   );
 }

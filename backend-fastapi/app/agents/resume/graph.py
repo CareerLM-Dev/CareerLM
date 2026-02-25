@@ -1,44 +1,32 @@
 # app/agents/resume/graph.py
 """
-Simplified Linear Resume Workflow (3 agents, no complex routing)
-Flow: Resume Analyzer → Skill Intelligence → Optimization Advisor → Done
+Linear Resume Workflow — Career Advisor Framework
+Flow: Structure & Completeness → Relevance & Keywords → Impact & Specificity
 """
 
 from langgraph.graph import StateGraph, END
 from app.agents.resume.state import ResumeState
 from app.agents.resume.nodes import (
-    resume_analyzer_agent,
-    skill_intelligence_agent,
-    optimization_advisor_agent
+    structure_completeness_agent,
+    relevance_agent,
+    impact_advisor_agent,
 )
 
 
 def create_resume_workflow():
-    """
-    Creates a simple linear workflow with 3 agents.
-    No coordinator needed - just sequential execution.
-    """
-    
-    print("Building simplified Resume workflow...")
-    
+    """Creates a simple linear 3-agent workflow."""
+    print("Building Resume workflow (career advisor framework)...")
+
     workflow = StateGraph(ResumeState)
-    
-    # ===== ADD 3 AGENTS =====
-    print("  → Adding resume_analyzer node")
-    workflow.add_node("resume_analyzer", resume_analyzer_agent)
-    
-    print("  → Adding skill_intelligence node")
-    workflow.add_node("skill_intelligence", skill_intelligence_agent)
-    
-    print("  → Adding optimization_advisor node")
-    workflow.add_node("optimization_advisor", optimization_advisor_agent)
-    
-    # ===== LINEAR FLOW (NO BRANCHING) =====
-    print("  → Setting up linear flow: analyzer → skills → advisor → end")
-    workflow.set_entry_point("resume_analyzer")
-    workflow.add_edge("resume_analyzer", "skill_intelligence")
-    workflow.add_edge("skill_intelligence", "optimization_advisor")
-    workflow.add_edge("optimization_advisor", END)
+
+    workflow.add_node("structure_completeness", structure_completeness_agent)
+    workflow.add_node("relevance", relevance_agent)
+    workflow.add_node("impact_advisor", impact_advisor_agent)
+
+    workflow.set_entry_point("structure_completeness")
+    workflow.add_edge("structure_completeness", "relevance")
+    workflow.add_edge("relevance", "impact_advisor")
+    workflow.add_edge("impact_advisor", END)
     
     # ===== COMPILE =====
     print("  → Compiling graph...")
@@ -50,7 +38,5 @@ def create_resume_workflow():
 
 # Create singleton
 print("Creating resume_workflow singleton...")
-resume_workflow = create_resume_workflow()
-print("resume_workflow ready!")
 resume_workflow = create_resume_workflow()
 print("resume_workflow ready!")
