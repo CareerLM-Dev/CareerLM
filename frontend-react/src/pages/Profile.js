@@ -73,16 +73,61 @@ const questions = [
   },
 ];
 
+const profileSections = [
+  { key: "intro", title: "Intro / Summary", type: "text" },
+  { key: "skills", title: "Skills", type: "skills" },
+  { key: "education", title: "Education", type: "text" },
+  { key: "projects", title: "Projects", type: "text" },
+  { key: "experience", title: "Experience", type: "text" },
+  { key: "certifications", title: "Certifications", type: "text" },
+  { key: "coursework", title: "Coursework", type: "text" },
+  { key: "co_curricular_achievements", title: "Co-curricular Achievements", type: "text" },
+];
+
+const stripSectionHeader = (value, sectionKey, title) => {
+  if (!value || typeof value !== "string") return value;
+  const lines = value.split(/\r?\n/).map((line) => line.trim());
+  if (lines.length === 0) return value;
+
+  const headerMap = {
+    intro: ["summary", "professional summary", "profile", "objective"],
+    skills: ["skills", "technical skills", "core skills"],
+    education: ["education", "academic"],
+    projects: ["projects", "key projects"],
+    experience: ["experience", "work experience", "employment"],
+    certifications: ["certifications", "licenses"],
+    coursework: ["coursework", "relevant coursework", "courses"],
+    co_curricular_achievements: ["awards", "achievements", "honors"],
+  };
+
+  const candidates = new Set([
+    ...(headerMap[sectionKey] || []),
+    (title || "").toLowerCase(),
+  ]);
+
+  const first = lines[0].toLowerCase().replace(/[:\-]+$/, "").trim();
+  if (candidates.has(first)) {
+    return lines.slice(1).join("\n").trim();
+  }
+  return value;
+};
+
 function Profile() {
   const { session, loading: authLoading } = useUser();
   const [profile, setProfile] = useState(null);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState({});
+  const [userProfileSections, setUserProfileSections] = useState({});
   const [latestResume, setLatestResume] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [editingField, setEditingField] = useState(null);
   const [draftValues, setDraftValues] = useState([]);
   const [savingField, setSavingField] = useState(null);
+  const [editingProfileSection, setEditingProfileSection] = useState(null);
+  const [draftProfileText, setDraftProfileText] = useState("");
+  const [draftSkills, setDraftSkills] = useState([]);
+  const [skillInput, setSkillInput] = useState("");
+  const [savingProfileSection, setSavingProfileSection] = useState(null);
   const scrollRef = useRef(null);
 
   const optionsByField = useMemo(() => {
@@ -121,6 +166,7 @@ function Profile() {
         const data = profileResponse.data.data;
         setProfile(data);
         setQuestionnaireAnswers(data.questionnaire_answers || {});
+        setUserProfileSections(data.user_profile || {});
 
         const history = resumeResponse.data.data || [];
         setLatestResume(history.length > 0 ? history[0] : null);
@@ -200,6 +246,79 @@ function Profile() {
     }
   };
 
+  const startProfileEdit = (key) => {
+    setEditingProfileSection(key);
+    if (key === "skills") {
+      const skills = Array.isArray(userProfileSections?.skills)
+        ? userProfileSections.skills
+        : userProfileSections?.skills
+        ? userProfileSections.skills.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+      setDraftSkills(skills);
+      setSkillInput("");
+      setDraftProfileText("");
+      return;
+    }
+    const section = profileSections.find((item) => item.key === key);
+    const rawValue = userProfileSections?.[key] || "";
+    setDraftProfileText(stripSectionHeader(rawValue, key, section?.title));
+    setDraftSkills([]);
+    setSkillInput("");
+  };
+
+  const cancelProfileEdit = () => {
+    setEditingProfileSection(null);
+    setDraftProfileText("");
+    setDraftSkills([]);
+    setSkillInput("");
+  };
+
+  const addSkill = () => {
+    const cleaned = skillInput.trim();
+    if (!cleaned) return;
+    if (draftSkills.some((s) => s.toLowerCase() === cleaned.toLowerCase())) {
+      setSkillInput("");
+      return;
+    }
+    setDraftSkills((prev) => [...prev, cleaned]);
+    setSkillInput("");
+  };
+
+  const removeSkill = (value) => {
+    setDraftSkills((prev) => prev.filter((s) => s !== value));
+  };
+
+  const saveProfileSection = async (key) => {
+    try {
+      setSavingProfileSection(key);
+      const updated = {
+        ...userProfileSections,
+        [key]: key === "skills" ? draftSkills : draftProfileText.trim(),
+      };
+
+      await axios.patch(
+        "http://localhost:8000/api/v1/user/profile-user-profile",
+        { user_profile: updated },
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      );
+
+      setUserProfileSections(updated);
+      setEditingProfileSection(null);
+      setDraftProfileText("");
+      setDraftSkills([]);
+      setSkillInput("");
+    } catch (err) {
+      console.error("Failed to update profile sections:", err);
+      setError("Unable to save your profile sections.");
+    } finally {
+      setSavingProfileSection(null);
+    }
+  };
+
   const formatAnswer = (field) => {
     const values = questionnaireAnswers?.[field] || [];
     const normalized = Array.isArray(values)
@@ -214,6 +333,25 @@ function Profile() {
     return normalized
       .map((value) => optionsByField[field]?.[value] || value)
       .join(", ");
+  };
+
+  const formatProfileValue = (key) => {
+    if (key === "skills") {
+      const skills = Array.isArray(userProfileSections?.skills)
+        ? userProfileSections.skills
+        : userProfileSections?.skills
+        ? userProfileSections.skills.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
+      return skills.length ? skills : null;
+    }
+    if (key === "coursework" && !userProfileSections?.coursework && userProfileSections?.coursework_projects) {
+      const fallback = userProfileSections.coursework_projects;
+      return stripSectionHeader(fallback, key, "Coursework");
+    }
+    const value = userProfileSections?.[key];
+    if (!value || typeof value !== "string" || !value.trim()) return null;
+    const section = profileSections.find((item) => item.key === key);
+    return stripSectionHeader(value, key, section?.title);
   };
 
   const statusLabel = (() => {
@@ -445,6 +583,147 @@ function Profile() {
                 )}
               </div>
             ))}
+          </div>
+        </section>
+
+        {/* Resume Profile Sections */}
+        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <FileText className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Resume profile</h2>
+                <p className="text-sm text-muted-foreground">Edit section details extracted from your latest resume.</p>
+              </div>
+            </div>
+            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+              Inline editing
+            </span>
+          </div>
+
+          <div className="divide-y divide-border">
+            {profileSections.map((section) => {
+              const isEditing = editingProfileSection === section.key;
+              const displayValue = formatProfileValue(section.key);
+              return (
+                <div key={section.key} className="px-6 py-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
+                    {!isEditing && (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                        onClick={() => startProfileEdit(section.key)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </button>
+                    )}
+                  </div>
+
+                  {isEditing ? (
+                    <div className="mt-3 space-y-4">
+                      {section.type === "skills" ? (
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap gap-2">
+                            {draftSkills.length > 0 ? (
+                              draftSkills.map((skill) => (
+                                <span
+                                  key={skill}
+                                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                                >
+                                  {skill}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeSkill(skill)}
+                                    className="text-primary/70 hover:text-primary"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))
+                            ) : (
+                              <p className="text-xs text-muted-foreground">No skills added yet.</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={skillInput}
+                              onChange={(e) => setSkillInput(e.target.value)}
+                              placeholder="Add a skill"
+                              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                            />
+                            <button
+                              type="button"
+                              onClick={addSkill}
+                              className="px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <textarea
+                          value={draftProfileText}
+                          onChange={(e) => setDraftProfileText(e.target.value)}
+                          rows={5}
+                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                        />
+                      )}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                          onClick={() => saveProfileSection(section.key)}
+                          disabled={savingProfileSection === section.key}
+                        >
+                          {savingProfileSection === section.key ? (
+                            <>
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-3.5 w-3.5" />
+                              Save
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                          onClick={cancelProfileEdit}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : section.type === "skills" ? (
+                    displayValue ? (
+                      <div className="flex flex-wrap gap-2">
+                        {displayValue.map((skill) => (
+                          <span
+                            key={skill}
+                            className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Not set</p>
+                    )
+                  ) : displayValue ? (
+                    <p className="text-sm text-muted-foreground whitespace-pre-line">{displayValue}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Not set</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       </div>

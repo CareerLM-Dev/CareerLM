@@ -16,19 +16,13 @@ import {
 function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
   const menuItems = [
     {
-      id: "upload",
-      label: "Upload Resume",
-      icon: Upload,
-      className: "bg-primary/10 hover:bg-primary/20",
-    },
-    {
       id: "dashboard",
       label: "Dashboard",
       icon: LayoutDashboard,
     },
     {
       id: "resume_optimizer",
-      label: "Resume Optimizer",
+      label: "Resume Analyzer",
       icon: FileText,
     },
     {

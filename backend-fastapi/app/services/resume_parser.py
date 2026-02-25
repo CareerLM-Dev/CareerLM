@@ -68,6 +68,12 @@ class ResumeParser:
             r"portfolio",
             r"notable\s+work"
         ],
+        "coursework": [
+            r"(relevant\s+|core\s+)?coursework",
+            r"(relevant\s+)?courses",
+            r"academic\s+coursework",
+            r"course\s+highlights"
+        ],
         "certifications": [
             r"certifications?",
             r"licenses?(\s+&\s+certifications?)?",
@@ -165,6 +171,7 @@ class ResumeParser:
             "skills": ["skills", "technical skills", "core skills", "key skills", "competencies",
                        "technologies", "programming", "languages"],
             "projects": ["projects", "portfolio", "notable work", "key projects"],
+            "coursework": ["coursework", "relevant coursework", "courses", "course highlights"],
             "certifications": ["certifications", "certificates", "licenses", "credentials", "professional cert"],
             "summary": ["summary", "objective", "profile", "about", "professional summary", "career summary"],
             "contact": ["contact", "personal info", "contact info"],
@@ -200,6 +207,7 @@ class ResumeParser:
 
         known_keywords = [
             'EDUCATION', 'EXPERIENCE', 'SKILLS', 'PROJECTS',
+            'COURSEWORK', 'RELEVANT COURSEWORK', 'COURSES',
             'CERTIFICATIONS', 'LANGUAGES', 'TECHNICAL', 'AWARDS',
             'PUBLICATIONS', 'SUMMARY', 'OBJECTIVE', 'CONTACT',
             'TRAINING', 'RELEVANT', 'KEY SKILLS', 'KEY PROJECTS',
@@ -257,7 +265,7 @@ Instructions:
 - Map each chunk index to the most appropriate section
 - "KEY SKILLS" → skills, "KEY PROJECTS" → projects
 
-Valid sections: contact, summary, experience, education, skills, projects, certifications, publications, awards, other
+Valid sections: contact, summary, experience, education, skills, projects, coursework, certifications, publications, awards, other
 
 Resume chunks:
 {chunks_text}
@@ -289,7 +297,7 @@ Return format (JSON only):
     def parse_sections(self, resume_text: str) -> Dict[str, str]:
         sections = {
             "contact": "", "summary": "", "experience": "", "education": "",
-            "skills": "", "projects": "", "certifications": "",
+            "skills": "", "projects": "", "coursework": "", "certifications": "",
             "publications": "", "awards": "", "other": ""
         }
         valid_sections = set(sections.keys())

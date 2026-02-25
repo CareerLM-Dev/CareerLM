@@ -196,6 +196,42 @@ async def optimize_resume(
             stored_sections = {k: v for k, v in sections.items() if k not in ["contact", "other"]}
             content_data = {"sections": stored_sections}
 
+            # Build profile sections payload for the user profile JSON
+            profile_payload = {
+                "intro": sections.get("summary", ""),
+                "skills": parser.parse_skills_list(sections.get("skills", "")),
+                "education": sections.get("education", ""),
+                "projects": sections.get("projects", ""),
+                "experience": sections.get("experience", ""),
+                "certifications": sections.get("certifications", ""),
+                "coursework": sections.get("coursework", ""),
+                "co_curricular_achievements": sections.get("awards", ""),
+            }
+
+            # Merge into existing user_profile (preserve extra keys)
+            try:
+                existing_profile = (
+                    supabase.table("user")
+                    .select("user_profile")
+                    .eq("id", user_id)
+                    .single()
+                    .execute()
+                )
+                current_profile = existing_profile.data.get("user_profile") if existing_profile.data else {}
+                if isinstance(current_profile, str):
+                    current_profile = json.loads(current_profile)
+                # Only overwrite fields we actually extracted (avoid wiping user edits)
+                cleaned_payload = {}
+                for key, value in profile_payload.items():
+                    if isinstance(value, list) and value:
+                        cleaned_payload[key] = value
+                    elif isinstance(value, str) and value.strip():
+                        cleaned_payload[key] = value
+                merged_profile = {**(current_profile or {}), **cleaned_payload}
+                supabase.table("user").update({"user_profile": merged_profile}).eq("id", user_id).execute()
+            except Exception as profile_err:
+                logger.warning(f"Failed to update user_profile: {profile_err}")
+
             analysis_payload = {k: v for k, v in optimization.items() if k not in ["agent_execution_log"]}
             analysis_payload["role_type"] = role_type
             analysis_payload["year_of_study"] = year_of_study

@@ -14,6 +14,10 @@ logger = logging.getLogger(__name__)
 class QuestionnaireUpdate(BaseModel):
     questionnaire_answers: Dict[str, Any]
 
+
+class UserProfileUpdate(BaseModel):
+    user_profile: Dict[str, Any]
+
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Extract user from JWT token"""
     if not authorization or not authorization.startswith("Bearer "):
@@ -265,7 +269,7 @@ async def get_profile_details(user = Depends(get_current_user)):
     """Get current user profile details stored in the user table."""
     try:
         result = supabase.table("user").select(
-            "id, name, email, status, current_company, questionnaire_answered, questionnaire_answers"
+            "id, name, email, status, current_company, questionnaire_answered, questionnaire_answers, user_profile"
         ).eq("id", user.id).single().execute()
 
         if not result.data:
@@ -309,3 +313,32 @@ async def update_profile_questionnaire(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update questionnaire: {str(e)}")
+
+
+@router.patch("/profile-user-profile")
+async def update_user_profile(
+    payload: UserProfileUpdate,
+    user = Depends(get_current_user)
+):
+    """Update the resume-derived profile sections for the current user."""
+    try:
+        if not isinstance(payload.user_profile, dict):
+            raise HTTPException(status_code=400, detail="Invalid user profile payload")
+
+        update_data = {
+            "user_profile": payload.user_profile
+        }
+
+        result = supabase.table("user").update(update_data).eq("id", user.id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Failed to update user profile")
+
+        return {
+            "success": True,
+            "data": update_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update user profile: {str(e)}")

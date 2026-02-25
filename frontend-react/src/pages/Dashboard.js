@@ -210,8 +210,8 @@ function Dashboard() {
   const handleResumeDataUpdate = async (data) => {
     // Update local state with the fresh analysis (preserves careerAnalysis from upload)
     setResumeData(data);
-    // Show the compact results view directly inside Dashboard (no URL change)
-    setCurrentPage("resume_results");
+    // Show the Resume Analyzer view directly inside Dashboard (no URL change)
+    setCurrentPage("resume_optimizer");
     // Note: Do NOT call fetchLatestResumeData() here — it would overwrite careerAnalysis
     // with empty DB data before the career analysis save completes.
     // History refreshes automatically when user navigates to the history tab.
@@ -251,21 +251,24 @@ function Dashboard() {
 
   const renderPage = () => {
     switch (currentPage) {
-      case "upload":
-        return <ResumeUpload onResult={handleResumeDataUpdate} />;
       case "resume_results":
         return (
           <ResumeResultsView
             resumeData={resumeData}
-            onUploadAnother={() => setCurrentPage("upload")}
+            onUploadAnother={() => setCurrentPage("resume_optimizer")}
           />
         );
       case "resume_optimizer":
         return (
-          <ResumeResultsView
-            resumeData={resumeData}
-            onUploadAnother={() => setCurrentPage("upload")}
-          />
+          <div className="space-y-6">
+            <ResumeUpload onResult={handleResumeDataUpdate} />
+            {resumeData && (
+              <ResumeResultsView
+                resumeData={resumeData}
+                onUploadAnother={() => setCurrentPage("resume_optimizer")}
+              />
+            )}
+          </div>
         );
       case "skill_gap":
         return <SkillGapAnalyzer resumeData={resumeData} />;
@@ -329,7 +332,7 @@ function Dashboard() {
                         </p>
                       </div>
                       <button
-                        onClick={() => setCurrentPage("upload")}
+                        onClick={() => setCurrentPage("resume_optimizer")}
                         className="mt-4 w-full bg-white text-primary px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-white/90 transition-all shadow-md"
                       >
                         {resumeData ? "Upload New Resume" : "Upload Resume"}
@@ -578,7 +581,7 @@ function Dashboard() {
                                 <svg className="w-8 h-8 text-muted-foreground/30 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                 </svg>
-                                <span className="text-xs text-muted-foreground">Upload resume to analyze</span>
+                                <span className="text-xs text-muted-foreground">Analyze resume</span>
                               </div>
                             )}
                           </div>
