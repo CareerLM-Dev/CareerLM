@@ -63,25 +63,6 @@ function StagePerformanceRadar({ stagePerformance }) {
                     className="text-border"
                   />
 
-                  <polygon
-                    points={AXIS_ANGLES.map((angle) => {
-                      const point = getPoint(angle, scale);
-                      return `${point.x},${point.y}`;
-                    }).join(" ")}
-                    fill="transparent"
-                    strokeWidth="10"
-                    stroke="transparent"
-                    className="cursor-pointer"
-                    onMouseEnter={(event) => {
-                      const rect = event.target.ownerSVGElement.getBoundingClientRect();
-                      setRadarHover({
-                        label: LEVEL_LABELS[index],
-                        value: `${Math.round(scale * 100)}%`,
-                        x: event.clientX - rect.left,
-                        y: event.clientY - rect.top,
-                      });
-                    }}
-                  />
                 </g>
               ))}
 

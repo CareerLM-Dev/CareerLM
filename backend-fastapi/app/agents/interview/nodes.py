@@ -6,6 +6,7 @@ Contains all business logic for question generation and feedback
 from typing import Dict, Any, List
 import logging
 import re
+import json
 
 from app.services.interview.prompts import (
     build_feedback_generation_prompt,
@@ -17,7 +18,7 @@ from app.services.interview.recovery import (
 )
 from app.services.interview.schemas import FeedbackOutput, QuestionList
 from app.services.interview.transcript import build_transcript_and_metrics
-from app.services.interview.utils import truncate_natural
+from app.services.interview.utils import truncate_natural, extract_balanced_json_object
 
 from .state import InterviewState
 
@@ -401,8 +402,100 @@ def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
             logger.warning("Recovered feedback from failed structured output payload")
             return {"feedback_json": recovered_feedback.model_dump()}
 
-        logger.error(f"Feedback generation error: {error_text}")
-        return {
-            "feedback_json": None,
-            "error": f"Feedback generation failed: {error_text}",
+        logger.warning("Structured feedback generation failed; attempting raw JSON fallback")
+        try:
+            raw_result = INTERVIEW_LLM.invoke(prompt)
+            raw_content = getattr(raw_result, "content", raw_result)
+
+            if isinstance(raw_content, list):
+                raw_text = "\n".join(
+                    str(item.get("text", "") if isinstance(item, dict) else item)
+                    for item in raw_content
+                )
+            else:
+                raw_text = str(raw_content)
+
+            json_blob = None
+            stripped = raw_text.strip()
+            if stripped.startswith("{"):
+                json_blob = extract_balanced_json_object(stripped, 0) or stripped
+            else:
+                first_brace = raw_text.find("{")
+                if first_brace >= 0:
+                    json_blob = extract_balanced_json_object(raw_text, first_brace)
+
+            if json_blob:
+                parsed_feedback = json.loads(json_blob)
+                validated_feedback = FeedbackOutput.model_validate(parsed_feedback)
+                logger.warning("Recovered feedback via raw JSON fallback")
+                return {"feedback_json": validated_feedback.model_dump()}
+
+        except Exception as fallback_error:
+            logger.warning(f"Raw JSON feedback fallback failed: {str(fallback_error)}")
+
+        logger.warning("Falling back to deterministic feedback after all LLM parsing paths failed")
+
+        # Final guaranteed fallback to avoid returning null feedback on provider tool-use failures.
+        readiness = "Needs Practice"
+        if answered == total_questions and low_signal_ratio < 0.2:
+            readiness = "Interview Ready"
+        elif answered >= max(1, int(total_questions * 0.7)) and low_signal_ratio < 0.4:
+            readiness = "Almost Ready"
+
+        stage_level = "Needs Work"
+        if low_signal_ratio < 0.2:
+            stage_level = "Solid"
+        elif low_signal_ratio < 0.4:
+            stage_level = "Growing"
+
+        deterministic_feedback = {
+            "executive_summary": (
+                f"You answered {answered} out of {total_questions} questions. "
+                "Automatic feedback fallback was used because the model returned an invalid tool-call payload. "
+                "Use this report to improve answer quality and retry for richer AI feedback."
+            ),
+            "overall_readiness": readiness,
+            "quantitative_metrics": {
+                "verbosity": "Low" if low_signal_ratio >= 0.5 else "Moderate",
+                "confidence_tone": "Low" if low_signal_ratio >= 0.5 else "Moderate",
+                "keyword_hit_rate": "Moderate" if answered > 0 else "Low"
+            },
+            "stage_performance": {
+                "resume_validation": stage_level,
+                "project_deep_dive": stage_level,
+                "core_technical": stage_level,
+                "behavioral": stage_level
+            },
+            "action_plan": {
+                "stop_doing": [
+                    "Avoid vague or one-line answers without technical detail.",
+                    "Avoid skipping questions when you can provide a structured attempt."
+                ],
+                "start_doing": [
+                    "Answer each question using context, implementation, and outcome.",
+                    "Reference concrete technologies and decisions from your projects."
+                ],
+                "study_focus": [
+                    "Role-specific fundamentals and project deep-dive explanations.",
+                    "Clear communication of trade-offs, constraints, and results."
+                ],
+                "next_steps": [
+                    "Retake the mock interview with complete and specific answers.",
+                    "Use STAR-style structure for behavioral and project questions."
+                ]
+            },
+            "question_breakdown": [
+                {
+                    "question": "Overall interview response quality",
+                    "user_answer_summary": (
+                        f"Answered: {answered}/{total_questions}; "
+                        f"low-signal ratio: {int(low_signal_ratio * 100)}%."
+                    ),
+                    "improvement_needed": "Increase specificity, technical accuracy, and completeness in each answer.",
+                    "ideal_golden_answer": "A strong answer states the problem, your approach, tools used, and measurable outcome."
+                }
+            ]
         }
+
+        return {"feedback_json": deterministic_feedback}
+

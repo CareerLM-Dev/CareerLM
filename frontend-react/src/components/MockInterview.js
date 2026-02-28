@@ -49,6 +49,10 @@ function MockInterview({ resumeData }) {
   const [feedback, setFeedback] = useState(null);
   const [questionTimes, setQuestionTimes] = useState([]);
   const [currentQuestionElapsed, setCurrentQuestionElapsed] = useState(0);
+  const [animatedAnsweredCount, setAnimatedAnsweredCount] = useState(0);
+  const [animatedAnsweredRatio, setAnimatedAnsweredRatio] = useState(0);
+  const [animatedAvgTimeSeconds, setAnimatedAvgTimeSeconds] = useState(0);
+  const [animatedDonutProgress, setAnimatedDonutProgress] = useState(0);
   const [error, setError] = useState("");
   const [warnings, setWarnings] = useState(0);
   const [isInterviewActive, setIsInterviewActive] = useState(false);
@@ -64,6 +68,7 @@ function MockInterview({ resumeData }) {
   const synthRef = useRef(window.speechSynthesis);
   const questionStartRef = useRef(null);
   const questionTimesRef = useRef([]);
+  const metricsAnimationFrameRef = useRef(null);
   const listeningBaseAnswerRef = useRef("");
   const isInterviewActiveRef = useRef(false);
   const isTerminationInProgressRef = useRef(false);
@@ -392,6 +397,53 @@ function MockInterview({ resumeData }) {
 
     return () => clearInterval(timer);
   }, [sessionState, currentQuestionIndex, questions.length]);
+
+  useEffect(() => {
+    if (metricsAnimationFrameRef.current) {
+      cancelAnimationFrame(metricsAnimationFrameRef.current);
+      metricsAnimationFrameRef.current = null;
+    }
+
+    if (sessionState !== "completed") {
+      setAnimatedAnsweredCount(0);
+      setAnimatedAnsweredRatio(0);
+      setAnimatedAvgTimeSeconds(0);
+      setAnimatedDonutProgress(0);
+      return;
+    }
+
+    const answeredCount = answers?.filter((answer) => answer && answer !== "[Skipped]").length || 0;
+    const totalQuestionsCount = Math.max(questions?.length || 0, 1);
+    const answeredRatioTarget = answeredCount / totalQuestionsCount;
+    const totalTime = (questionTimes || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+    const avgTimeTarget = (questions?.length || 0) > 0 ? Math.round(totalTime / questions.length) : 0;
+
+    const duration = 900;
+    const start = performance.now();
+
+    const animate = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setAnimatedAnsweredCount(Math.round(answeredCount * eased));
+      setAnimatedAnsweredRatio(answeredRatioTarget * eased);
+      setAnimatedAvgTimeSeconds(Math.round(avgTimeTarget * eased));
+      setAnimatedDonutProgress(eased);
+
+      if (progress < 1) {
+        metricsAnimationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    metricsAnimationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (metricsAnimationFrameRef.current) {
+        cancelAnimationFrame(metricsAnimationFrameRef.current);
+        metricsAnimationFrameRef.current = null;
+      }
+    };
+  }, [sessionState, answers, questions.length, questionTimes]);
 
   const formatDuration = (seconds) => {
     const totalSeconds = Math.max(0, Number(seconds) || 0);
@@ -1147,17 +1199,53 @@ function MockInterview({ resumeData }) {
       timeInSeconds: Number(questionTimes?.[index]) || 0,
       fullQuestion: questions?.[index]?.question || "",
     }));
+
+    const getActualAnswerByIndex = (index) => {
+      const answer = String(answers?.[index] || "").trim();
+      return answer || "[No answer provided]";
+    };
+
+    const downloadQuestionBreakdown = () => {
+      const breakdown = feedback?.question_breakdown || [];
+      const lines = [
+        `Question-by-Question Breakdown`,
+        `Role: ${activeRole || "N/A"}`,
+        `Difficulty: ${difficulty || "N/A"}`,
+        `Generated At: ${new Date().toLocaleString()}`,
+        ""
+      ];
+
+      breakdown.forEach((item, idx) => {
+        const rawQuestionText = String(item?.question || "").trim();
+        const normalizedQuestionText = rawQuestionText.replace(/^q\d+\s*[:.)-]?\s*/i, "");
+        const questionText = normalizedQuestionText || `Question ${idx + 1}`;
+        const userAnswer = getActualAnswerByIndex(idx);
+        const improvementNeeded = item?.improvement_needed
+          ? String(item.improvement_needed)
+          : "None";
+        const idealAnswer = String(item?.ideal_golden_answer || "N/A");
+
+        lines.push(`Q${idx + 1}: ${questionText}`);
+        lines.push(`Your Answer: ${userAnswer}`);
+        lines.push(`Improvement Needed: ${improvementNeeded}`);
+        lines.push(`Ideal Answer: ${idealAnswer}`);
+        lines.push("");
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `question-breakdown-${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    };
     
     // Helper to get color for readiness level
-    const getReadinessColor = (level) => {
-      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      switch(level.toLowerCase()) {
-        case 'interview ready': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
-        case 'nearly ready': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
-        case 'needs practice': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
-        case 'early stage': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
-        default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      }
+    const getReadinessColor = (_level) => {
+      return "";
     };
     
     return (
@@ -1198,100 +1286,105 @@ function MockInterview({ resumeData }) {
               </h3>
             </div>
             
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Questions Answered Chart */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Questions Completion</h4>
-                <div className="flex items-center justify-center gap-6">
-                  {/* Pie Chart Visual */}
-                  <div className="relative w-36 h-36">
-                    <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
-                      {/* Background circle */}
-                      <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
-                      {/* Answered arc */}
-                      <circle 
-                        cx="50" 
-                        cy="50" 
-                        r="40" 
-                        fill="none" 
-                        strokeWidth="20"
-                        className="text-green-500"
-                        stroke="currentColor"
-                        strokeDasharray={`${(metrics.answered / metrics.totalQuestions) * 251.2} 251.2`}
-                        strokeLinecap="round"
-                      />
-                      {/* Skipped arc (if any) */}
-                      {metrics.skipped > 0 && (
-                        <circle 
-                          cx="50" 
-                          cy="50" 
-                          r="40" 
-                          fill="none" 
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Questions Completion</h4>
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="relative w-36 h-36 transition-transform duration-300 hover:scale-105">
+                      <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="none"
                           strokeWidth="20"
-                          className="text-red-500"
+                          className="text-green-500"
                           stroke="currentColor"
-                          strokeDasharray={`${(metrics.skipped / metrics.totalQuestions) * 251.2} 251.2`}
-                          strokeDashoffset={`-${(metrics.answered / metrics.totalQuestions) * 251.2}`}
+                          strokeDasharray={`${animatedAnsweredRatio * 251.2} 251.2`}
                           strokeLinecap="round"
                         />
-                      )}
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-3xl font-bold text-foreground">{metrics.answered}</span>
-                      <span className="text-sm text-muted-foreground">of {metrics.totalQuestions}</span>
-                    </div>
-                  </div>
-                  {/* Legend */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-5 h-5 bg-green-500 rounded shadow-sm"></div>
-                      <div>
-                        <div className="text-sm font-semibold">Answered</div>
-                        <div className="text-xs text-muted-foreground">{metrics.answered} questions</div>
+                        {metrics.skipped > 0 && (
+                          <circle
+                            cx="50"
+                            cy="50"
+                            r="40"
+                            fill="none"
+                            strokeWidth="20"
+                            className="text-red-500"
+                            stroke="currentColor"
+                            strokeDasharray={`${(metrics.skipped / metrics.totalQuestions) * 251.2 * animatedDonutProgress} 251.2`}
+                            strokeDashoffset={`-${animatedAnsweredRatio * 251.2}`}
+                            strokeLinecap="round"
+                          />
+                        )}
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-bold text-foreground">{animatedAnsweredCount}</span>
+                        <span className="text-sm text-muted-foreground">of {metrics.totalQuestions}</span>
                       </div>
                     </div>
-                    {metrics.skipped > 0 && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-5 h-5 bg-red-500 rounded shadow-sm"></div>
-                        <div>
-                          <div className="text-sm font-semibold">Skipped</div>
-                          <div className="text-xs text-muted-foreground">{metrics.skipped} questions</div>
-                        </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold">Answered</div>
+                      <div className="text-xs text-muted-foreground">{metrics.answered} questions</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Average Time</h4>
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="relative w-36 h-36 transition-transform duration-300 hover:scale-105">
+                      <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="none"
+                          strokeWidth="20"
+                          className="text-blue-500"
+                          stroke="currentColor"
+                          strokeDasharray={`${251.2 * animatedDonutProgress} 251.2`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-xl font-bold text-foreground">{formatDuration(animatedAvgTimeSeconds)}</span>
+                        <span className="text-xs text-muted-foreground">avg</span>
                       </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Overall Readiness */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Overall Readiness</h4>
-                <div className="flex items-center justify-center h-24">
-                  <div className={`px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-transform ${getReadinessColor(metrics.overallReadiness)}`}>
-                    {metrics.overallReadiness.toUpperCase()}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Confidence & Communication */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Confidence & Communication</h4>
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Confidence Tone</div>
-                    <div className="text-lg font-semibold">{metrics.confidenceTone}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Verbosity</div>
-                    <div className="text-lg font-semibold">{metrics.verbosity}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Average Time / Question</div>
-                    <div className="text-lg font-semibold">{formatDuration(metrics.averageTimeSeconds)}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold">Average Time</div>
+                      <div className="text-xs text-muted-foreground">per question</div>
+                    </div>
                   </div>
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Overall Readiness</div>
+                  <div className={`px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40 ${getReadinessColor(metrics.overallReadiness)}`}>
+                    {metrics.overallReadiness.toUpperCase()}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Confidence Score</div>
+                  <div className="px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40">
+                    {metrics.confidenceTone.toUpperCase()}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Verbosity</div>
+                  <div className="px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40">
+                    {metrics.verbosity.toUpperCase()}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1354,15 +1447,25 @@ function MockInterview({ resumeData }) {
             {/* Question Breakdown */}
             {feedback?.question_breakdown?.length > 0 && (
               <div className="mt-8">
-                <h4 className="text-lg font-semibold mb-4 text-primary">Question-by-Question Breakdown</h4>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <h4 className="text-lg font-semibold text-primary">Question-by-Question Breakdown</h4>
+                  <button
+                    onClick={downloadQuestionBreakdown}
+                    className="px-3 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                  >
+                    Download Breakdown
+                  </button>
+                </div>
                 <div className="space-y-4">
                   {feedback.question_breakdown.map((item, idx) => (
                     <div key={idx} className="bg-muted/50 border border-border rounded-lg p-4">
                       <div className="font-semibold text-sm text-primary mb-2">
-                        Q{idx + 1}: {item.question}
+                        {/^(q\d+\b)/i.test(String(item.question || "").trim())
+                          ? String(item.question || "")
+                          : `Q${idx + 1}: ${item.question}`}
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
-                        <strong>Your Answer:</strong> {item.user_answer_summary}
+                        <strong>Your Answer:</strong> {getActualAnswerByIndex(idx)}
                       </div>
                       {item.improvement_needed && (
                         <div className="text-xs text-yellow-700 dark:text-yellow-400 mb-2">
