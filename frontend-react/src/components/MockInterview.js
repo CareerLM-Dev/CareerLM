@@ -50,6 +50,14 @@ function MockInterview({ resumeData }) {
   const [questionTimes, setQuestionTimes] = useState([]);
   const [currentQuestionElapsed, setCurrentQuestionElapsed] = useState(0);
   const [error, setError] = useState("");
+  const [warnings, setWarnings] = useState(0);
+  const [isInterviewActive, setIsInterviewActive] = useState(false);
+  const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+  const [pendingWarningCount, setPendingWarningCount] = useState(0);
+  const [isContentObscured, setIsContentObscured] = useState(false);
+  const [answerMetadata, setAnswerMetadata] = useState([]);
+  const [showPasteWarning, setShowPasteWarning] = useState(false);
+  const [liveTypingSpeedCPM, setLiveTypingSpeedCPM] = useState(0);
   
   // Speech API refs
   const recognitionRef = useRef(null);
@@ -57,6 +65,176 @@ function MockInterview({ resumeData }) {
   const questionStartRef = useRef(null);
   const questionTimesRef = useRef([]);
   const listeningBaseAnswerRef = useRef("");
+  const isInterviewActiveRef = useRef(false);
+  const isTerminationInProgressRef = useRef(false);
+  const terminateInterviewRef = useRef(() => {});
+  const questionTypingCharsRef = useRef(0);
+  const questionTypingStartRef = useRef(null);
+  const pasteDetectedRef = useRef(false);
+  const pasteWarningTimeoutRef = useRef(null);
+
+  const setInterviewActivity = (isActive) => {
+    setIsInterviewActive(isActive);
+    isInterviewActiveRef.current = isActive;
+  };
+
+  const requestFullscreenStrict = async () => {
+    if (document.fullscreenElement) return;
+    if (!document.documentElement.requestFullscreen) {
+      throw new Error("Fullscreen is not supported in this browser.");
+    }
+    await document.documentElement.requestFullscreen();
+  };
+
+  const exitFullscreenIfNeeded = async () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.error("Error exiting fullscreen:", error);
+      }
+    }
+  };
+
+  const endInterview = async () => {
+    stopListening();
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    isTerminationInProgressRef.current = false;
+    setInterviewActivity(false);
+    setWarnings(0);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(false);
+    await exitFullscreenIfNeeded();
+    setSessionState("setup");
+    setQuestions([]);
+    setAnswers([]);
+    setCurrentQuestionIndex(0);
+    setCurrentAnswer("");
+    setFeedback(null);
+    setQuestionTimes([]);
+    setAnswerMetadata([]);
+    questionTimesRef.current = [];
+    questionStartRef.current = null;
+    questionTypingCharsRef.current = 0;
+    questionTypingStartRef.current = null;
+    pasteDetectedRef.current = false;
+    setShowPasteWarning(false);
+    setLiveTypingSpeedCPM(0);
+    setCurrentQuestionElapsed(0);
+    setError("");
+  };
+
+  const resetQuestionBehaviorTracking = () => {
+    questionTypingCharsRef.current = 0;
+    questionTypingStartRef.current = null;
+    pasteDetectedRef.current = false;
+    setShowPasteWarning(false);
+    setLiveTypingSpeedCPM(0);
+  };
+
+  const getTypingSpeedCPM = () => {
+    if (!questionTypingStartRef.current) return 0;
+
+    const elapsedMinutes = (Date.now() - questionTypingStartRef.current) / 60000;
+    if (elapsedMinutes <= 0) return 0;
+
+    return Math.round(questionTypingCharsRef.current / elapsedMinutes);
+  };
+
+  const buildAnswerMeta = (timeTakenSeconds) => ({
+    timeTakenSeconds: Math.max(0, Number(timeTakenSeconds) || 0),
+    pasteDetected: Boolean(pasteDetectedRef.current),
+    typingSpeedCPM: getTypingSpeedCPM(),
+  });
+
+  const handleAnswerKeyDown = (event) => {
+    if (!questionTypingStartRef.current) {
+      questionTypingStartRef.current = Date.now();
+    }
+
+    const key = event.key;
+    const countsAsTypedChar = key.length === 1 || key === "Backspace" || key === "Delete";
+    if (countsAsTypedChar) {
+      questionTypingCharsRef.current += 1;
+      setLiveTypingSpeedCPM(getTypingSpeedCPM());
+    }
+  };
+
+  const handleAnswerPaste = () => {
+    pasteDetectedRef.current = true;
+    setShowPasteWarning(true);
+
+    if (pasteWarningTimeoutRef.current) {
+      clearTimeout(pasteWarningTimeoutRef.current);
+    }
+
+    pasteWarningTimeoutRef.current = setTimeout(() => {
+      setShowPasteWarning(false);
+      pasteWarningTimeoutRef.current = null;
+    }, 2500);
+  };
+
+  const handleReturnToFullscreen = async () => {
+    try {
+      await requestFullscreenStrict();
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+    } catch (error) {
+      console.error("Failed to return to full-screen:", error);
+      setError("Unable to re-enter full-screen mode. Please allow full-screen access.");
+    }
+  };
+
+  const handleStayInNormalMode = () => {
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(true);
+  };
+
+  const terminateInterviewAndSubmitProgress = async () => {
+    if (isTerminationInProgressRef.current) return;
+    isTerminationInProgressRef.current = true;
+
+    stopListening();
+    const updatedTimes = captureCurrentQuestionTime();
+
+    const finalAnswers = Array.from({ length: questions.length }, (_, index) => {
+      const existing = answers[index];
+      return typeof existing === "string" ? existing : "";
+    });
+    const finalMetadata = Array.from({ length: questions.length }, (_, index) => {
+      const existing = answerMetadata[index];
+      return existing && typeof existing === "object"
+        ? existing
+        : { timeTakenSeconds: 0, pasteDetected: false, typingSpeedCPM: 0 };
+    });
+
+    if (currentQuestionIndex < finalAnswers.length) {
+      const currentValue = (currentAnswer || "").trim();
+      if (currentValue) {
+        finalAnswers[currentQuestionIndex] = currentValue;
+      } else if (!finalAnswers[currentQuestionIndex]) {
+        finalAnswers[currentQuestionIndex] = "[Skipped]";
+      }
+      finalMetadata[currentQuestionIndex] = buildAnswerMeta(Number(updatedTimes[currentQuestionIndex]) || 0);
+    }
+
+    setAnswers(finalAnswers);
+    setAnswerMetadata(finalMetadata);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(true);
+    setInterviewActivity(false);
+    setError("");
+
+    await generateFeedback(finalAnswers, finalMetadata);
+  };
+
+  terminateInterviewRef.current = terminateInterviewAndSubmitProgress;
   
   // Fetch user's saved roles on mount
   useEffect(() => {
@@ -145,11 +323,58 @@ function MockInterview({ resumeData }) {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pasteWarningTimeoutRef.current) {
+        clearTimeout(pasteWarningTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        setIsContentObscured(false);
+        setIsWarningModalOpen(false);
+        setPendingWarningCount(0);
+        return;
+      }
+
+      if (!document.fullscreenElement && isInterviewActiveRef.current) {
+        setWarnings((prev) => prev + 1);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isInterviewActive || warnings <= 0) return;
+
+    if (warnings === 1 || warnings === 2) {
+      setPendingWarningCount(warnings);
+      setIsWarningModalOpen(true);
+      return;
+    }
+
+    if (warnings === 3) {
+      window.alert("Interview Terminated: You exited full-screen mode 3 times.");
+      terminateInterviewRef.current();
+    }
+  }, [warnings, isInterviewActive]);
+
   // Load saved answer when question index changes
   useEffect(() => {
     if (sessionState === "interview" && answers.length > 0) {
       // Load the saved answer for this question
       setCurrentAnswer(answers[currentQuestionIndex] || "");
+    }
+    if (sessionState === "interview") {
+      resetQuestionBehaviorTracking();
     }
   }, [currentQuestionIndex, sessionState, answers]);
 
@@ -277,6 +502,14 @@ function MockInterview({ resumeData }) {
     setError("");
     
     try {
+      await requestFullscreenStrict();
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(true);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error("Not authenticated");
@@ -316,10 +549,12 @@ function MockInterview({ resumeData }) {
 
       setQuestions(sanitizedQuestions);
       setAnswers(new Array(sanitizedQuestions.length).fill(""));
+      setAnswerMetadata(new Array(sanitizedQuestions.length).fill({ timeTakenSeconds: 0, pasteDetected: false, typingSpeedCPM: 0 }));
       const initialQuestionTimes = new Array(sanitizedQuestions.length).fill(0);
       setQuestionTimes(initialQuestionTimes);
       questionTimesRef.current = initialQuestionTimes;
       questionStartRef.current = Date.now();
+      resetQuestionBehaviorTracking();
       setCurrentQuestionIndex(0);
       setActiveRole(finalRole); // Store the role being used
       setSessionState("interview");
@@ -329,6 +564,13 @@ function MockInterview({ resumeData }) {
       
     } catch (err) {
       console.error("Error generating questions:", err);
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(false);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+      await exitFullscreenIfNeeded();
       setError(err.message);
       setSessionState("setup");
     }
@@ -337,12 +579,16 @@ function MockInterview({ resumeData }) {
   // Submit current answer and move to next question
   const submitAnswer = async () => {
     stopListening();
-    captureCurrentQuestionTime();
+    const updatedTimes = captureCurrentQuestionTime();
+    const currentTimeTaken = Number(updatedTimes[currentQuestionIndex]) || 0;
     
     // Save current answer
     const newAnswers = [...answers];
     newAnswers[currentQuestionIndex] = currentAnswer;
     setAnswers(newAnswers);
+    const newAnswerMetadata = [...answerMetadata];
+    newAnswerMetadata[currentQuestionIndex] = buildAnswerMeta(currentTimeTaken);
+    setAnswerMetadata(newAnswerMetadata);
     
     // Check if more questions remain
     if (currentQuestionIndex < questions.length - 1) {
@@ -357,19 +603,23 @@ function MockInterview({ resumeData }) {
       }
     } else {
       // All questions answered - generate feedback
-      await generateFeedback(newAnswers);
+      await generateFeedback(newAnswers, newAnswerMetadata);
     }
   };
   
   // Skip current question
   const skipQuestion = async () => {
     stopListening();
-    captureCurrentQuestionTime();
+    const updatedTimes = captureCurrentQuestionTime();
+    const currentTimeTaken = Number(updatedTimes[currentQuestionIndex]) || 0;
     
     // Save empty answer
     const newAnswers = [...answers];
     newAnswers[currentQuestionIndex] = currentAnswer || "[Skipped]";
     setAnswers(newAnswers);
+    const newAnswerMetadata = [...answerMetadata];
+    newAnswerMetadata[currentQuestionIndex] = buildAnswerMeta(currentTimeTaken);
+    setAnswerMetadata(newAnswerMetadata);
     
     if (currentQuestionIndex < questions.length - 1) {
       const nextIndex = currentQuestionIndex + 1;
@@ -379,7 +629,7 @@ function MockInterview({ resumeData }) {
         await speakText(questions[nextIndex].question);
       }
     } else {
-      await generateFeedback(newAnswers);
+      await generateFeedback(newAnswers, newAnswerMetadata);
     }
   };
   
@@ -407,26 +657,12 @@ function MockInterview({ resumeData }) {
   // };
   
   // Quit interview and return to setup
-  const quitInterview = () => {
-    stopListening();
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setSessionState("setup");
-    setQuestions([]);
-    setAnswers([]);
-    setCurrentQuestionIndex(0);
-    setCurrentAnswer("");
-    setFeedback(null);
-    setQuestionTimes([]);
-    questionTimesRef.current = [];
-    questionStartRef.current = null;
-    setCurrentQuestionElapsed(0);
-    setError("");
+  const quitInterview = async () => {
+    await endInterview();
   };
   
   // Generate feedback report
-  const generateFeedback = async (finalAnswers) => {
+  const generateFeedback = async (finalAnswers, finalAnswerMetadata = answerMetadata) => {
     setSessionState("loading");
     
     try {
@@ -445,7 +681,8 @@ function MockInterview({ resumeData }) {
           user_id: session.user.id,
           target_role: activeRole, // Use the stored active role
           questions: questions,
-          answers: finalAnswers
+          answers: finalAnswers,
+          answer_metadata: finalAnswerMetadata
         })
       });
       
@@ -461,10 +698,18 @@ function MockInterview({ resumeData }) {
       }
 
       setFeedback(typeof data.feedback === 'string' ? JSON.parse(data.feedback) : data.feedback);
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(false);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+      await exitFullscreenIfNeeded();
       setSessionState("completed");
       
     } catch (err) {
       console.error("Error generating feedback:", err);
+      isTerminationInProgressRef.current = false;
       setError(err.message);
       setSessionState("interview");
     }
@@ -472,6 +717,13 @@ function MockInterview({ resumeData }) {
   
   // Restart interview
   const restartInterview = () => {
+    isTerminationInProgressRef.current = false;
+    setInterviewActivity(false);
+    setWarnings(0);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(false);
+    exitFullscreenIfNeeded();
     setSessionState("setup");
     setTargetRole("");
     setSelectedRoleOption("");
@@ -480,6 +732,7 @@ function MockInterview({ resumeData }) {
     setDifficulty("medium");
     setQuestions([]);
     setAnswers([]);
+    setAnswerMetadata([]);
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
     setFeedback(null);
@@ -678,7 +931,22 @@ function MockInterview({ resumeData }) {
     const progress = ((currentQuestionIndex + 1) / questionCount) * 100;
     
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="relative max-w-4xl mx-auto">
+        <div
+          className={`space-y-6 ${isContentObscured ? "pointer-events-none select-none" : ""}`}
+          style={isContentObscured ? { filter: "blur(14px)" } : undefined}
+        >
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <div className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Session Integrity Monitoring Active: time spent, typing speed (CPM), and clipboard activity are tracked.
+          </div>
+          {showPasteWarning && (
+            <div className="mt-2 text-sm font-medium text-destructive">
+              ⚠️ Paste action detected and recorded.
+            </div>
+          )}
+        </div>
+
         {/* Progress bar */}
         <div className="bg-card border border-border rounded-lg p-4">
           <div className="flex justify-between items-center mb-2">
@@ -722,9 +990,12 @@ function MockInterview({ resumeData }) {
           <textarea
             value={currentAnswer}
             onChange={(e) => setCurrentAnswer(e.target.value)}
+            onKeyDown={handleAnswerKeyDown}
+            onPaste={handleAnswerPaste}
             placeholder="Speak or type your answer here..."
             className="w-full px-4 py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary min-h-[120px]"
           />
+          <div className="mt-2 text-xs text-muted-foreground">Live typing speed: {liveTypingSpeedCPM} CPM</div>
           
           <div className="flex items-center gap-3 mt-4">
             <button
@@ -796,6 +1067,41 @@ function MockInterview({ resumeData }) {
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
             {error}
+          </div>
+        )}
+        </div>
+
+        {isContentObscured && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85">
+            <button
+              onClick={handleReturnToFullscreen}
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+            >
+              Return to Full-Screen to Resume
+            </button>
+          </div>
+        )}
+
+        {isWarningModalOpen && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl">
+              <h4 className="text-lg font-semibold mb-2">Warning {pendingWarningCount}/3</h4>
+              <p className="text-sm text-muted-foreground mb-6">Return to full-screen mode?</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleStayInNormalMode}
+                  className="px-4 py-2 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+                >
+                  No
+                </button>
+                <button
+                  onClick={handleReturnToFullscreen}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                  Yes
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
