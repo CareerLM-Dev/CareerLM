@@ -277,7 +277,7 @@ async def generate_questions(
             "mode": "questions"
         }
         
-        workflow_result = question_generation_workflow.invoke(input_state)
+        workflow_result = await question_generation_workflow.ainvoke(input_state)
         questions = workflow_result.get("questions_generated", [])
         is_valid = bool(workflow_result.get("is_valid", False))
         validation_error = workflow_result.get("validation_error", "")
@@ -390,7 +390,7 @@ async def generate_feedback(
             "mode": "feedback"
         }
         
-        workflow_result = feedback_generation_workflow.invoke(input_state)
+        workflow_result = await feedback_generation_workflow.ainvoke(input_state)
         workflow_error = workflow_result.get("error")
         feedback_json = workflow_result.get("feedback_json")
 

@@ -12,13 +12,28 @@ function ResumeUploadPage() {
   const [session, setSession] = useState(null);
   const [isOnboardingFlow, setIsOnboardingFlow] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [currentResults, setCurrentResults] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
       if (!data.session) {
         navigate("/auth");
+        return;
       }
+
+      // Check for existing results in localStorage
+      const userId = data.session.user.id;
+      const cached = localStorage.getItem(`resume_analysis_${userId}`);
+      if (cached) {
+        try {
+          setCurrentResults(JSON.parse(cached));
+        } catch (err) {
+          console.error("Failed to parse cached results:", err);
+        }
+      }
+      setLoading(false);
     });
 
     const fromOnboarding = sessionStorage.getItem("fromOnboarding");
@@ -29,6 +44,8 @@ function ResumeUploadPage() {
   }, [navigate]);
 
   const handleResumeAnalysisComplete = (resumeData) => {
+    setCurrentResults(resumeData);
+    // Also navigate to dedicated results page
     navigate("/resume-results", { state: { resumeData } });
   };
 
@@ -36,7 +53,14 @@ function ResumeUploadPage() {
     navigate("/dashboard", { state: { initialPage: pageId } });
   };
 
-  if (!session) {
+  const handleClearResults = () => {
+    if (session?.user?.id) {
+      localStorage.removeItem(`resume_analysis_${session.user.id}`);
+      setCurrentResults(null);
+    }
+  };
+
+  if (loading || !session) {
     return (
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -67,7 +91,39 @@ function ResumeUploadPage() {
                 : "Upload and optimize your resume against job descriptions"}
             </p>
           </div>
-          <ResumeUpload onResult={handleResumeAnalysisComplete} />
+
+          {/* Show existing results if available */}
+          {currentResults && (
+            <div className="bg-card border border-primary/20 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-sm">Previous Analysis Available</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {currentResults.filename || "Last analyzed resume"}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => navigate("/resume-results", { state: { resumeData: currentResults } })}
+                    className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90"
+                  >
+                    View Results
+                  </button>
+                  <button
+                    onClick={handleClearResults}
+                    className="px-3 py-1.5 border border-border rounded-md text-sm font-medium hover:bg-muted"
+                  >
+                    New Analysis
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <ResumeUpload 
+            onResult={handleResumeAnalysisComplete} 
+            hideIfResults={false}
+          />
         </div>
       </main>
     </div>

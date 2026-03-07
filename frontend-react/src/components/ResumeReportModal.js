@@ -118,7 +118,6 @@ export default function ResumeReportModal({ resumeData, onClose }) {
     impact_score,
     has_job_description,
     role_type,
-    year_of_study,
     ats_analysis = {},
     analysis = {},
     // All of these are top-level fields in the API response
@@ -167,7 +166,6 @@ export default function ResumeReportModal({ resumeData, onClose }) {
       {/* Backdrop */}
       <div
         className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-start justify-center overflow-y-auto p-4 md:p-8 no-print"
-        onClick={(e) => e.target === e.currentTarget && onClose()}
       >
         {/* Modal shell */}
         <div
@@ -251,7 +249,7 @@ export default function ResumeReportModal({ resumeData, onClose }) {
                 <div>
                   <h2 className="text-xl font-bold">{filename || "Resume"}</h2>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    {role_type?.replace("_", " ") || "General"}{year_of_study ? ` · Year ${year_of_study}` : ""}
+                    {role_type?.replace("_", " ") || "General"}
                     {" · "}
                     {has_job_description ? "JD-aligned analysis (weights: 15/10/40/35)" : "Role baseline analysis (weights: 20/15/30/35)"}
                   </p>

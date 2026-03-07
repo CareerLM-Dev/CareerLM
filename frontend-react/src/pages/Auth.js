@@ -15,8 +15,6 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState("student");
-  const [currentCompany, setCurrentCompany] = useState("");
   const [error, setError] = useState(null);
 
   const navigate = useNavigate();
@@ -108,11 +106,9 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             name,
             email,
             password: hashedPassword,
-            status,
-            current_company: status === "professional" ? currentCompany : null,
-            // Professionals skip the questionnaire entirely — mark as done so
-            // the login check never re-routes them to /onboarding.
-            questionnaire_answered: status === "professional",
+            status: "student",
+            current_company: null,
+            questionnaire_answered: false,
             questionnaire_answers: null,
           },
         ]);
@@ -124,11 +120,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
         if (authData.session) {
           onRegisterSuccess && onRegisterSuccess(authData);
-          if (status === "student") {
-            navigate(`/onboarding/${authData.user.id}`);
-          } else {
-            navigate("/dashboard");
-          }
+          navigate(`/onboarding/${authData.user.id}`);
         } else {
           setError(
             "Registration successful! Please check your email to confirm your account.",
@@ -173,54 +165,20 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-3">
               {!isLogin && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="name" className="text-sm font-medium">
-                      Name
-                    </Label>
-                    <Input
-                      id="name"
-                      type="text"
-                      placeholder="Enter your name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                      className="h-9 transition-all duration-300"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="status" className="text-sm font-medium">
-                      Status
-                    </Label>
-                    <select
-                      id="status"
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      <option value="student">Student</option>
-                      <option value="professional">Professional</option>
-                    </select>
-                  </div>
-                  
-                  {status === "professional" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="company" className="text-sm font-medium">
-                        Company
-                      </Label>
-                      <Input
-                        id="company"
-                        type="text"
-                        placeholder="Enter your company"
-                        value={currentCompany}
-                        onChange={(e) => setCurrentCompany(e.target.value)}
-                        required
-                        className="h-9 transition-all duration-300"
-                      />
-                    </div>
-                  )}
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-sm font-medium">
+                    Name
+                  </Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Enter your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="h-9 transition-all duration-300"
+                  />
+                </div>
               )}
 
               <div className="space-y-2">

@@ -19,9 +19,8 @@ class ResumeState(TypedDict):
     job_description: str
     resume_sections: Dict[str, str]
     role_type: Optional[str]        # e.g. "software_engineer", "data_scientist"
-    year_of_study: Optional[str]    # e.g. "2", "3", "final"
 
-    # ===== CONTEXT FLAGS =====
+    # ===== CONTEXT FLAGS ======
     has_job_description: bool       # True if a real JD was provided
 
     # ===== DIMENSION SCORES (0-100 each) =====

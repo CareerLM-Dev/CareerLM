@@ -30,9 +30,16 @@ def create_resume_workflow():
     
     # ===== COMPILE =====
     print("  → Compiling graph...")
-    app = workflow.compile()
+    checkpointer = None
+    try:
+        from app.agents.orchestrator.checkpointer import SupabaseCheckpointer
+        checkpointer = SupabaseCheckpointer()
+        print("  → Supabase checkpointer attached to resume graph")
+    except Exception as _cp_err:
+        print(f"  → Checkpointer unavailable, running without persistence: {_cp_err}")
+    app = workflow.compile(checkpointer=checkpointer)
     print("Resume workflow ready! (3 agents, linear flow)")
-    
+
     return app
 
 

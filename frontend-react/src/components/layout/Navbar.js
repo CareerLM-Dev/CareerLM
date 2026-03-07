@@ -12,7 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   Sun,
-  Moon
+  Moon,
+  BarChart
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 
@@ -176,11 +177,20 @@ function Navbar() {
                   
                   <Button
                     variant="ghost"
-                    onClick={() => handleNavigate("/dashboard")}
+                    onClick={() => handleNavigate("/home")}
                     className="w-full justify-start gap-3 font-semibold hover:bg-accent hover:text-accent-foreground"
                   >
                     <LayoutDashboard className="h-4 w-4" />
-                    Dashboard
+                    Home
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleNavigate("/dashboard")}
+                    className="w-full justify-start gap-3 font-semibold hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <BarChart className="h-4 w-4" />
+                    Analytics
                   </Button>
                   
                   <Button

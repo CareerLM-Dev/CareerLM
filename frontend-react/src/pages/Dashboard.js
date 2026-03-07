@@ -13,6 +13,7 @@ import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
 import JobMatcher from "../components/JobMatcher";
+import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
 import { formatText } from "../utils/textFormatter";
 
 
@@ -80,6 +81,9 @@ function Dashboard() {
           completeness_score: content.completeness_score || 0,
           relevance_score: content.relevance_score || 0,
           impact_score: content.impact_score || 0,
+          strengths: content.strengths || [],
+          weaknesses: content.weaknesses || [],
+          suggestions: content.suggestions || [],
           ats_analysis: content.ats_analysis || {},
           analysis: content.analysis || {},
           // new top-level fields from optimizer
@@ -99,7 +103,6 @@ function Dashboard() {
           critical_gaps: content.critical_gaps || [],
           has_job_description: content.has_job_description || false,
           role_type: content.role_type || "",
-          year_of_study: content.year_of_study || null,
           // Keep the full careerAnalysis structure from database for SkillGapAnalyzer
           careerAnalysis: content.careerAnalysis || {
             user_skills: content.user_skills || [],
@@ -290,6 +293,9 @@ function Dashboard() {
               </div>
             ) : (
               <div className="space-y-3 md:space-y-4">
+                {/* Profile Completion Widget */}
+                <ProfileCompletionWidget />
+
                 {/* Top Row - ATS Score Overview + Score Breakdown */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
                   {/* Main ATS Score - 2 cols */}

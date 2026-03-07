@@ -82,9 +82,9 @@ class ResumeParser:
         ],
         "publications": [
             r"publications?",
-            r"papers?",
             r"research(\s+papers?)?",
-            r"articles?"
+            r"published\s+(work|articles?|papers?)",
+            r"academic\s+publications?"
         ],
         "awards": [
             r"awards?(\s+&\s+honors)?",
@@ -175,7 +175,7 @@ class ResumeParser:
             "certifications": ["certifications", "certificates", "licenses", "credentials", "professional cert"],
             "summary": ["summary", "objective", "profile", "about", "professional summary", "career summary"],
             "contact": ["contact", "personal info", "contact info"],
-            "publications": ["publications", "papers", "research", "articles", "published"],
+            "publications": ["publications", "published work", "research papers", "academic publications"],
             "awards": ["awards", "honors", "recognition", "achievement"],
         }
         for section, keywords in header_keywords.items():

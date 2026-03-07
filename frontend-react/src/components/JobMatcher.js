@@ -119,7 +119,7 @@ function JobMatcher({ resumeData, setCurrentPage }) {
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
         const res = await fetch(
-          "http://localhost:8000/api/v1/resume/generate-study-materials-simple",
+          "http://localhost:8000/api/v1/orchestrator/generate-study-materials-simple",
           { method: "POST", body: formData, headers },
         );
         const data = await res.json();

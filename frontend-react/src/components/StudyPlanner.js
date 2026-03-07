@@ -43,7 +43,7 @@ function StudyPlanner({ resumeData }) {
         const token = await getAuthToken();
         if (!token) { setLoadingCache(false); return; }
         const res = await fetch(
-          "http://localhost:8000/api/v1/resume/study-materials-cache",
+          "http://localhost:8000/api/v1/orchestrator/study-materials-cache",
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
@@ -78,7 +78,7 @@ function StudyPlanner({ resumeData }) {
       const token = await getAuthToken();
       if (!token) { setLoadingRoles(false); return; }
       const stackParam = stackOverride !== undefined ? stackOverride : activeStack;
-      const url = new URL("http://localhost:8000/api/v1/resume/suggested-roles");
+      const url = new URL("http://localhost:8000/api/v1/orchestrator/suggested-roles");
       if (stackParam) url.searchParams.set("stack", stackParam);
       const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
@@ -131,7 +131,7 @@ function StudyPlanner({ resumeData }) {
       const headers = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
       const response = await fetch(
-        "http://localhost:8000/api/v1/resume/generate-study-materials-simple",
+        "http://localhost:8000/api/v1/orchestrator/generate-study-materials-simple",
         { method: "POST", body: formData, headers }
       );
       const data = await response.json();

@@ -230,18 +230,6 @@ def _get_archetype(role_type: str) -> Dict:
     return ROLE_ARCHETYPES.get(role_type or "", DEFAULT_ARCHETYPE)
 
 
-def _parse_year(year_of_study: str) -> int:
-    """Extract numeric year from strings like '2', 'Year 2', 'final', etc."""
-    if not year_of_study:
-        return 0
-    m = re.search(r"\d+", year_of_study)
-    if m:
-        return int(m.group())
-    if "final" in year_of_study.lower():
-        return 4
-    return 0
-
-
 def _extract_bullets(resume_text: str) -> List[str]:
     bullets = []
     for line in resume_text.splitlines():
@@ -268,19 +256,17 @@ def _extract_keywords(text: str, limit: int = 60) -> List[str]:
 
 # ─── Deterministic Scorers ───────────────────────────────────────────────────
 
-def _score_structure_formatting(resume_text: str, year_of_study: str) -> Dict:
+def _score_structure_formatting(resume_text: str) -> Dict:
     """
     Dimension 1 — Structure & Formatting (deterministic component).
     Checks: length appropriateness, long lines (multi-column signals), all-caps abuse.
     """
     lines = [l for l in resume_text.splitlines() if l.strip()]
     total_chars = len(resume_text)
-    year_num = _parse_year(year_of_study)
-    is_fresher = year_num <= 3 or year_num == 0
     score = 100
     issues = []
 
-    if is_fresher and total_chars > 6000:
+    if total_chars > 6000:
         score -= 20
         issues.append({
             "title": "Resume likely exceeds one page",
@@ -334,17 +320,14 @@ def _score_structure_formatting(resume_text: str, year_of_study: str) -> Dict:
 
 
 def _score_section_completeness(
-    resume_sections: Dict[str, str], role_type: str, year_of_study: str
+    resume_sections: Dict[str, str], role_type: str
 ) -> Dict:
     """
     Dimension 2 — Section Completeness (context-aware).
-    Does not penalise freshers for missing Experience if Projects is strong.
-    Only flags sections the student likely DOES have content for.
+    Allows Projects to substitute for Experience (typical for students/early-career).
     """
     archetype = _get_archetype(role_type)
     expected = archetype["expected_sections"]
-    year_num = _parse_year(year_of_study)
-    is_fresher = year_num <= 3 or year_num == 0
 
     present = []
     missing = []
@@ -355,8 +338,8 @@ def _score_section_completeness(
         if exists:
             present.append(section)
         else:
-            # Fresher with no Experience but strong Projects → acceptable substitution
-            if section == "experience" and is_fresher and resume_sections.get("projects"):
+            # Projects can substitute for Experience (common for students/early-career)
+            if section == "experience" and resume_sections.get("projects"):
                 present.append(section)
                 continue
             missing.append(section)
@@ -477,41 +460,23 @@ def structure_completeness_agent(state: ResumeState) -> ResumeState:
     resume_text = state.get("resume_text", "")
     resume_sections = state.get("resume_sections", {})
     role_type = state.get("role_type") or ""
-    year_of_study = state.get("year_of_study") or ""
     archetype = _get_archetype(role_type)
     resume_context = _build_resume_context(resume_sections)
 
-    struct_result = _score_structure_formatting(resume_text, year_of_study)
-    comp_result = _score_section_completeness(resume_sections, role_type, year_of_study)
+    struct_result = _score_structure_formatting(resume_text)
+    comp_result = _score_section_completeness(resume_sections, role_type)
 
-    prompt = f"""You are a resume structure reviewer for a {archetype["label"]} candidate.
-Year of study: {year_of_study or "not specified"}
-
-Task:
-Identify up to 3 structure or formatting issues a recruiter would notice when reading this resume.
-
-Rules:
-- Frame feedback as "a recruiter sees..." not "you did wrong."
-- Quote exact lines as evidence where available.
-- Do NOT flag missing sections (handled separately).
-- Do NOT flag length or all-caps (already handled).
-- Focus on: inconsistent formatting, unclear section hierarchy, cluttered layout, unprofessional details.
-- Explanations must be 2-4 sentences.
-- Return valid JSON only. No extra text.
+    # Minimal LLM call - only get top 3 critical issues
+    prompt = f"""List the top 3 critical structure issues for this {archetype["label"]} resume as brief strings.
 
 Resume:
-{resume_context}
+{_truncate(resume_context, 2000)}
 
-Return exactly this JSON:
-{{
-  "structure_suggestions": [
-    {{"title": "...", "explanation": "...", "evidence": "..."}}
-  ],
-  "needs_template": false
-}}"""
+Return: {{"issues": ["issue 1", "issue 2", "issue 3"]}}"""
 
-    llm_result = _llm_json(prompt, max_tokens=800)
-    all_structure_issues = struct_result["issues"] + llm_result.get("structure_suggestions", [])
+    llm_result = _llm_json(prompt, max_tokens=200)
+    llm_issues = [{"issue": issue} for issue in llm_result.get("issues", [])[:3]]
+    all_structure_issues = struct_result["issues"] + llm_issues
 
     messages.append(
         f"Agent 1 — Structure: {struct_result['score']}/100 | Completeness: {comp_result['score']}/100"
@@ -522,9 +487,7 @@ Return exactly this JSON:
         **state,
         "structure_score": struct_result["score"],
         "completeness_score": comp_result["score"],
-        "structure_suggestions": all_structure_issues,
-        "readability_issues": comp_result["issues"],
-        "needs_template": llm_result.get("needs_template", False),
+        "structure_suggestions": all_structure_issues,  # Minimal: [{"issue": "..."}]
         "completed_steps": completed,
         "messages": messages,
         "_status": "processing",
@@ -555,92 +518,12 @@ def relevance_agent(state: ResumeState) -> ResumeState:
         jd_kws = _extract_keywords(job_description, limit=40)
         overlap = _keyword_overlap(jd_kws, resume_text)
         relevance_score = overlap["score"]
-
-        prompt = f"""You are a resume-to-job-description alignment reviewer.
-
-Task:
-Compare the resume to the job description and produce a keyword gap analysis.
-
-Rules:
-- Only flag terms that CLEARLY appear in the JD but not in the resume.
-- Do NOT make up gaps. If unsure, mark "partially_present".
-- Quote exact JD language when flagging missing terms.
-- Do NOT use the phrase "ATS optimization" — frame as "role alignment."
-- Explanations must be 2-4 sentences.
-- Return valid JSON only. No extra text.
-
-Job Description:
-{_truncate(job_description, 2500)}
-
-Resume:
-{resume_context}
-
-Return exactly this JSON:
-{{
-  "keyword_gap_table": [
-    {{"keyword": "...", "status": "present|missing|partially_present", "jd_context": "...", "resume_evidence": "..."}}
-  ],
-  "overall_readiness": "0-100%",
-  "ready_skills": ["..."],
-  "critical_gaps": ["..."],
-  "learning_priorities": ["..."],
-  "skills_analysis": [
-    {{"skill": "...", "status": "present|missing|implied", "explanation": "...", "evidence": "..."}}
-  ]
-}}"""
-
+        critical_gaps = overlap["missing"][:10]  # Top 10 missing JD keywords
     else:
         archetype_kws = archetype["keywords"]
         overlap = _keyword_overlap(archetype_kws, resume_text)
         relevance_score = overlap["score"]
-
-        prompt = f"""You are a resume role-alignment reviewer.
-
-Task:
-Compare this resume against the baseline skill profile for a {archetype["label"]}.
-
-Important: No specific job description was provided. This is a GENERAL role baseline, not a JD match.
-State clearly in your analysis that this is a general benchmark.
-
-Rules:
-- Only flag skills commonly expected for a {archetype["label"]} that are noticeably absent.
-- Do NOT suggest highly advanced or rarely required entry-level skills.
-- Quote resume evidence where possible. If missing, say "Not found in resume."
-- Do NOT use the phrase "ATS optimization."
-- Explanations must be 2-4 sentences.
-- Return valid JSON only. No extra text.
-
-Resume:
-{resume_context}
-
-Common baseline keywords for {archetype["label"]}: {", ".join(archetype_kws)}
-Not found in resume: {", ".join(overlap["missing"])}
-
-Return exactly this JSON:
-{{
-  "keyword_gap_table": [
-    {{"keyword": "...", "status": "present|missing|partially_present", "jd_context": "General {archetype["label"]} expectation", "resume_evidence": "..."}}
-  ],
-  "overall_readiness": "0-100%",
-  "ready_skills": ["..."],
-  "critical_gaps": ["..."],
-  "learning_priorities": ["..."],
-  "skills_analysis": [
-    {{"skill": "...", "status": "present|missing|implied", "explanation": "...", "evidence": "..."}}
-  ]
-}}"""
-
-    llm_result = _llm_json(prompt, max_tokens=1500)
-
-    ats_issues = [
-        {
-            "title": kw.get("keyword", ""),
-            "explanation": "Missing from resume.",
-            "evidence": kw.get("jd_context", ""),
-        }
-        for kw in llm_result.get("keyword_gap_table", [])
-        if kw.get("status") == "missing"
-    ]
+        critical_gaps = overlap["missing"][:10]  # Top 10 missing archetype keywords
 
     messages.append(
         f"Agent 2 — Relevance: {relevance_score}/100 | has_jd={has_jd}"
@@ -650,14 +533,8 @@ Return exactly this JSON:
     return {
         **state,
         "relevance_score": relevance_score,
+        "critical_gaps": critical_gaps,  # Used by profile_update as skill_gaps
         "has_job_description": has_jd,
-        "keyword_gap_table": llm_result.get("keyword_gap_table", []),
-        "skills_analysis": llm_result.get("skills_analysis", []),
-        "overall_readiness": llm_result.get("overall_readiness"),
-        "ready_skills": llm_result.get("ready_skills", []),
-        "critical_gaps": llm_result.get("critical_gaps", []),
-        "learning_priorities": llm_result.get("learning_priorities", []),
-        "ats_issues": ats_issues,
         "completed_steps": completed,
         "messages": messages,
         "_status": "processing",
@@ -687,58 +564,9 @@ def impact_advisor_agent(state: ResumeState) -> ResumeState:
     resume_context = _build_resume_context(resume_sections, max_chars=7000)
     bullets = _extract_bullets(resume_text)
     impact_det = _score_impact_deterministic(bullets)
-    bullets_sample = "\n".join(f"- {b}" for b in bullets[:20])
-
-    prompt = f"""You are a resume impact and quality reviewer for a {archetype["label"]} candidate.
-
-Task:
-1. Identify bullets that describe duties without outcomes (weak impact).
-2. Suggest rewrites that strengthen each weak bullet WITHOUT inventing metrics or fake data.
-3. Flag redundancy: repeated phrases, duplicate skills, irrelevant content for a {archetype["label"]} role.
-4. Provide a job readiness estimate.
-
-Rules:
-- If a number cannot be honestly provided, suggest qualitative framing instead.
-  Example: "Built API endpoints" → "Consider: Built and tested X API endpoints handling [specific use case]"
-- Do NOT invent percentages, user counts, or timelines.
-- Frame all feedback as "a recruiter sees..." not "you did wrong."
-- Explanations must be 2-4 sentences.
-- Return valid JSON only. No extra text.
-
-Resume bullets:
-{bullets_sample if bullets_sample else "No bullet points detected in this resume."}
-
-Full resume (for redundancy check):
-{resume_context}
-
-Return exactly this JSON:
-{{
-  "honest_improvements": [
-    {{"title": "...", "explanation": "...", "evidence": "..."}}
-  ],
-  "bullet_rewrites": [
-    {{"before": "...", "after": "...", "reason": "..."}}
-  ],
-  "bullet_quality_breakdown": {{
-    "action_verbs": {impact_det["action_verb_ratio"]},
-    "metrics": {impact_det["metric_ratio"]},
-    "clarity": 0.0
-  }},
-  "redundancy_issues": [
-    {{"title": "...", "explanation": "...", "evidence": "..."}}
-  ],
-  "human_reader_issues": [
-    {{"title": "...", "explanation": "...", "evidence": "..."}}
-  ],
-  "learning_roadmap": ["..."],
-  "job_readiness_estimate": "..."
-}}"""
-
-    llm_result = _llm_json(prompt, max_tokens=1500)
-
-    bqb = llm_result.get("bullet_quality_breakdown", {})
-    clarity = min(1.0, max(0.0, float(bqb.get("clarity", 0.5))))
-
+    
+    # Use deterministic scoring only - no expensive LLM call
+    clarity = 0.5  # Default middle score
     impact_score = _clamp(
         impact_det["action_verb_ratio"] * 40
         + impact_det["metric_ratio"] * 40
@@ -754,20 +582,6 @@ Return exactly this JSON:
     )
     zone = _score_zone(overall_score)
 
-    alignment_suggestions = [
-        f"{item.get('title', '')}: {item.get('explanation', '')}"
-        for item in llm_result.get("honest_improvements", [])
-    ]
-    gaps = [f"Missing skill: {g}" for g in state.get("critical_gaps", [])]
-
-    dim_scores = {
-        "Structure & Formatting": structure_score,
-        "Section Completeness": completeness_score,
-        "Keyword & Relevance": relevance_score,
-        "Impact & Specificity": impact_score,
-    }
-    weakest = min(dim_scores, key=dim_scores.get)
-
     messages.append(
         f"Agent 3 — Impact: {impact_score}/100 | Overall: {overall_score}/100 | Zone: '{zone}'"
     )
@@ -778,160 +592,8 @@ Return exactly this JSON:
         "impact_score": impact_score,
         "ats_score": overall_score,
         "score_zone": zone,
-        "ats_components": {
-            "structure": structure_score,
-            "completeness": completeness_score,
-            "relevance": relevance_score,
-            "impact": impact_score,
-            "_weakest_dimension": weakest,
-            "_weights_note": "With JD: 15/10/40/35 | Without JD: 20/15/30/35",
-        },
-        "ats_justification": [
-            f"Structure & Formatting: {structure_score}/100",
-            f"Section Completeness: {completeness_score}/100",
-            f"Keyword & Relevance: {relevance_score}/100 {'(JD match)' if has_jd else '(role baseline)'}",
-            f"Impact & Specificity: {impact_score}/100",
-            f"Lowest-scoring dimension: {weakest} ({dim_scores[weakest]}/100) — prioritise this first.",
-        ],
-        "honest_improvements": llm_result.get("honest_improvements", []),
-        "bullet_rewrites": llm_result.get("bullet_rewrites", []),
-        "bullet_quality_breakdown": {
-            "action_verbs": impact_det["action_verb_ratio"],
-            "metrics": impact_det["metric_ratio"],
-            "clarity": clarity,
-        },
-        "human_reader_issues": llm_result.get("human_reader_issues", []),
-        "redundancy_issues": llm_result.get("redundancy_issues", []),
-        "learning_roadmap": llm_result.get("learning_roadmap", []),
-        "job_readiness_estimate": llm_result.get("job_readiness_estimate"),
-        "alignment_suggestions": alignment_suggestions,
-        "gaps": gaps,
         "completed_steps": completed,
         "messages": messages,
         "_status": "completed",
-    }
-
-def consolidate_output(state: ResumeState) -> ResumeState:
-    """
-    Final step — merges all agent outputs into a clean, non-redundant structure.
-    Summary view: top 5 prioritised issues.
-    Detailed view: full breakdown by dimension.
-    """
-
-    # ── 1. Build a single ranked issue list ──────────────────────────────────
-    # Priority order: impact issues > keyword gaps > structure > completeness
-    all_issues = []
-
-    # Impact issues (highest priority)
-    for item in state.get("honest_improvements", []):
-        all_issues.append({
-            "priority": 1,
-            "dimension": "Impact & Specificity",
-            "title": item.get("title", "").replace("Consider: ", ""),
-            "explanation": item.get("explanation", ""),
-            "evidence": item.get("evidence", ""),
-        })
-
-    # Keyword gaps — only critical ones in summary
-    for gap in state.get("critical_gaps", []):
-        all_issues.append({
-            "priority": 2,
-            "dimension": "Keyword Alignment",
-            "title": f'Missing: "{gap}"',
-            "explanation": f'This skill appears in the job description but is absent from your resume.',
-            "evidence": next(
-                (k.get("jd_context", "") for k in state.get("keyword_gap_table", [])
-                 if k.get("keyword") == gap),
-                ""
-            ),
-        })
-
-    # Structure issues
-    for item in state.get("analysis", {}).get("structure_suggestions", []):
-        all_issues.append({
-            "priority": 3,
-            "dimension": "Structure & Formatting",
-            "title": item.get("title", ""),
-            "explanation": item.get("explanation", ""),
-            "evidence": item.get("evidence", ""),
-        })
-
-    # Completeness issues
-    for item in state.get("ats_analysis", {}).get("readability_issues", []):
-        all_issues.append({
-            "priority": 4,
-            "dimension": "Section Completeness",
-            "title": item.get("title", ""),
-            "explanation": item.get("explanation", ""),
-            "evidence": item.get("evidence", ""),
-        })
-
-    # Deduplicate by title similarity
-    seen_titles = set()
-    deduped_issues = []
-    for issue in all_issues:
-        title_key = issue["title"].lower().strip()[:40]
-        if title_key not in seen_titles:
-            seen_titles.add(title_key)
-            deduped_issues.append(issue)
-
-    # Sort by priority
-    deduped_issues.sort(key=lambda x: x["priority"])
-
-    # ── 2. Build dimension score summary ─────────────────────────────────────
-    dim_scores = {
-        "Structure & Formatting": state.get("structure_score", 0),
-        "Section Completeness": state.get("completeness_score", 0),
-        "Keyword & Relevance": state.get("relevance_score", 0),
-        "Impact & Specificity": state.get("impact_score", 0),
-    }
-    weakest = min(dim_scores, key=dim_scores.get)
-
-    # ── 3. Summary view (what user sees first) ────────────────────────────────
-    summary = {
-        "overall_score": state.get("ats_score", 0),
-        "score_zone": state.get("score_zone", ""),
-        "overall_readiness": state.get("overall_readiness", ""),
-        "dimension_scores": dim_scores,
-        "weakest_dimension": weakest,
-        "top_issues": deduped_issues[:5],           # max 5 in summary
-        "ready_skills": state.get("ready_skills", []),
-        "has_job_description": state.get("has_job_description", False),
-    }
-
-    # ── 4. Detailed view (on demand / downloadable) ───────────────────────────
-    detailed = {
-        "all_issues": deduped_issues,               # full ranked list
-        "keyword_gap_table": state.get("keyword_gap_table", []),
-        "skills_analysis": state.get("skills_analysis", []),
-        "bullet_rewrites": state.get("bullet_rewrites", []),
-        "bullet_quality_breakdown": state.get("bullet_quality_breakdown", {}),
-        "redundancy_issues": state.get("redundancy_issues", []),
-        "human_reader_issues": state.get("human_reader_issues", []),
-        "learning_priorities": state.get("learning_priorities", []),
-        "learning_roadmap": state.get("learning_roadmap", []),
-        "job_readiness_estimate": state.get("job_readiness_estimate", ""),
-        "score_justification": [
-            f"Structure & Formatting: {dim_scores['Structure & Formatting']}/100",
-            f"Section Completeness: {dim_scores['Section Completeness']}/100",
-            f"Keyword & Relevance: {dim_scores['Keyword & Relevance']}/100 {'(JD match)' if state.get('has_job_description') else '(role baseline)'}",
-            f"Impact & Specificity: {dim_scores['Impact & Specificity']}/100",
-            f"Weakest dimension: {weakest} — prioritise this first.",
-        ],
-    }
-
-    return {
-        **state,
-        "summary": summary,
-        "detailed": detailed,
-        # Clean up redundant top-level fields
-        "ats_analysis": None,
-        "analysis": None,
-        "gaps": None,
-        "alignment_suggestions": None,
-        "honest_improvements": None,
-        "human_reader_issues": None,
-        "redundancy_issues": None,
-        "ats_justification": None,
     }
 

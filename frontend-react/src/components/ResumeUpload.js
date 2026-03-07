@@ -25,15 +25,16 @@ const ROLE_OPTIONS = [
 ];
 
 
-function ResumeUpload({ onResult }) {
+function ResumeUpload({ onResult, hideIfResults = false }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [userId, setUserId] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
   const [roleType, setRoleType] = useState("");
-  const [yearOfStudy, setYearOfStudy] = useState("");
   const [profileRoles, setProfileRoles] = useState([]);   // roles from questionnaire
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [abortController, setAbortController] = useState(null);
+  const [hasExistingResults, setHasExistingResults] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -55,10 +56,28 @@ function ResumeUpload({ onResult }) {
               : [];
             setProfileRoles(roles);
             if (roles.length > 0) setRoleType(roles[0]);
-            if (qa.year_of_study) setYearOfStudy(qa.year_of_study);
           }
         } catch (_) {
           // Profile fetch failing is fine -- user can still use the form
+        }
+
+        // Check for existing results in localStorage or backend
+        const cachedResults = localStorage.getItem(`resume_analysis_${data.user.id}`);
+        if (cachedResults) {
+          setHasExistingResults(true);
+        } else {
+          // Check backend for previous analysis
+          try {
+            const stateResponse = await fetch(
+              `http://localhost:8000/api/v1/orchestrator/state/${data.user.id}`
+            );
+            const stateData = await stateResponse.json();
+            if (stateData?.state?.resume_analysis?.overall_score) {
+              setHasExistingResults(true);
+            }
+          } catch (_) {
+            // No previous results
+          }
         }
       }
     });
@@ -69,6 +88,28 @@ function ResumeUpload({ onResult }) {
   const handleResumeChange = (e) => setResumeFile(e.target.files[0]);
   const handleJDChange = (e) => setJobDescription(e.target.value);
 
+  const buildResumeDataFromOrchestrator = (payload, file, jd, role) => {
+    const state = payload?.state || {};
+    const resumeAnalysis = payload?.resume_analysis || state.resume_analysis || {};
+    const profile = payload?.profile || state.profile || {};
+
+    return {
+      filename: payload?.filename || file?.name,
+      file,
+      jobDescription: jd,
+      roleType: role,
+      current_phase: payload?.current_phase || state.current_phase,
+      supervisor_decision: payload?.supervisor_decision || state.supervisor_decision,
+      waiting_for_user: payload?.waiting_for_user || state.waiting_for_user,
+      waiting_for_input_type: payload?.waiting_for_input_type || state.waiting_for_input_type,
+      score_delta: payload?.score_delta,
+      profile,
+      strengths: resumeAnalysis.strengths || [],
+      weaknesses: resumeAnalysis.weaknesses || [],
+      suggestions: resumeAnalysis.suggestions || [],
+    };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -78,59 +119,97 @@ function ResumeUpload({ onResult }) {
     }
     setLoading(true);
 
+    // Create abort controller for cancellation
+    const controller = new AbortController();
+    setAbortController(controller);
+
     const formData = new FormData();
     formData.append("user_id", userId);
     formData.append("resume", resumeFile);
     formData.append("job_description", jobDescription);
-    if (roleType) formData.append("role_type", roleType);
-    if (yearOfStudy) formData.append("year_of_study", yearOfStudy);
+    if (roleType) formData.append("job_title", roleType);
 
     try {
-      // Step 1: Resume Optimization (now includes skill gap analysis inline)
-      const optimizeResponse = await fetch(
-        "http://localhost:8000/api/v1/resume/optimize",
-        { method: "POST", body: formData },
+      const orchestratorResponse = await fetch(
+        "http://localhost:8000/api/v1/orchestrator/analyze-resume",
+        { method: "POST", body: formData, signal: controller.signal },
       );
-      const optimizeData = await optimizeResponse.json();
+      const orchestratorData = await orchestratorResponse.json();
 
-      const analysis = optimizeData.analysis || {};
+      let latestPayload = orchestratorData;
+      if (orchestratorData?.user_id) {
+        try {
+          const stateResponse = await fetch(
+            `http://localhost:8000/api/v1/orchestrator/state/${orchestratorData.user_id}`,
+            { signal: controller.signal }
+          );
+          const stateData = await stateResponse.json();
+          const polledState = stateData?.state;
+          const hasAnalysis = Boolean(polledState?.resume_analysis?.overall_score);
+          const hasPhase = Boolean(polledState?.current_phase);
+          if (polledState && (hasAnalysis || hasPhase)) {
+            latestPayload = { ...orchestratorData, state: polledState };
+          }
+        } catch (_) {
+          // State polling is optional; use initial response if unavailable
+        }
+      }
 
-      const completeResult = {
-        ...optimizeData,
-        gaps: analysis.gaps || [],
-        alignment_suggestions: analysis.alignment_suggestions || [],
-        error: analysis.error || null,
-        ats_score: optimizeData.ats_score,
-        score_zone: optimizeData.score_zone,
-        structure_score: optimizeData.structure_score,
-        completeness_score: optimizeData.completeness_score,
-        relevance_score: optimizeData.relevance_score,
-        impact_score: optimizeData.impact_score,
-        ats_analysis: optimizeData.ats_analysis || {},
-        keyword_gap_table: optimizeData.keyword_gap_table || [],
-        has_job_description: optimizeData.has_job_description || false,
-        skills_analysis: optimizeData.skills_analysis || [],
-        honest_improvements: optimizeData.honest_improvements || [],
-        human_reader_issues: optimizeData.human_reader_issues || [],
-        redundancy_issues: optimizeData.redundancy_issues || [],
-        bullet_rewrites: optimizeData.bullet_rewrites || [],
-        bullet_quality_breakdown: optimizeData.bullet_quality_breakdown || {},
-        // careerAnalysis now comes directly from optimize response (backend runs it inline)
-        careerAnalysis: optimizeData.careerAnalysis || null,
-        filename: resumeFile.name,
-        file: resumeFile,
-        jobDescription: jobDescription,
-        roleType: roleType,
-      };
+      const completeResult = buildResumeDataFromOrchestrator(
+        latestPayload,
+        resumeFile,
+        jobDescription,
+        roleType,
+      );
+
+      // Persist to localStorage
+      if (userId && completeResult) {
+        localStorage.setItem(`resume_analysis_${userId}`, JSON.stringify(completeResult));
+        setHasExistingResults(true);
+      }
 
       if (onResult) onResult(completeResult);
     } catch (err) {
-      console.error("Error during analysis:", err);
-      setError("Failed to complete analysis. Please try again.");
+      if (err.name === 'AbortError') {
+        console.log('Analysis cancelled by user');
+        setError('');
+      } else {
+        console.error("Error during analysis:", err);
+        setError("Failed to complete analysis. Please try again.");
+      }
     } finally {
       setLoading(false);
+      setAbortController(null);
     }
   };
+
+  const handleCancelAnalysis = async () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      
+      // Also notify backend to stop processing
+      if (userId) {
+        try {
+          await fetch(
+            `http://localhost:8000/api/v1/orchestrator/cancel/${userId}`,
+            { method: "POST" }
+          );
+          console.log("Backend cancellation requested");
+        } catch (err) {
+          console.error("Failed to cancel backend:", err);
+        }
+      }
+      
+      setLoading(false);
+      setError('');
+    }
+  };
+
+  // Hide upload box if results exist and hideIfResults is enabled
+  if (hideIfResults && hasExistingResults) {
+    return null;
+  }
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -253,20 +332,29 @@ function ResumeUpload({ onResult }) {
             </div>
           )}
 
-          {/* Submit */}
-          <Button type="submit" disabled={loading} className="w-full" size="lg">
-            {loading ? (
-              <>
+          {/* Submit / Cancel */}
+          {loading ? (
+            <div className="flex gap-2">
+              <Button type="button" disabled className="flex-1" size="lg">
                 <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
                 <span>Analyzing...</span>
-              </>
-            ) : (
-              <>
-                <Zap className="w-4 h-4 mr-2" />
-                <span>Analyze Resume</span>
-              </>
-            )}
-          </Button>
+              </Button>
+              <Button 
+                type="button" 
+                onClick={handleCancelAnalysis}
+                variant="destructive"
+                size="lg"
+                className="px-6"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button type="submit" disabled={loading} className="w-full" size="lg">
+              <Zap className="w-4 h-4 mr-2" />
+              <span>Analyze Resume</span>
+            </Button>
+          )}
         </form>
 
         {/* Error */}

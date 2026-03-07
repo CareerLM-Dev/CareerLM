@@ -38,7 +38,7 @@ function GoogleCalendarSync({ targetCareer, disabled }) {
         if (!token) return;
 
         const res = await fetch(
-          `http://localhost:8000/api/v1/resume/calendar-sync-status?target_career=${encodeURIComponent(targetCareer)}`,
+          `http://localhost:8000/api/v1/orchestrator/calendar-sync-status?target_career=${encodeURIComponent(targetCareer)}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const data = await res.json();
@@ -136,7 +136,7 @@ function GoogleCalendarSync({ targetCareer, disabled }) {
       formData.append("timezone", timezone);
 
       const response = await fetch(
-        "http://localhost:8000/api/v1/resume/sync-to-google-calendar",
+        "http://localhost:8000/api/v1/orchestrator/sync-to-google-calendar",
         {
           method: "POST",
           headers: { Authorization: `Bearer ${appToken}` },
@@ -191,7 +191,7 @@ function GoogleCalendarSync({ targetCareer, disabled }) {
       formData.append("google_access_token", googleToken);
 
       const response = await fetch(
-        "http://localhost:8000/api/v1/resume/remove-from-google-calendar",
+        "http://localhost:8000/api/v1/orchestrator/remove-from-google-calendar",
         {
           method: "POST",
           headers: { Authorization: `Bearer ${appToken}` },

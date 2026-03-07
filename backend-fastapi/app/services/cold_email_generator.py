@@ -60,7 +60,7 @@ async def generate_cold_email(
         
         # Run workflow
         logger.info(f"Generating cold email for {target_role} at {target_company}")
-        result = cold_email_workflow.invoke(initial_state)
+        result = await cold_email_workflow.ainvoke(initial_state)
         
         if result.get("error"):
             return {

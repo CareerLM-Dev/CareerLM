@@ -29,7 +29,7 @@ function Home() {
             </p>
             <div className="flex flex-wrap gap-4">
               {!loading && isAuthenticated ? (
-                <Button size="lg" onClick={() => navigate("/dashboard")} className="group">
+                <Button size="lg" onClick={() => navigate("/home")} className="group">
                   <span>Go to Dashboard</span>
                   <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
                 </Button>

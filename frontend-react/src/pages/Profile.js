@@ -1,9 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { User, FileText, ClipboardList, Pencil, Save, X, Loader2 } from "lucide-react";
 
 const questions = [
+  {
+    field: "status",
+    title: "Where Are You Right Now?",
+    options: [
+      { value: "exploring", label: "Exploring" },
+      { value: "applying", label: "Applying" },
+      { value: "building", label: "Building Skills" },
+      { value: "interview_upcoming", label: "Interview Upcoming" },
+    ],
+  },
   {
     field: "target_role",
     title: "What's Your Target Role?",
@@ -23,58 +34,12 @@ const questions = [
       { value: "undecided", label: "I'm Still Undecided" },
     ],
   },
-  {
-    field: "primary_goal",
-    title: "What's Your Primary Goal?",
-    options: [
-      { value: "get_first_job", label: "Get My First Tech Job" },
-      { value: "switch_careers", label: "Switch to a New Career" },
-      { value: "upskill", label: "Upskill in Current Role" },
-      { value: "freelance", label: "Start Freelancing" },
-      { value: "build_projects", label: "Build Own Projects" },
-      { value: "interview_prep", label: "Prepare for Interviews" },
-      { value: "learn_technology", label: "Learn a Specific Technology" },
-    ],
-  },
-  {
-    field: "learning_preference",
-    title: "How Do You Prefer to Learn?",
-    options: [
-      { value: "video_tutorials", label: "Video Tutorials and Courses" },
-      { value: "hands_on", label: "Hands-On Projects and Coding" },
-      { value: "reading", label: "Reading and Documentation" },
-      { value: "interactive", label: "Interactive Platforms" },
-      { value: "mentor", label: "Mentorship and Guidance" },
-      { value: "mixed", label: "Mix of Everything" },
-    ],
-  },
-  {
-    field: "time_commitment",
-    title: "How Much Time Can You Dedicate?",
-    options: [
-      { value: "5_hours_week", label: "5 hours/week" },
-      { value: "10_hours_week", label: "10 hours/week" },
-      { value: "20_hours_week", label: "20 hours/week" },
-      { value: "30_hours_week", label: "30+ hours/week (Full-time)" },
-      { value: "flexible", label: "Flexible/As Available" },
-    ],
-  },
-  {
-    field: "year_of_study",
-    title: "What Year of Study Are You In?",
-    options: [
-      { value: "1", label: "Year 1 / Freshman" },
-      { value: "2", label: "Year 2 / Sophomore" },
-      { value: "3", label: "Year 3 / Junior" },
-      { value: "4", label: "Year 4 / Senior (Final Year)" },
-      { value: "postgrad", label: "Postgraduate / Masters" },
-      { value: "recent_grad", label: "Recent Graduate" },
-    ],
-  },
 ];
 
 const profileSections = [
   { key: "intro", title: "Intro / Summary", type: "text" },
+  { key: "areas_of_interest", title: "Areas of Interest", type: "text" },
+  { key: "expertise", title: "Expertise", type: "text" },
   { key: "skills", title: "Skills", type: "skills" },
   { key: "education", title: "Education", type: "text" },
   { key: "projects", title: "Projects", type: "text" },
@@ -113,6 +78,7 @@ const stripSectionHeader = (value, sectionKey, title) => {
 };
 
 function Profile() {
+  const navigate = useNavigate();
   const { session, loading: authLoading } = useUser();
   const [profile, setProfile] = useState(null);
   const [questionnaireAnswers, setQuestionnaireAnswers] = useState({});
@@ -129,6 +95,7 @@ function Profile() {
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
   const scrollRef = useRef(null);
+  const singleSelectFields = new Set(["status", "target_role"]);
 
   const optionsByField = useMemo(() => {
     return questions.reduce((acc, question) => {
@@ -166,7 +133,33 @@ function Profile() {
         const data = profileResponse.data.data;
         setProfile(data);
         setQuestionnaireAnswers(data.questionnaire_answers || {});
-        setUserProfileSections(data.user_profile || {});
+
+        let profileData = data.user_profile || {};
+        if (typeof profileData === "string") {
+          try {
+            profileData = JSON.parse(profileData);
+          } catch (parseErr) {
+            profileData = {};
+          }
+        }
+
+        // Fallback: if only resume_parsed_sections exist, map to profile fields.
+        if (profileData.resume_parsed_sections && !profileData.intro) {
+          const sections = profileData.resume_parsed_sections || {};
+          profileData = {
+            ...profileData,
+            intro: profileData.intro || sections.summary || "",
+            skills: profileData.skills || sections.skills || "",
+            education: profileData.education || sections.education || "",
+            projects: profileData.projects || sections.projects || "",
+            experience: profileData.experience || sections.experience || "",
+            certifications: profileData.certifications || sections.certifications || "",
+            coursework: profileData.coursework || sections.coursework || "",
+            co_curricular_achievements: profileData.co_curricular_achievements || sections.awards || "",
+          };
+        }
+
+        setUserProfileSections(profileData);
 
         const history = resumeResponse.data.data || [];
         setLatestResume(history.length > 0 ? history[0] : null);
@@ -203,9 +196,12 @@ function Profile() {
     const previousScrollTop = container?.scrollTop ?? 0;
     const previousWindowScroll = window.scrollY;
 
-    setDraftValues((prev) =>
-      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value],
-    );
+    setDraftValues((prev) => {
+      if (singleSelectFields.has(editingField)) {
+        return [value];
+      }
+      return prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value];
+    });
 
     requestAnimationFrame(() => {
       if (container) {
@@ -408,6 +404,48 @@ function Profile() {
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        {(() => {
+          const hasResume = Boolean(latestResume?.filename);
+          const interests = (userProfileSections?.areas_of_interest || "").trim();
+          const expertise = (userProfileSections?.expertise || "").trim();
+          const completion = Math.min(
+            100,
+            10 + (hasResume ? 30 : 0) + (interests ? 30 : 0) + (expertise ? 30 : 0)
+          );
+          const missing = [];
+          if (!hasResume) missing.push("Resume upload");
+          if (!interests) missing.push("Areas of interest");
+          if (!expertise) missing.push("Expertise");
+
+          return (
+            <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-border">
+                <h2 className="text-lg font-semibold text-foreground">Profile completion</h2>
+                <p className="text-sm text-muted-foreground">
+                  Complete these steps to unlock personalized recommendations.
+                </p>
+              </div>
+              <div className="px-6 py-5 space-y-3">
+                <div className="flex items-center justify-between text-sm font-medium">
+                  <span>{completion}% complete</span>
+                  <span className="text-muted-foreground">Goal: 100%</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${completion}%` }}
+                  />
+                </div>
+                {missing.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Next up: {missing.join(", ")}
+                  </p>
+                )}
+              </div>
+            </section>
+          );
+        })()}
+
         {error && (
           <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm">
             {error}
@@ -495,9 +533,18 @@ function Profile() {
                 <p className="text-sm text-muted-foreground">Edit answers to keep recommendations relevant.</p>
               </div>
             </div>
-            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-              Inline editing
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                onClick={() => navigate(`/onboarding/${session?.user?.id}`)}
+              >
+                Change my goal
+              </button>
+              <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+                Inline editing
+              </span>
+            </div>
           </div>
 
           <div className="divide-y divide-border">

@@ -16,7 +16,7 @@ import { supabase } from "../api/supabaseClient";
  *   1. Get session from Supabase (tokens already parsed from URL hash)
  *   2. Upsert public.user row — insert-if-not-exists, no-op if already there
  *   3. Read questionnaire_answered from the now-guaranteed row
- *   4. Route → /onboarding (new / incomplete) or /dashboard (returning)
+ *   4. Route → /onboarding (new / incomplete) or /home (returning)
  */
 function AuthCallback() {
   const navigate = useNavigate();
@@ -76,11 +76,11 @@ function AuthCallback() {
         // ── Step 3: Route ──────────────────────────────────────────────────
         // !userRow                    → upsert failed for an unexpected reason
         // questionnaire_answered false/null → new or incomplete user
-        // questionnaire_answered true       → returning user, go to dashboard
+        // questionnaire_answered true       → returning user, go to home
         if (!userRow || !userRow.questionnaire_answered) {
           navigate(`/onboarding/${session.user.id}`, { replace: true });
         } else {
-          navigate("/dashboard", { replace: true });
+          navigate("/home", { replace: true });
         }
       } catch (err) {
         console.error("OAuth callback error:", err);

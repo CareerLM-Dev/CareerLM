@@ -83,7 +83,7 @@ function SkillGapAnalyzer({ resumeData }) {
       }
 
       const result = await axios.post(
-        "http://localhost:8000/api/v1/resume/skill-gap-analysis",
+        "http://localhost:8000/api/v1/orchestrator/skill-gap-analysis",
         formData,
         {
           headers: {

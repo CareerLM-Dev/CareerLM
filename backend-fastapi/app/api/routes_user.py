@@ -61,8 +61,9 @@ async def get_resume_history(
         result = supabase.table("resume_versions")\
             .select("*, resumes!inner(user_id)")\
             .in_("resume_id", resume_ids)\
-            .order("updated_at", desc=True)\
-            .range(offset, offset + limit - 1)\
+            .order("version_number", desc=True)\
+            .offset(offset)\
+            .limit(limit)\
             .execute()
         
         # Parse and format the data
@@ -83,7 +84,7 @@ async def get_resume_history(
                 "version_number": item["version_number"],
                 "filename": item.get("raw_file_path", "Unknown"),
                 "ats_score": item.get("ats_score"),
-                "created_at": item.get("updated_at"),  # Using updated_at for timestamp
+                "created_at": item.get("created_at") or item.get("updated_at"),
                 "notes": item.get("notes", "")
             }
             

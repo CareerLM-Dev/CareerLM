@@ -5,6 +5,7 @@ Resume optimization service using the 3-agent resume workflow.
 from app.agents.resume import resume_workflow
 from app.agents.resume.state import ResumeState
 from app.services.resume_parser import ResumeParser
+from app.services.rag_suggestions import get_resume_rag_evaluation
 
 
 def parse_resume_sections(resume_text):
@@ -31,7 +32,7 @@ def optimize_resume_logic(
     resume_text=None,
     sections=None,
     role_type=None,
-    year_of_study=None,
+    user_id=None,
 ):
     """
     Run the 3-agent career advisor workflow.
@@ -43,7 +44,6 @@ def optimize_resume_logic(
         resume_text: Optional pre-extracted resume text.
         sections: Optional pre-parsed sections.
         role_type: Role archetype key (e.g. 'software_engineer').
-        year_of_study: Student year (e.g. '2', 'final').
     """
     parser = ResumeParser()
     if resume_text is None:
@@ -57,7 +57,6 @@ def optimize_resume_logic(
         "job_description": job_description or "",
         "resume_sections": sections,
         "role_type": role_type,
-        "year_of_study": year_of_study,
 
         # Context flags
         "has_job_description": bool(job_description and len(job_description.strip()) > 50),
@@ -111,7 +110,14 @@ def optimize_resume_logic(
         "_status": "processing",
     }
 
-    final_state = resume_workflow.invoke(initial_state)
+    invoke_config = {"configurable": {"thread_id": user_id}} if user_id else {}
+    final_state = resume_workflow.invoke(initial_state, config=invoke_config)
+
+    rag_eval = get_resume_rag_evaluation(
+        resume_text=resume_text,
+        job_description=job_description or "",
+        category="resume",
+    )
 
     return {
         # Overall score + zone
@@ -139,6 +145,11 @@ def optimize_resume_logic(
             "alignment_suggestions": final_state.get("alignment_suggestions", []),
             "structure_suggestions": final_state.get("structure_suggestions", []),
         },
+
+        # RAG-based evaluation
+        "strengths": rag_eval.get("strengths", []),
+        "weaknesses": rag_eval.get("weaknesses", []),
+        "suggestions": rag_eval.get("suggestions", []),
 
         # Keyword & relevance
         "keyword_gap_table": final_state.get("keyword_gap_table", []),
