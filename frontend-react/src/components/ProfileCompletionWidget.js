@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useUser } from "../context/UserContext";
 import {
@@ -15,61 +15,34 @@ import { FileText, Target, Zap, ArrowRight } from "lucide-react";
 function ProfileCompletionWidget() {
   const navigate = useNavigate();
   const { user, session } = useUser();
-  const [profileData, setProfileData] = useState(null);
   const [completionPercentage, setCompletionPercentage] = useState(0);
   const [missingItems, setMissingItems] = useState([]);
 
-  useEffect(() => {
-    const fetchProfileData = async () => {
-      if (!user?.id || !session?.access_token) return;
-
-      try {
-        const response = await fetch(
-          "http://localhost:8000/api/v1/user/profile",
-          {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          }
-        );
-
-        if (!response.ok) {
-          console.error("Failed to fetch profile");
-          return;
-        }
-
-        const data = await response.json();
-        if (data.success && data.data) {
-          const profile = data.data;
-          calculateCompletion(profile);
-        }
-      } catch (error) {
-        console.error("Error fetching profile:", error);
-      }
-    };
-
-    fetchProfileData();
-  }, [user?.id, session?.access_token]);
-
-  const calculateCompletion = (profile) => {
-    let completion = 10; // Base 10% for having account + questionnaire
+  const calculateCompletion = useCallback((profile) => {
+    let completion = 0;
     const missing = [];
 
     const userProfile = profile.user_profile || {};
-    const hasResumeData =
-      profile.latest_resume_score !== null &&
-      profile.latest_resume_score !== undefined;
-    const hasInterests = 
-      userProfile.areas_of_interest && 
-      Array.isArray(userProfile.areas_of_interest) && 
-      userProfile.areas_of_interest.length > 0;
-    const hasExpertise = 
-      userProfile.expertise && 
-      Array.isArray(userProfile.expertise) && 
-      userProfile.expertise.length > 0;
-
+    const questionnaire = profile.questionnaire_answers || {};
+    
+    // Questionnaire (Status + Target Role) - 10%
+    const hasQuestionnaire = questionnaire.status && questionnaire.target_role;
+    if (hasQuestionnaire) {
+      completion += 10;
+    } else {
+      missing.push({
+        key: "questionnaire",
+        label: "Complete Your Profile Setup",
+        icon: Target,
+        action: () => navigate("/profile"),
+      });
+    }
+    
+    // Resume - 35% (high priority)
+    const hasResumeData = profile.has_resume === true;
+    
     if (hasResumeData) {
-      completion += 30;
+      completion += 35;
     } else {
       missing.push({
         key: "resume",
@@ -82,31 +55,149 @@ function ProfileCompletionWidget() {
       });
     }
 
-    if (hasInterests) {
-      completion += 30;
+    // Projects - 15%
+    const hasProjects = userProfile.projects && userProfile.projects.trim().length > 50;
+    if (hasProjects) {
+      completion += 15;
     } else {
       missing.push({
-        key: "interests",
-        label: "Add Areas of Interest",
+        key: "projects",
+        label: "Add Projects",
         icon: Target,
         action: () => navigate("/profile"),
       });
     }
 
-    if (hasExpertise) {
-      completion += 30;
+    // Experience - 15%
+    const hasExperience = userProfile.experience && userProfile.experience.trim().length > 50;
+    if (hasExperience) {
+      completion += 15;
     } else {
       missing.push({
-        key: "expertise",
-        label: "Add Skills & Expertise",
+        key: "experience",
+        label: "Add Work Experience",
+        icon: FileText,
+        action: () => navigate("/profile"),
+      });
+    }
+
+    // Skills - 10%
+    const hasSkills = 
+      userProfile.skills && 
+      Array.isArray(userProfile.skills) && 
+      userProfile.skills.length > 0;
+    if (hasSkills) {
+      completion += 10;
+    } else {
+      missing.push({
+        key: "skills",
+        label: "Add Skills",
         icon: Zap,
+        action: () => navigate("/profile"),
+      });
+    }
+
+    // Education - 5%
+    const hasEducation = userProfile.education && userProfile.education.trim().length > 30;
+    if (hasEducation) {
+      completion += 5;
+    } else {
+      missing.push({
+        key: "education",
+        label: "Add Education",
+        icon: FileText,
+        action: () => navigate("/profile"),
+      });
+    }
+
+    // Intro/Summary - 5%
+    const hasIntro = userProfile.intro && userProfile.intro.trim().length > 50;
+    if (hasIntro) {
+      completion += 5;
+    } else {
+      missing.push({
+        key: "intro",
+        label: "Add Professional Summary",
+        icon: FileText,
+        action: () => navigate("/profile"),
+      });
+    }
+
+    // Areas of Interest + Expertise (both together) - 5% bonus
+    const hasAreasOfInterest = 
+      userProfile.areas_of_interest && 
+      userProfile.areas_of_interest.trim().length > 20;
+    const hasExpertise = 
+      userProfile.expertise && 
+      userProfile.expertise.trim().length > 20;
+    
+    if (hasAreasOfInterest && hasExpertise) {
+      completion += 5;
+    } else {
+      missing.push({
+        key: "areas_expertise",
+        label: "Add Areas of Interest & Expertise",
+        icon: Target,
         action: () => navigate("/profile"),
       });
     }
 
     setCompletionPercentage(completion);
     setMissingItems(missing);
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    const fetchProfileData = async () => {
+      if (!user?.id || !session?.access_token) return;
+
+      try {
+        // Fetch profile details
+        const profileResponse = await fetch(
+          "http://localhost:8000/api/v1/user/profile-details",
+          {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }
+        );
+
+        if (!profileResponse.ok) {
+          console.error("Failed to fetch profile");
+          return;
+        }
+
+        const profileData = await profileResponse.json();
+        
+        // Fetch resume history to check if user has uploaded resume
+        const historyResponse = await fetch(
+          "http://localhost:8000/api/v1/user/history?limit=1",
+          {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          }
+        );
+        
+        let hasResume = false;
+        if (historyResponse.ok) {
+          const historyData = await historyResponse.json();
+          hasResume = historyData.success && historyData.data && historyData.data.length > 0;
+        }
+
+        if (profileData.success && profileData.data) {
+          const profile = {
+            ...profileData.data,
+            has_resume: hasResume
+          };
+          calculateCompletion(profile);
+        }
+      } catch (error) {
+        console.error("Error fetching profile:", error);
+      }
+    };
+
+    fetchProfileData();
+  }, [user?.id, session?.access_token, calculateCompletion]);
 
   // Only show if not 100% complete
   if (completionPercentage >= 100 || missingItems.length === 0) {

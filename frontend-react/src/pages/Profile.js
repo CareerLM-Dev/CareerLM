@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { User, FileText, ClipboardList, Pencil, Save, X, Loader2 } from "lucide-react";
+import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
+import { parseProjects, parseExperience, serializeProjects, serializeExperience } from "../utils/profileParser";
 
 const questions = [
   {
@@ -42,8 +44,8 @@ const profileSections = [
   { key: "expertise", title: "Expertise", type: "text" },
   { key: "skills", title: "Skills", type: "skills" },
   { key: "education", title: "Education", type: "text" },
-  { key: "projects", title: "Projects", type: "text" },
-  { key: "experience", title: "Experience", type: "text" },
+  { key: "projects", title: "Projects", type: "cards" },
+  { key: "experience", title: "Experience", type: "cards" },
   { key: "certifications", title: "Certifications", type: "text" },
   { key: "coursework", title: "Coursework", type: "text" },
   { key: "co_curricular_achievements", title: "Co-curricular Achievements", type: "text" },
@@ -70,7 +72,7 @@ const stripSectionHeader = (value, sectionKey, title) => {
     (title || "").toLowerCase(),
   ]);
 
-  const first = lines[0].toLowerCase().replace(/[:\-]+$/, "").trim();
+  const first = lines[0].toLowerCase().replace(/[:-]+$/, "").trim();
   if (candidates.has(first)) {
     return lines.slice(1).join("\n").trim();
   }
@@ -94,8 +96,9 @@ function Profile() {
   const [draftSkills, setDraftSkills] = useState([]);
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
+  const [addingNewItem, setAddingNewItem] = useState({ key: null, isAdding: false });
   const scrollRef = useRef(null);
-  const singleSelectFields = new Set(["status", "target_role"]);
+  const singleSelectFields = new Set(["status"]);
 
   const optionsByField = useMemo(() => {
     return questions.reduce((acc, question) => {
@@ -313,6 +316,99 @@ function Profile() {
     } finally {
       setSavingProfileSection(null);
     }
+  };
+
+  // Handler for saving individual project/experience items
+  const handleSaveItem = async (key, updatedItem, originalItem) => {
+    try {
+      const currentText = userProfileSections?.[key] || '';
+      const parser = key === 'projects' ? parseProjects : parseExperience;
+      const serializer = key === 'projects' ? serializeProjects : serializeExperience;
+      
+      const items = parser(currentText);
+      
+      if (originalItem) {
+        // Update existing item
+        const index = items.findIndex(item => 
+          item.title === originalItem.title && 
+          item.bullets?.[0] === originalItem.bullets?.[0]
+        );
+        if (index >= 0) {
+          items[index] = updatedItem;
+        }
+      } else {
+        // Add new item
+        items.push(updatedItem);
+        setAddingNewItem({ key: null, isAdding: false });
+      }
+      
+      const updatedText = serializer(items);
+      const updated = {
+        ...userProfileSections,
+        [key]: updatedText,
+      };
+
+      await axios.patch(
+        "http://localhost:8000/api/v1/user/profile-user-profile",
+        { user_profile: updated },
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      );
+
+      setUserProfileSections(updated);
+    } catch (err) {
+      console.error(`Failed to update ${key}:`, err);
+      setError(`Unable to save your ${key}.`);
+    }
+  };
+
+  // Handler for deleting individual project/experience items
+  const handleDeleteItem = async (key, itemToDelete) => {
+    try {
+      const currentText = userProfileSections?.[key] || '';
+      const parser = key === 'projects' ? parseProjects : parseExperience;
+      const serializer = key === 'projects' ? serializeProjects : serializeExperience;
+      
+      const items = parser(currentText);
+      const filtered = items.filter(item => 
+        item.title !== itemToDelete.title || 
+        item.bullets?.[0] !== itemToDelete.bullets?.[0]
+      );
+      
+      const updatedText = serializer(filtered);
+      const updated = {
+        ...userProfileSections,
+        [key]: updatedText,
+      };
+
+      await axios.patch(
+        "http://localhost:8000/api/v1/user/profile-user-profile",
+        { user_profile: updated },
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      );
+
+      setUserProfileSections(updated);
+    } catch (err) {
+      console.error(`Failed to delete ${key} item:`, err);
+      setError(`Unable to delete ${key} item.`);
+    }
+  };
+
+  // Handler for adding new project/experience
+  const handleAddNewItem = (key) => {
+    setAddingNewItem({ key, isAdding: true });
+  };
+
+  // Handler for canceling add new item
+  const handleCancelAddItem = () => {
+    setAddingNewItem({ key: null, isAdding: false });
   };
 
   const formatAnswer = (field) => {
@@ -658,7 +754,7 @@ function Profile() {
                 <div key={section.key} className="px-6 py-5">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
-                    {!isEditing && (
+                    {!isEditing && section.type !== "cards" && (
                       <button
                         type="button"
                         className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
@@ -763,6 +859,46 @@ function Profile() {
                     ) : (
                       <p className="text-sm text-muted-foreground">Not set</p>
                     )
+                  ) : section.type === "cards" ? (
+                    (() => {
+                      const currentText = userProfileSections?.[section.key] || '';
+                      const parser = section.key === 'projects' ? parseProjects : parseExperience;
+                      const items = parser(currentText);
+                      const isAddingNew = addingNewItem.key === section.key && addingNewItem.isAdding;
+                      const newItem = section.key === 'projects' 
+                        ? { title: '', description: '', techStack: '', links: '', date: '', bullets: [] }
+                        : { title: '', company: '', location: '', dateRange: '', bullets: [] };
+                      
+                      return (
+                        <div className="space-y-3 mt-3">
+                          {items.length > 0 && items.map((item, index) => (
+                            <ProfileItemCard
+                              key={index}
+                              item={item}
+                              type={section.key === 'projects' ? 'project' : 'experience'}
+                              onSave={(updatedItem) => handleSaveItem(section.key, updatedItem, item)}
+                              onDelete={(itemToDelete) => handleDeleteItem(section.key, itemToDelete)}
+                            />
+                          ))}
+                          {isAddingNew && (
+                            <ProfileItemCard
+                              key="new"
+                              item={newItem}
+                              type={section.key === 'projects' ? 'project' : 'experience'}
+                              onSave={(updatedItem) => handleSaveItem(section.key, updatedItem, null)}
+                              onDelete={handleCancelAddItem}
+                              startInEditMode={true}
+                            />
+                          )}
+                          {!isAddingNew && (
+                            <AddItemButton
+                              type={section.key === 'projects' ? 'project' : 'experience'}
+                              onClick={() => handleAddNewItem(section.key)}
+                            />
+                          )}
+                        </div>
+                      );
+                    })()
                   ) : displayValue ? (
                     <p className="text-sm text-muted-foreground whitespace-pre-line">{displayValue}</p>
                   ) : (
