@@ -256,12 +256,25 @@ function MockInterview({ resumeData }) {
         
         if (response.ok) {
           const data = await response.json();
+          console.log("Profile data:", data); // Debug log
           const questionnaire = data.data?.questionnaire_answers;
-          if (questionnaire?.target_role && Array.isArray(questionnaire.target_role)) {
-            setSavedRoles(questionnaire.target_role);
-            // Pre-select first role if available
-            if (questionnaire.target_role.length > 0) {
-              const firstRole = questionnaire.target_role[0];
+          console.log("Questionnaire answers:", questionnaire); // Debug log
+          
+          if (questionnaire?.target_role) {
+            // Handle both array and single value
+            let roles = [];
+            if (Array.isArray(questionnaire.target_role)) {
+              roles = questionnaire.target_role.filter(r => r && r.trim());
+            } else if (typeof questionnaire.target_role === 'string' && questionnaire.target_role.trim()) {
+              roles = [questionnaire.target_role.trim()];
+            }
+            
+            console.log("Processed roles:", roles); // Debug log
+            
+            if (roles.length > 0) {
+              setSavedRoles(roles);
+              // Pre-select first role if available
+              const firstRole = roles[0];
               setSelectedRoleOption(firstRole);
               setTargetRole(ROLE_LABELS[firstRole] || firstRole);
             }

@@ -77,12 +77,18 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
     # Users can skip target_role selection; analysis works fine without it
     role_type = (target_role or "").lower().replace(" ", "_") if target_role else None
 
+    # ===== PARSE RESUME SECTIONS BEFORE WORKFLOW =====
+    # This is critical for completeness_score calculation
+    print("[RESUME_WRAPPER] Parsing resume sections...")
+    parsed_sections = get_parser().parse_sections(resume_text)
+    print(f"[RESUME_WRAPPER] Parsed sections: {list(parsed_sections.keys())}")
+
     # ===== PREPARE INPUT FOR RESUME WORKFLOW =====
 
     resume_input = {
         "resume_text": resume_text,
         "job_description": job_description,
-        "resume_sections": {},
+        "resume_sections": parsed_sections,  # Now contains actual parsed sections
         "role_type": role_type if role_type else None,
         "has_job_description": bool(job_description),
         "structure_score": None,
@@ -140,9 +146,9 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
         category="resume",
     )
 
-    parsed_sections = resume_result.get("resume_sections", {}) or {}
-    if not parsed_sections:
-        parsed_sections = get_parser().parse_sections(resume_text)
+    # Resume sections were parsed before workflow and should be in result
+    # (workflow receives them as input and preserves them in state)
+    parsed_sections = resume_result.get("resume_sections", {}) or parsed_sections
 
     state["resume_analysis"] = {
         "resume_text": resume_analysis.get("resume_text"),

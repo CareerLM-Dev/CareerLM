@@ -124,7 +124,7 @@ function Onboarding() {
           },
           body: JSON.stringify({
             status: answers.status,
-            target_role: answers.target_role.length > 0 ? answers.target_role[0] : null,
+            target_role: answers.target_role,
           }),
         },
       );

@@ -1,12 +1,10 @@
-﻿"use client";
-
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
 import { Alert, AlertDescription } from "./ui/alert";
-import { Upload, Zap, FileText, ChevronDown } from "lucide-react";
+import { Upload, Zap, ChevronDown } from "lucide-react";
 
 // Role labels matching questionnaire values
 const ROLE_OPTIONS = [
