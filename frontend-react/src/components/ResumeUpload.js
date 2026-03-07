@@ -212,29 +212,16 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="bg-card border border-border rounded-lg shadow-lg overflow-hidden">
-        <div className="bg-primary/10 p-6 border-b border-border">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="bg-primary/10 p-3 rounded-lg">
-              <FileText className="w-6 h-6 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Resume Analyzer</h2>
-              <p className="text-muted-foreground">
-                Upload your resume for honest, evidence-backed feedback
-              </p>
-            </div>
-          </div>
+    <div>
+      <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
+        {/* Header */}
+        <div className="p-4 border-b border-border">
+          <h2 className="text-xl font-bold">Resume Evaluation Tool</h2>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* File Upload */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* File Upload - Drag & Drop Box */}
           <div className="space-y-2">
-            <Label htmlFor="resume-file">
-              <span className="text-base font-medium">Upload Resume</span>
-              <span className="block text-sm text-muted-foreground font-normal">PDF or DOCX format</span>
-            </Label>
             <div className="relative">
               <input
                 type="file"
@@ -245,67 +232,57 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
               />
               <label
                 htmlFor="resume-file"
-                className="flex flex-col items-center justify-center w-full h-32 px-4 transition bg-muted hover:bg-muted/80 border-2 border-dashed border-border rounded-lg cursor-pointer group"
+                className="flex flex-col items-center justify-center w-full h-40 px-4 transition bg-background hover:bg-muted/30 border-2 border-dashed border-border rounded-lg cursor-pointer group"
               >
-                <div className="flex flex-col items-center justify-center space-y-2">
+                <div className="flex flex-col items-center justify-center space-y-3">
                   <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
                   <div className="text-center">
                     <p className="text-sm font-medium">
-                      {resumeFile ? resumeFile.name : "Choose file or drag and drop"}
+                      {resumeFile ? resumeFile.name : "Drag and drop your resume here, or browse"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {resumeFile ? "File selected" : "Drag your resume here or click to browse"}
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Supported formats: PDF, DOCX
                     </p>
                   </div>
+                  {!resumeFile && (
+                    <Button type="button" size="sm" variant="outline">
+                      Browse Files
+                    </Button>
+                  )}
                 </div>
               </label>
             </div>
           </div>
 
-          {/* Job Description */}
-          <div className="space-y-2">
-            <Label htmlFor="job-description">
-              <span className="text-base font-medium">Job Description</span>
-              <span className="block text-sm text-muted-foreground font-normal">
-                Paste a job posting for role-specific alignment analysis. Leave blank for general feedback.
-              </span>
-            </Label>
-            <Textarea
-              id="job-description"
-              value={jobDescription}
-              onChange={handleJDChange}
-              rows={7}
-              placeholder="Paste the job description here (optional)..."
-              className="resize-none"
-            />
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {hasJD
-                  ? "\u2713 JD provided \u2014 analysis will use exact role alignment"
-                  : "No JD \u2014 analysis will use general role baseline"}
-              </span>
-              <span className="text-xs text-muted-foreground">{jobDescription.length} characters</span>
-            </div>
-          </div>
-
-          {/* Role type -- shown when no JD, pre-populated from questionnaire */}
-          {!hasJD && (
+          {/* Job Description & Role in Compact 2-column Grid */}
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="role-type">
-                <span className="text-base font-medium">Target Role</span>
-                <span className="block text-sm text-muted-foreground font-normal">
-                  Since no JD is provided, select the role you're targeting for baseline analysis
-                </span>
+              <Label htmlFor="job-description" className="text-sm font-medium">
+                Job Description (Optional)
+              </Label>
+              <Textarea
+                id="job-description"
+                value={jobDescription}
+                onChange={handleJDChange}
+                rows={4}
+                placeholder="Paste job description..."
+                className="resize-none text-sm"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="role-type" className="text-sm font-medium">
+                Target Role {!hasJD && <span className="text-destructive">*</span>}
               </Label>
               <div className="relative">
                 <select
                   id="role-type"
                   value={roleType}
                   onChange={(e) => setRoleType(e.target.value)}
-                  className="w-full appearance-none bg-muted border border-border rounded-md px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full appearance-none bg-background border border-border rounded-md px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={hasJD}
                 >
                   <option value="">Select a role...</option>
-                  {/* Show questionnaire roles first if available */}
                   {profileRoles.length > 0 && (
                     <optgroup label="From your profile">
                       {profileRoles.map((r) => {
@@ -324,15 +301,20 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
                 </select>
                 <ChevronDown className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
               </div>
-              {profileRoles.length > 0 && (
+              {hasJD && (
+                <p className="text-xs text-muted-foreground">
+                  Role extracted from JD
+                </p>
+              )}
+              {!hasJD && profileRoles.length > 0 && (
                 <p className="text-xs text-primary/70">
-                  Pre-selected from your onboarding profile. Change if needed.
+                  Pre-selected from profile
                 </p>
               )}
             </div>
-          )}
+          </div>
 
-          {/* Submit / Cancel */}
+          {/* Analyze Button */}
           {loading ? (
             <div className="flex gap-2">
               <Button type="button" disabled className="flex-1" size="lg">
@@ -359,7 +341,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
 
         {/* Error */}
         {error && (
-          <div className="px-6 pb-6">
+          <div className="px-5 pb-5">
             <Alert variant="destructive">
               <AlertDescription>{error}</AlertDescription>
             </Alert>

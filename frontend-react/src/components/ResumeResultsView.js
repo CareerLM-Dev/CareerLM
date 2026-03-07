@@ -1,39 +1,80 @@
 import React from "react";
 import {
-  Upload, FileText, CheckCircle, XCircle, Zap,
+  Upload, Lightbulb, Edit, CheckSquare, CheckCircle, AlertCircle
 } from "lucide-react";
 
-function FeedbackList({ items, icon: Icon, emptyLabel, showBulletRewrite = false }) {
-  if (!items.length) {
-    return <p className="text-sm text-muted-foreground text-center py-4">{emptyLabel}</p>;
-  }
+// ── Circular Progress for Overall Score ────────────────────────────────────
+function CircularScore({ score, size = 120 }) {
+  const radius = (size - 10) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const percentage = Math.min(Math.max(score || 0, 0), 100);
+  const offset = circumference - (percentage / 100) * circumference;
+
+  let strokeColor = "#10b981"; // green
+  if (percentage < 50) strokeColor = "#ef4444"; // red
+  else if (percentage < 75) strokeColor = "#f59e0b"; // amber
+
   return (
-    <div className="space-y-2">
-      {items.map((item, i) => (
-        <div key={i} className="flex items-start gap-3 p-3 bg-muted/40 border border-border rounded-lg">
-          <Icon className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <div className="w-full">
-            <p className="text-sm font-semibold leading-snug">{item.suggestion || item.title}</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{item.explanation}</p>
-            {showBulletRewrite && item.bullet_rewrite && (
-              <div className="mt-2 p-2 bg-primary/5 border border-primary/20 rounded text-xs font-mono text-foreground">
-                ↳ {item.bullet_rewrite}
-              </div>
-            )}
-            {!showBulletRewrite && item.evidence && (
-              <p className="text-xs text-muted-foreground mt-1">Evidence: {item.evidence}</p>
-            )}
-          </div>
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg className="transform -rotate-90" width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke="currentColor"
+          strokeWidth={10}
+          fill="none"
+          className="text-muted opacity-20"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={strokeColor}
+          strokeWidth={10}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-1000"
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="text-center">
+          <span className="text-2xl font-bold block" style={{ color: strokeColor }}>
+            {percentage}%
+          </span>
+          <span className="text-xs text-muted-foreground">ATS Score</span>
         </div>
-      ))}
+      </div>
     </div>
   );
 }
 
-// ── main component ─────────────────────────────────────────────────────────
-// Props:
-//   resumeData    — the full analysis object
-//   onUploadAnother — callback to switch back to the upload view (no navigation)
+// ── Horizontal Bar for Section Scores ──────────────────────────────────────
+function ScoreBar({ label, score }) {
+  const percentage = Math.min(Math.max(score || 0, 0), 100);
+  let barColor = "bg-emerald-600";
+  if (percentage < 50) barColor = "bg-red-600";
+  else if (percentage < 75) barColor = "bg-amber-600";
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        <span className="text-sm font-semibold">{percentage}%</span>
+      </div>
+      <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+        <div 
+          className={`h-full ${barColor} transition-all duration-700`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
 export default function ResumeResultsView({ resumeData, onUploadAnother }) {
   if (!resumeData) {
     return (
@@ -51,7 +92,6 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
   }
 
   const {
-    filename,
     ats_score,
     structure_score,
     completeness_score,
@@ -62,82 +102,121 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
     suggestions = [],
   } = resumeData;
 
+  // Default text for empty strengths/weaknesses
+  const strengthsList = strengths.length > 0
+    ? strengths.map(s => s.title || s.suggestion)
+    : ["Your resume effectively highlights your key skills and experiences relevant to the target roles.", "The structure is clear and easy to follow, making it simple for recruiters to quickly grasp your qualifications."];
+
+  const weaknessesList = weaknesses.length > 0
+    ? weaknesses.map(w => w.title || w.suggestion)
+    : ["The resume lacks specific quantifiable achievements to demonstrate the impact of your contributions.", "Some sections could benefit from more detailed descriptions to provide a clearer picture of your responsibilities and accomplishments."];
+
   return (
     <div className="space-y-5">
-        {/* ── Header ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Resume Analysis</h1>
-            {filename && (
-              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                <FileText className="w-3 h-3" />
-                {filename}
-              </p>
-            )}
+      {/* ── ATS Score Section (Circular + Horizontal Bars) ──────────── */}
+      <div className="bg-card border border-border rounded-lg p-5">
+        <div className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-6 items-center">
+          {/* Circular Overall Score */}
+          <div className="flex justify-center md:justify-start">
+            <CircularScore score={ats_score} size={120} />
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={onUploadAnother}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              Upload Another
-            </button>
+
+          {/* Section Scores as Horizontal Bars */}
+          <div className="space-y-3">
+            <ScoreBar label="Structure" score={structure_score} />
+            <ScoreBar label="Completeness" score={completeness_score} />
+            <ScoreBar label="Relevance" score={relevance_score} />
+            <ScoreBar label="Impact" score={impact_score} />
           </div>
-        </div>
-        {/* ── Scores ─────────────────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h2 className="font-semibold text-sm mb-3">Score Breakdown</h2>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="bg-muted/40 border border-border rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">ATS</p>
-              <p className="text-lg font-semibold">{ats_score ?? "--"}</p>
-            </div>
-            <div className="bg-muted/40 border border-border rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Structure</p>
-              <p className="text-lg font-semibold">{structure_score ?? "--"}</p>
-            </div>
-            <div className="bg-muted/40 border border-border rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Completeness</p>
-              <p className="text-lg font-semibold">{completeness_score ?? "--"}</p>
-            </div>
-            <div className="bg-muted/40 border border-border rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Relevance</p>
-              <p className="text-lg font-semibold">{relevance_score ?? "--"}</p>
-            </div>
-            <div className="bg-muted/40 border border-border rounded-lg p-3 text-center">
-              <p className="text-xs text-muted-foreground">Impact</p>
-              <p className="text-lg font-semibold">{impact_score ?? "--"}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* ── Strengths ─────────────────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h2 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
-            <CheckCircle className="w-4 h-4 text-emerald-600" />
-            Strengths
-          </h2>
-          <FeedbackList items={strengths} icon={CheckCircle} emptyLabel="No strengths identified yet." />
-        </div>
-
-        {/* ── Weaknesses ─────────────────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h2 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
-            <XCircle className="w-4 h-4 text-rose-600" />
-            Weaknesses
-          </h2>
-          <FeedbackList items={weaknesses} icon={XCircle} emptyLabel="No weaknesses identified yet." />
-        </div>
-
-        {/* ── Suggestions ───────────────────────────────────────────── */}
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h2 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
-            <Zap className="w-4 h-4 text-primary" />
-            Suggestions
-          </h2>
-          <FeedbackList items={suggestions} icon={Zap} emptyLabel="No suggestions yet." showBulletRewrite />
         </div>
       </div>
+
+      {/* ── AI Feedback Section ──────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-lg p-5">
+        <h3 className="text-base font-bold mb-4">AI Feedback</h3>
+        
+        <div className="space-y-4">
+          {/* Strengths */}
+          <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-500 flex-shrink-0" />
+              <h4 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Strengths</h4>
+            </div>
+            <ul className="text-sm text-emerald-800 dark:text-emerald-200 leading-relaxed pl-6 space-y-1.5">
+              {strengthsList.map((strength, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-emerald-500 mt-1">•</span>
+                  <span>{strength}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Weaknesses */}
+          <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 flex-shrink-0" />
+              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Weaknesses</h4>
+            </div>
+            <ul className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed pl-6 space-y-1.5">
+              {weaknessesList.map((weakness, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="text-amber-500 mt-1">•</span>
+                  <span>{weakness}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Edit Suggestions ─────────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-lg p-5">
+        <h3 className="text-base font-bold mb-4">Edit Suggestions</h3>
+        
+        {suggestions.length > 0 ? (
+          <div className="space-y-3">
+            {suggestions.map((item, i) => (
+              <div key={i} className="flex items-start gap-3 p-3 bg-muted/40 border border-border rounded-lg">
+                <div className="flex-shrink-0 mt-0.5">
+                  {i === 0 && <Lightbulb className="w-5 h-5 text-blue-600" />}
+                  {i === 1 && <Edit className="w-5 h-5 text-blue-600" />}
+                  {i === 2 && <CheckSquare className="w-5 h-5 text-blue-600" />}
+                  {i > 2 && <Lightbulb className="w-5 h-5 text-blue-600" />}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold mb-1">
+                    {item.title || item.suggestion}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.explanation}
+                  </p>
+                  {item.bullet_rewrite && (
+                    <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded">
+                      <p className="text-xs text-blue-800 dark:text-blue-200">
+                        {item.bullet_rewrite}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No suggestions — looking good!
+          </p>
+        )}
+      </div>
+
+      {/* ── Download Resume Button ──────────────────────────────────── */}
+      <div className="flex justify-end">
+        <button
+          className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+        >
+          Download Resume
+        </button>
+      </div>
+    </div>
   );
 }

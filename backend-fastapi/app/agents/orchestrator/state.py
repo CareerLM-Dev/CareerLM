@@ -57,24 +57,13 @@ class ResumeAnalysisResults(TypedDict, total=False):
     score_zone: Optional[str]
     
     # Findings
-    structure_issues: List[Dict[str, Any]]
-    completeness_gaps: List[Dict[str, Any]]
-    keyword_gaps: List[Dict[str, Any]]
-    skill_gaps: List[Dict[str, Any]]
-    weak_bullets: List[Dict[str, Any]]  # Bullets needing rewrite
-    honest_improvements: List[Dict[str, Any]]
-    human_reader_issues: List[Dict[str, Any]]
-    redundancy_issues: List[Dict[str, Any]]
+    skill_gaps: List[Dict[str, Any]]  # Critical skill gaps identified
+    critical_fixes: List[str]  # Top 3 structural issues to fix
+    
+    # RAG-generated insights (from knowledge base)
     strengths: List[Dict[str, Any]]
     weaknesses: List[Dict[str, Any]]
     suggestions: List[Dict[str, Any]]
-    
-    # Actionability
-    critical_fixes: List[str]
-    quick_wins: List[str]
-    bullet_rewrites: List[Dict[str, Any]]
-    bullet_quality_breakdown: Dict[str, Any]
-    learning_roadmap: List[str]
     
     # Internal
     analyzed_for_role: Optional[str]
