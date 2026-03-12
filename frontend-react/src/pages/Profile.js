@@ -2,9 +2,23 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
-import { User, FileText, ClipboardList, Pencil, Save, X, Loader2 } from "lucide-react";
+import {
+  User,
+  FileText,
+  ClipboardList,
+  Pencil,
+  Save,
+  X,
+  Loader2,
+} from "lucide-react";
 import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
-import { parseProjects, parseExperience, serializeProjects, serializeExperience } from "../utils/profileParser";
+import {
+  parseProjects,
+  parseExperience,
+  serializeProjects,
+  serializeExperience,
+} from "../utils/profileParser";
+import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
 
 const questions = [
   {
@@ -48,7 +62,11 @@ const profileSections = [
   { key: "experience", title: "Experience", type: "cards" },
   { key: "certifications", title: "Certifications", type: "text" },
   { key: "coursework", title: "Coursework", type: "text" },
-  { key: "co_curricular_achievements", title: "Co-curricular Achievements", type: "text" },
+  {
+    key: "co_curricular_achievements",
+    title: "Co-curricular Achievements",
+    type: "text",
+  },
 ];
 
 const stripSectionHeader = (value, sectionKey, title) => {
@@ -72,7 +90,10 @@ const stripSectionHeader = (value, sectionKey, title) => {
     (title || "").toLowerCase(),
   ]);
 
-  const first = lines[0].toLowerCase().replace(/[:-]+$/, "").trim();
+  const first = lines[0]
+    .toLowerCase()
+    .replace(/[:-]+$/, "")
+    .trim();
   if (candidates.has(first)) {
     return lines.slice(1).join("\n").trim();
   }
@@ -96,7 +117,10 @@ function Profile() {
   const [draftSkills, setDraftSkills] = useState([]);
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
-  const [addingNewItem, setAddingNewItem] = useState({ key: null, isAdding: false });
+  const [addingNewItem, setAddingNewItem] = useState({
+    key: null,
+    isAdding: false,
+  });
   const scrollRef = useRef(null);
   const singleSelectFields = new Set(["status"]);
 
@@ -156,9 +180,11 @@ function Profile() {
             education: profileData.education || sections.education || "",
             projects: profileData.projects || sections.projects || "",
             experience: profileData.experience || sections.experience || "",
-            certifications: profileData.certifications || sections.certifications || "",
+            certifications:
+              profileData.certifications || sections.certifications || "",
             coursework: profileData.coursework || sections.coursework || "",
-            co_curricular_achievements: profileData.co_curricular_achievements || sections.awards || "",
+            co_curricular_achievements:
+              profileData.co_curricular_achievements || sections.awards || "",
           };
         }
 
@@ -183,8 +209,8 @@ function Profile() {
     const normalized = Array.isArray(current)
       ? current
       : current
-      ? [current]
-      : [];
+        ? [current]
+        : [];
     setEditingField(field);
     setDraftValues(normalized);
   };
@@ -203,7 +229,9 @@ function Profile() {
       if (singleSelectFields.has(editingField)) {
         return [value];
       }
-      return prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value];
+      return prev.includes(value)
+        ? prev.filter((item) => item !== value)
+        : [...prev, value];
     });
 
     requestAnimationFrame(() => {
@@ -251,8 +279,11 @@ function Profile() {
       const skills = Array.isArray(userProfileSections?.skills)
         ? userProfileSections.skills
         : userProfileSections?.skills
-        ? userProfileSections.skills.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
+          ? userProfileSections.skills
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
       setDraftSkills(skills);
       setSkillInput("");
       setDraftProfileText("");
@@ -320,86 +351,107 @@ function Profile() {
 
   // Handler for saving individual project/experience items
   const handleSaveItem = async (key, updatedItem, originalItem) => {
-    try {
-      const currentText = userProfileSections?.[key] || '';
-      const parser = key === 'projects' ? parseProjects : parseExperience;
-      const serializer = key === 'projects' ? serializeProjects : serializeExperience;
-      
-      const items = parser(currentText);
-      
-      if (originalItem) {
-        // Update existing item
-        const index = items.findIndex(item => 
-          item.title === originalItem.title && 
-          item.bullets?.[0] === originalItem.bullets?.[0]
-        );
-        if (index >= 0) {
-          items[index] = updatedItem;
-        }
-      } else {
-        // Add new item
-        items.push(updatedItem);
-        setAddingNewItem({ key: null, isAdding: false });
-      }
-      
-      const updatedText = serializer(items);
-      const updated = {
-        ...userProfileSections,
-        [key]: updatedText,
-      };
+  try {
+    const currentText = userProfileSections?.[key] || "";
 
-      await axios.patch(
-        "http://localhost:8000/api/v1/user/profile-user-profile",
-        { user_profile: updated },
-        {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        },
+    // FIX: merge wrapped lines that are not bullets
+    const normalizedText = currentText
+      .replace(/\r/g, "")
+      .replace(/\n(?![–•-])/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const parser = key === "projects" ? parseProjects : parseExperience;
+    const serializer =
+      key === "projects" ? serializeProjects : serializeExperience;
+
+    const items = parser(normalizedText);
+
+    if (originalItem) {
+      const index = items.findIndex(
+        (item) =>
+          item.title === originalItem.title &&
+          item.bullets?.[0] === originalItem.bullets?.[0]
       );
 
-      setUserProfileSections(updated);
-    } catch (err) {
-      console.error(`Failed to update ${key}:`, err);
-      setError(`Unable to save your ${key}.`);
+      if (index >= 0) {
+        items[index] = updatedItem;
+      }
+    } else {
+      items.push(updatedItem);
+      setAddingNewItem({ key: null, isAdding: false });
     }
-  };
+
+    const updatedText = serializer(items);
+
+    const updated = {
+      ...userProfileSections,
+      [key]: updatedText,
+    };
+
+    await axios.patch(
+      "http://localhost:8000/api/v1/user/profile-user-profile",
+      { user_profile: updated },
+      {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      }
+    );
+
+    setUserProfileSections(updated);
+  } catch (err) {
+    console.error(`Failed to update ${key}:`, err);
+    setError(`Unable to save your ${key}.`);
+  }
+};
 
   // Handler for deleting individual project/experience items
   const handleDeleteItem = async (key, itemToDelete) => {
-    try {
-      const currentText = userProfileSections?.[key] || '';
-      const parser = key === 'projects' ? parseProjects : parseExperience;
-      const serializer = key === 'projects' ? serializeProjects : serializeExperience;
-      
-      const items = parser(currentText);
-      const filtered = items.filter(item => 
-        item.title !== itemToDelete.title || 
+  try {
+    const currentText = userProfileSections?.[key] || "";
+
+    const normalizedText = currentText
+      .replace(/\r/g, "")
+      .replace(/\n(?![–•-])/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const parser = key === "projects" ? parseProjects : parseExperience;
+    const serializer =
+      key === "projects" ? serializeProjects : serializeExperience;
+
+    const items = parser(normalizedText);
+
+    const filtered = items.filter(
+      (item) =>
+        item.title !== itemToDelete.title ||
         item.bullets?.[0] !== itemToDelete.bullets?.[0]
-      );
-      
-      const updatedText = serializer(filtered);
-      const updated = {
-        ...userProfileSections,
-        [key]: updatedText,
-      };
+    );
 
-      await axios.patch(
-        "http://localhost:8000/api/v1/user/profile-user-profile",
-        { user_profile: updated },
-        {
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
+    const updatedText = serializer(filtered);
+
+    const updated = {
+      ...userProfileSections,
+      [key]: updatedText,
+    };
+
+    await axios.patch(
+      "http://localhost:8000/api/v1/user/profile-user-profile",
+      { user_profile: updated },
+      {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
         },
-      );
+      }
+    );
 
-      setUserProfileSections(updated);
-    } catch (err) {
-      console.error(`Failed to delete ${key} item:`, err);
-      setError(`Unable to delete ${key} item.`);
-    }
-  };
+    setUserProfileSections(updated);
+  } catch (err) {
+    console.error(`Failed to delete ${key} item:`, err);
+    setError(`Unable to delete ${key} item.`);
+  }
+};
 
   // Handler for adding new project/experience
   const handleAddNewItem = (key) => {
@@ -413,11 +465,7 @@ function Profile() {
 
   const formatAnswer = (field) => {
     const values = questionnaireAnswers?.[field] || [];
-    const normalized = Array.isArray(values)
-      ? values
-      : values
-      ? [values]
-      : [];
+    const normalized = Array.isArray(values) ? values : values ? [values] : [];
     if (normalized.length === 0) {
       return "Not answered";
     }
@@ -432,11 +480,18 @@ function Profile() {
       const skills = Array.isArray(userProfileSections?.skills)
         ? userProfileSections.skills
         : userProfileSections?.skills
-        ? userProfileSections.skills.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
+          ? userProfileSections.skills
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
       return skills.length ? skills : null;
     }
-    if (key === "coursework" && !userProfileSections?.coursework && userProfileSections?.coursework_projects) {
+    if (
+      key === "coursework" &&
+      !userProfileSections?.coursework &&
+      userProfileSections?.coursework_projects
+    ) {
       const fallback = userProfileSections.coursework_projects;
       return stripSectionHeader(fallback, key, "Coursework");
     }
@@ -500,47 +555,7 @@ function Profile() {
       </div>
 
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        {(() => {
-          const hasResume = Boolean(latestResume?.filename);
-          const interests = (userProfileSections?.areas_of_interest || "").trim();
-          const expertise = (userProfileSections?.expertise || "").trim();
-          const completion = Math.min(
-            100,
-            10 + (hasResume ? 30 : 0) + (interests ? 30 : 0) + (expertise ? 30 : 0)
-          );
-          const missing = [];
-          if (!hasResume) missing.push("Resume upload");
-          if (!interests) missing.push("Areas of interest");
-          if (!expertise) missing.push("Expertise");
-
-          return (
-            <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-              <div className="px-6 py-5 border-b border-border">
-                <h2 className="text-lg font-semibold text-foreground">Profile completion</h2>
-                <p className="text-sm text-muted-foreground">
-                  Complete these steps to unlock personalized recommendations.
-                </p>
-              </div>
-              <div className="px-6 py-5 space-y-3">
-                <div className="flex items-center justify-between text-sm font-medium">
-                  <span>{completion}% complete</span>
-                  <span className="text-muted-foreground">Goal: 100%</span>
-                </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all"
-                    style={{ width: `${completion}%` }}
-                  />
-                </div>
-                {missing.length > 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Next up: {missing.join(", ")}
-                  </p>
-                )}
-              </div>
-            </section>
-          );
-        })()}
+        <ProfileCompletionWidget />
 
         {error && (
           <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm">
@@ -556,8 +571,12 @@ function Profile() {
                 <User className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Basic details</h2>
-                <p className="text-sm text-muted-foreground">Snapshot of your account details.</p>
+                <h2 className="text-lg font-semibold text-foreground">
+                  Basic details
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Snapshot of your account details.
+                </p>
               </div>
             </div>
             <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
@@ -567,20 +586,35 @@ function Profile() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
             <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Name</span>
-              <p className="text-sm font-medium text-foreground">{profile?.name || "Not set"}</p>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Name
+              </span>
+              <p className="text-sm font-medium text-foreground">
+                {profile?.name || "Not set"}
+              </p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Email</span>
-              <p className="text-sm font-medium text-foreground">{profile?.email || "Not set"}</p>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Email
+              </span>
+              <p className="text-sm font-medium text-foreground">
+                {profile?.email || "Not set"}
+              </p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</span>
-              <p className="text-sm font-medium text-foreground">{statusLabel}</p>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Status
+              </span>
+              <p className="text-sm font-medium text-foreground">
+                {statusLabel}
+              </p>
             </div>
-            {(profile?.status === "professional" || profile?.status === "prof") && (
+            {(profile?.status === "professional" ||
+              profile?.status === "prof") && (
               <div className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Current company</span>
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Current company
+                </span>
                 <p className="text-sm font-medium text-foreground">
                   {profile?.current_company || "Not set"}
                 </p>
@@ -596,22 +630,32 @@ function Profile() {
               <FileText className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Latest resume</h2>
-              <p className="text-sm text-muted-foreground">Quick snapshot of your most recent upload.</p>
+              <h2 className="text-lg font-semibold text-foreground">
+                Latest resume
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Quick snapshot of your most recent upload.
+              </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
             <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">File name</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                File name
+              </span>
               <p className="text-sm font-medium text-foreground">
                 {latestResume?.filename || "No resume uploaded yet"}
               </p>
             </div>
             <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Uploaded</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Uploaded
+              </span>
               <p className="text-sm font-medium text-foreground">
-                {latestResume ? formatDate(latestResume.created_at) : "Not available"}
+                {latestResume
+                  ? formatDate(latestResume.created_at)
+                  : "Not available"}
               </p>
             </div>
           </div>
@@ -625,8 +669,12 @@ function Profile() {
                 <ClipboardList className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Questionnaire</h2>
-                <p className="text-sm text-muted-foreground">Edit answers to keep recommendations relevant.</p>
+                <h2 className="text-lg font-semibold text-foreground">
+                  Questionnaire
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Edit answers to keep recommendations relevant.
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -647,7 +695,9 @@ function Profile() {
             {questions.map((question) => (
               <div key={question.field} className="px-6 py-5">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">{question.title}</h3>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    {question.title}
+                  </h3>
                   {editingField !== question.field && (
                     <button
                       type="button"
@@ -683,8 +733,18 @@ function Profile() {
                             }`}
                           >
                             {draftValues.includes(option.value) && (
-                              <svg className="h-3 w-3 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              <svg
+                                className="h-3 w-3 text-primary-foreground"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={3}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M5 13l4 4L19 7"
+                                />
                               </svg>
                             )}
                           </div>
@@ -722,7 +782,9 @@ function Profile() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">{formatAnswer(question.field)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatAnswer(question.field)}
+                  </p>
                 )}
               </div>
             ))}
@@ -737,8 +799,12 @@ function Profile() {
                 <FileText className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Resume profile</h2>
-                <p className="text-sm text-muted-foreground">Edit section details extracted from your latest resume.</p>
+                <h2 className="text-lg font-semibold text-foreground">
+                  Resume profile
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Edit section details extracted from your latest resume.
+                </p>
               </div>
             </div>
             <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
@@ -753,7 +819,9 @@ function Profile() {
               return (
                 <div key={section.key} className="px-6 py-5">
                   <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-foreground">{section.title}</h3>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {section.title}
+                    </h3>
                     {!isEditing && section.type !== "cards" && (
                       <button
                         type="button"
@@ -788,7 +856,9 @@ function Profile() {
                                 </span>
                               ))
                             ) : (
-                              <p className="text-xs text-muted-foreground">No skills added yet.</p>
+                              <p className="text-xs text-muted-foreground">
+                                No skills added yet.
+                              </p>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -861,38 +931,77 @@ function Profile() {
                     )
                   ) : section.type === "cards" ? (
                     (() => {
-                      const currentText = userProfileSections?.[section.key] || '';
-                      const parser = section.key === 'projects' ? parseProjects : parseExperience;
+                      const currentText =
+                        userProfileSections?.[section.key] || "";
+                      const parser =
+                        section.key === "projects"
+                          ? parseProjects
+                          : parseExperience;
                       const items = parser(currentText);
-                      const isAddingNew = addingNewItem.key === section.key && addingNewItem.isAdding;
-                      const newItem = section.key === 'projects' 
-                        ? { title: '', description: '', techStack: '', links: '', date: '', bullets: [] }
-                        : { title: '', company: '', location: '', dateRange: '', bullets: [] };
-                      
+                      const isAddingNew =
+                        addingNewItem.key === section.key &&
+                        addingNewItem.isAdding;
+                      const newItem =
+                        section.key === "projects"
+                          ? {
+                              title: "",
+                              description: "",
+                              techStack: "",
+                              links: "",
+                              date: "",
+                              bullets: [],
+                            }
+                          : {
+                              title: "",
+                              company: "",
+                              location: "",
+                              dateRange: "",
+                              bullets: [],
+                            };
+
                       return (
                         <div className="space-y-3 mt-3">
-                          {items.length > 0 && items.map((item, index) => (
-                            <ProfileItemCard
-                              key={index}
-                              item={item}
-                              type={section.key === 'projects' ? 'project' : 'experience'}
-                              onSave={(updatedItem) => handleSaveItem(section.key, updatedItem, item)}
-                              onDelete={(itemToDelete) => handleDeleteItem(section.key, itemToDelete)}
-                            />
-                          ))}
+                          {items.length > 0 &&
+                            items.map((item, index) => (
+                              <ProfileItemCard
+                                key={index}
+                                item={item}
+                                type={
+                                  section.key === "projects"
+                                    ? "project"
+                                    : "experience"
+                                }
+                                onSave={(updatedItem) =>
+                                  handleSaveItem(section.key, updatedItem, item)
+                                }
+                                onDelete={(itemToDelete) =>
+                                  handleDeleteItem(section.key, itemToDelete)
+                                }
+                              />
+                            ))}
                           {isAddingNew && (
                             <ProfileItemCard
                               key="new"
                               item={newItem}
-                              type={section.key === 'projects' ? 'project' : 'experience'}
-                              onSave={(updatedItem) => handleSaveItem(section.key, updatedItem, null)}
+                              type={
+                                section.key === "projects"
+                                  ? "project"
+                                  : "experience"
+                              }
+                              onSave={(updatedItem) =>
+                                handleSaveItem(section.key, updatedItem, null)
+                              }
                               onDelete={handleCancelAddItem}
                               startInEditMode={true}
                             />
                           )}
                           {!isAddingNew && (
                             <AddItemButton
-                              type={section.key === 'projects' ? 'project' : 'experience'}
+                              type={
+                                section.key === "projects"
+                                  ? "project"
+                                  : "experience"
+                              }
                               onClick={() => handleAddNewItem(section.key)}
                             />
                           )}
@@ -900,7 +1009,9 @@ function Profile() {
                       );
                     })()
                   ) : displayValue ? (
-                    <p className="text-sm text-muted-foreground whitespace-pre-line">{displayValue}</p>
+                    <p className="text-sm text-muted-foreground whitespace-pre-line">
+                      {displayValue}
+                    </p>
                   ) : (
                     <p className="text-sm text-muted-foreground">Not set</p>
                   )}

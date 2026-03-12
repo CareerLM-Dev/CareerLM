@@ -123,20 +123,33 @@ function ProfileCompletionWidget() {
       });
     }
 
-    // Areas of Interest + Expertise (both together) - 5% bonus
+    // Areas of Interest - 5%
     const hasAreasOfInterest = 
       userProfile.areas_of_interest && 
       userProfile.areas_of_interest.trim().length > 20;
+    
+    if (hasAreasOfInterest) {
+      completion += 5;
+    } else {
+      missing.push({
+        key: "areas_of_interest",
+        label: "Add Areas of Interest",
+        icon: Target,
+        action: () => navigate("/profile"),
+      });
+    }
+
+    // Expertise - 5%
     const hasExpertise = 
       userProfile.expertise && 
       userProfile.expertise.trim().length > 20;
     
-    if (hasAreasOfInterest && hasExpertise) {
+    if (hasExpertise) {
       completion += 5;
     } else {
       missing.push({
-        key: "areas_expertise",
-        label: "Add Areas of Interest & Expertise",
+        key: "expertise",
+        label: "Add Expertise",
         icon: Target,
         action: () => navigate("/profile"),
       });
@@ -199,9 +212,30 @@ function ProfileCompletionWidget() {
     fetchProfileData();
   }, [user?.id, session?.access_token, calculateCompletion]);
 
-  // Only show if not 100% complete
-  if (completionPercentage >= 100 || missingItems.length === 0) {
+  // Don't show until we have data
+  if (completionPercentage === 0 && missingItems.length === 0) {
     return null;
+  }
+
+  // Show success message if 100% complete
+  if (completionPercentage >= 100) {
+    return (
+      <Card className="bg-gradient-to-br from-green-500/10 to-green-600/5 border-green-500/30">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg text-green-700 dark:text-green-400">Profile Complete! 🎉</CardTitle>
+              <CardDescription className="text-sm">
+                Your profile is fully set up
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Progress value={100} className="h-2" />
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

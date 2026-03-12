@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
-import { Pencil, Trash2, Save, X, Plus } from 'lucide-react';
+import React, { useState } from "react";
+import { Pencil, Trash2, Save, X, Plus } from "lucide-react";
 
 /**
  * Reusable card component for displaying and editing profile items (projects, experience)
  */
-export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode = false }) => {
+export const ProfileItemCard = ({
+  item,
+  type,
+  onSave,
+  onDelete,
+  startInEditMode = false,
+}) => {
   const [isEditing, setIsEditing] = useState(startInEditMode);
   const [editedItem, setEditedItem] = useState(item);
-  const [bulletInput, setBulletInput] = useState('');
+  const [bulletInput, setBulletInput] = useState("");
 
   const handleSave = () => {
     onSave(editedItem);
@@ -29,16 +35,16 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
     if (bulletInput.trim()) {
       setEditedItem({
         ...editedItem,
-        bullets: [...editedItem.bullets, bulletInput.trim()]
+        bullets: [...editedItem.bullets, bulletInput.trim()],
       });
-      setBulletInput('');
+      setBulletInput("");
     }
   };
 
   const removeBullet = (index) => {
     setEditedItem({
       ...editedItem,
-      bullets: editedItem.bullets.filter((_, i) => i !== index)
+      bullets: editedItem.bullets.filter((_, i) => i !== index),
     });
   };
 
@@ -49,15 +55,17 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
   if (isEditing) {
     return (
       <div className="bg-card border border-border rounded-lg p-4 space-y-3">
-        {type === 'project' ? (
+        {type === "project" ? (
           <>
             {/* Project Title */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Project Title</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Project Title
+              </label>
               <input
                 type="text"
                 value={editedItem.title}
-                onChange={(e) => updateField('title', e.target.value)}
+                onChange={(e) => updateField("title", e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 placeholder="Project Name"
               />
@@ -65,11 +73,13 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
 
             {/* Description */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Description
+              </label>
               <input
                 type="text"
                 value={editedItem.description}
-                onChange={(e) => updateField('description', e.target.value)}
+                onChange={(e) => updateField("description", e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 placeholder="Short description"
               />
@@ -78,21 +88,25 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
             {/* Tech Stack */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Tech Stack</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Tech Stack
+                </label>
                 <input
                   type="text"
                   value={editedItem.techStack}
-                  onChange={(e) => updateField('techStack', e.target.value)}
+                  onChange={(e) => updateField("techStack", e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   placeholder="Python, Django, React"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Date</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Date
+                </label>
                 <input
                   type="text"
                   value={editedItem.date}
-                  onChange={(e) => updateField('date', e.target.value)}
+                  onChange={(e) => updateField("date", e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   placeholder="June 2025 – Present"
                 />
@@ -101,11 +115,13 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
 
             {/* Links */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Links (optional)</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Links (optional)
+              </label>
               <input
                 type="text"
                 value={editedItem.links}
-                onChange={(e) => updateField('links', e.target.value)}
+                onChange={(e) => updateField("links", e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 placeholder="GitHub, Live"
               />
@@ -115,11 +131,13 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
           <>
             {/* Experience Title */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Job Title</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Job Title
+              </label>
               <input
                 type="text"
                 value={editedItem.title}
-                onChange={(e) => updateField('title', e.target.value)}
+                onChange={(e) => updateField("title", e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 placeholder="Software Engineer Intern"
               />
@@ -128,21 +146,25 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
             {/* Company & Location */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Company</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Company
+                </label>
                 <input
                   type="text"
                   value={editedItem.company}
-                  onChange={(e) => updateField('company', e.target.value)}
+                  onChange={(e) => updateField("company", e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   placeholder="Company Name"
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-muted-foreground mb-1 block">Location</label>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  Location
+                </label>
                 <input
                   type="text"
                   value={editedItem.location}
-                  onChange={(e) => updateField('location', e.target.value)}
+                  onChange={(e) => updateField("location", e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   placeholder="Mumbai, India"
                 />
@@ -151,11 +173,13 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
 
             {/* Date Range */}
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Date Range</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                Date Range
+              </label>
               <input
                 type="text"
                 value={editedItem.dateRange}
-                onChange={(e) => updateField('dateRange', e.target.value)}
+                onChange={(e) => updateField("dateRange", e.target.value)}
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 placeholder="Nov 2025 – Jan 2026"
               />
@@ -165,11 +189,17 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
 
         {/* Bullet Points */}
         <div>
-          <label className="text-xs font-medium text-muted-foreground mb-2 block">Key Points</label>
-          <div className="space-y-2">
+          <label className="text-xs font-medium text-muted-foreground mb-2 block">
+            Key Points
+          </label>
+
+          <div className="space-y-1 mt-2">
             {editedItem.bullets.map((bullet, index) => (
-              <div key={index} className="flex items-start gap-2 group">
-                <span className="text-primary mt-2 text-sm flex-shrink-0">•</span>
+              <div key={index} className="flex items-start gap-2 group w-full">
+                <span className="text-primary mt-2 text-sm flex-shrink-0">
+                  •
+                </span>
+
                 <input
                   type="text"
                   value={bullet}
@@ -178,9 +208,10 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
                     newBullets[index] = e.target.value;
                     setEditedItem({ ...editedItem, bullets: newBullets });
                   }}
-                  className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                  className="flex-1 w-full min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm overflow-x-auto"
                   placeholder="Enter key point..."
                 />
+
                 <button
                   type="button"
                   onClick={() => removeBullet(index)}
@@ -191,17 +222,18 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
               </div>
             ))}
           </div>
-          
+
           {/* Add Bullet */}
           <div className="flex items-center gap-2 mt-2">
             <input
               type="text"
               value={bulletInput}
               onChange={(e) => setBulletInput(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && addBullet()}
-              className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+              onKeyDown={(e) => e.key === "Enter" && addBullet()}
+              className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-1.5 text-sm"
               placeholder="Add a key point..."
             />
+
             <button
               type="button"
               onClick={addBullet}
@@ -211,7 +243,6 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
             </button>
           </div>
         </div>
-
         {/* Actions */}
         <div className="flex items-center gap-2 pt-2">
           <button
@@ -238,37 +269,54 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
   // Display mode
   return (
     <div className="bg-card border border-border rounded-lg p-4 hover:shadow-md transition-shadow group">
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1">
-          <h4 className="font-semibold text-foreground">{item.title}</h4>
-          {type === 'project' ? (
+      <div className="flex items-start justify-between mb-2 gap-2">
+        <div className="flex-1 min-w-0">
+          {/* min-w-0 helps flex children shrink properly */}
+          <h4 className="font-semibold text-foreground break-words">
+            {item.title}
+          </h4>
+          {type === "project" ? (
             <>
               {item.description && (
-                <p className="text-sm text-muted-foreground mt-0.5">{item.description}</p>
+                <p className="text-sm text-muted-foreground mt-0.5 break-words">
+                  {item.description}
+                </p>
               )}
               <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                <span className="text-xs text-primary font-medium">{item.techStack}</span>
+                <span className="text-xs text-primary font-medium">
+                  {item.techStack}
+                </span>
                 {item.links && (
-                  <span className="text-xs text-muted-foreground">[{item.links}]</span>
+                  <span className="text-xs text-muted-foreground">
+                    [{item.links}]
+                  </span>
                 )}
-                <span className="text-xs text-muted-foreground">{item.date}</span>
+                <span className="text-xs text-muted-foreground">
+                  {item.date}
+                </span>
               </div>
             </>
           ) : (
             <>
-              <p className="text-sm text-muted-foreground">{item.company}</p>
-              <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-sm text-muted-foreground break-words">
+                {item.company}
+              </p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                 {item.location && (
-                  <span className="text-xs text-muted-foreground">{item.location}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {item.location}
+                  </span>
                 )}
-                <span className="text-xs text-muted-foreground">{item.dateRange}</span>
+                <span className="text-xs text-muted-foreground">
+                  {item.dateRange}
+                </span>
               </div>
             </>
           )}
         </div>
-        
+
         {/* Actions */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           <button
             type="button"
             onClick={() => setIsEditing(true)}
@@ -292,9 +340,17 @@ export const ProfileItemCard = ({ item, type, onSave, onDelete, startInEditMode 
       {item.bullets && item.bullets.length > 0 && (
         <ul className="space-y-1 mt-2">
           {item.bullets.map((bullet, index) => (
-            <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-              <span className="text-primary mt-0.5">•</span>
-              <span>{bullet}</span>
+            <li
+              key={index}
+              className="flex items-start gap-2 text-sm text-muted-foreground"
+            >
+              <span className="text-primary mt-0.5 flex-shrink-0">•</span>
+              <span
+                className="flex-1 min-w-0"
+                style={{ wordBreak: "break-word", overflowWrap: "break-word" }}
+              >
+                {bullet}
+              </span>
             </li>
           ))}
         </ul>
@@ -315,7 +371,7 @@ export const AddItemButton = ({ type, onClick }) => (
     <div className="flex items-center justify-center gap-2 text-muted-foreground group-hover:text-primary">
       <Plus className="h-5 w-5" />
       <span className="text-sm font-medium">
-        Add {type === 'project' ? 'Project' : 'Experience'}
+        Add {type === "project" ? "Project" : "Experience"}
       </span>
     </div>
   </button>

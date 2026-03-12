@@ -230,7 +230,8 @@ export default function ResumeEditorPage() {
   const handleApplySuggestion = useCallback(async (suggestion) => {
     if (!versionId) return;
     
-    const suggestionId = `rewrite-${suggestions.bullet_rewrites.indexOf(suggestion)}`;
+    const suggestionIndex = suggestions.bullet_rewrites.indexOf(suggestion);
+    const suggestionId = `rewrite-${suggestionIndex}`;
     setApplyingSuggestionId(suggestionId);
     
     const originalText = suggestion.before || suggestion.original || "";
@@ -255,10 +256,10 @@ export default function ResumeEditorPage() {
         setSections(data.updated_sections);
         setOriginalSections(data.updated_sections);
         
-        // Remove applied suggestion from list
+        // Remove applied suggestion from list using index
         setSuggestions(prev => ({
           ...prev,
-          bullet_rewrites: prev.bullet_rewrites.filter(s => s !== suggestion)
+          bullet_rewrites: prev.bullet_rewrites.filter((s, idx) => idx !== suggestionIndex)
         }));
       } else {
         throw new Error(data.error || "Failed to apply suggestion");
@@ -273,11 +274,19 @@ export default function ResumeEditorPage() {
 
   // Dismiss suggestion
   const handleDismissSuggestion = useCallback((suggestion) => {
+    // Find which array the suggestion belongs to and remove by index
+    const bulletIndex = suggestions.bullet_rewrites.indexOf(suggestion);
+    const improvementIndex = suggestions.improvements.indexOf(suggestion);
+    
     setSuggestions(prev => ({
-      bullet_rewrites: prev.bullet_rewrites.filter(s => s !== suggestion),
-      improvements: prev.improvements.filter(s => s !== suggestion)
+      bullet_rewrites: bulletIndex !== -1 
+        ? prev.bullet_rewrites.filter((s, idx) => idx !== bulletIndex)
+        : prev.bullet_rewrites,
+      improvements: improvementIndex !== -1
+        ? prev.improvements.filter((s, idx) => idx !== improvementIndex)
+        : prev.improvements
     }));
-  }, []);
+  }, [suggestions.bullet_rewrites, suggestions.improvements]);
 
   // Open in Overleaf
   const handleOpenInOverleaf = useCallback(async () => {

@@ -29,12 +29,14 @@ function GlobalFloatingHelper() {
   useEffect(() => {
     const fetchUserData = async () => {
       if (!session) {
+        console.log("[FloatingHelper] No session found");
         setLoading(false);
         return;
       }
 
       try {
         setLoading(true);
+        console.log("[FloatingHelper] Fetching user profile for:", session.user.id);
 
         // Get user profile from Supabase
         const { data: profileData, error } = await supabase
@@ -43,7 +45,12 @@ function GlobalFloatingHelper() {
           .eq("id", session.user.id)
           .single();
 
-        if (error) throw error;
+        if (error) {
+          console.error("[FloatingHelper] Error fetching profile:", error);
+          throw error;
+        }
+        
+        console.log("[FloatingHelper] Profile data fetched:", profileData);
         setUserProfile(profileData);
 
         // Get workflow state from orchestrator
@@ -62,10 +69,10 @@ function GlobalFloatingHelper() {
             console.log("[FloatingHelper] Workflow state:", workflowResponse.data.data);
           }
         } catch (err) {
-          console.log("No workflow state yet:", err.message);
+          console.log("[FloatingHelper] No workflow state yet:", err.message);
         }
       } catch (error) {
-        console.error("Error fetching user data:", error);
+        console.error("[FloatingHelper] Error fetching user data:", error);
       } finally {
         setLoading(false);
       }
@@ -74,12 +81,31 @@ function GlobalFloatingHelper() {
     fetchUserData();
   }, [session]);
 
-  // Refresh workflow state on route change (user might have completed an action)
+  // Refresh user profile and workflow state on route change (user might have completed an action)
   useEffect(() => {
-    const refreshWorkflowState = async () => {
+    const refreshData = async () => {
       if (!session) return;
 
       try {
+        console.log("[FloatingHelper] Refreshing data on route change:", location.pathname);
+        
+        // Refresh user profile (to get latest questionnaire answers)
+        const { data: profileData, error: profileError } = await supabase
+          .from("user")
+          .select("questionnaire_answers")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profileError) {
+          console.error("[FloatingHelper] Error refreshing profile:", profileError);
+        } else if (profileData) {
+          setUserProfile(profileData);
+          console.log("[FloatingHelper] Refreshed user profile:", profileData);
+        } else {
+          console.warn("[FloatingHelper] No profile data returned");
+        }
+
+        // Refresh workflow state
         const workflowResponse = await axios.get(
           "http://localhost:8000/api/v1/orchestrator/state",
           {
@@ -94,22 +120,39 @@ function GlobalFloatingHelper() {
           console.log("[FloatingHelper] Refreshed workflow state:", workflowResponse.data.data);
         }
       } catch (err) {
-        console.log("Could not refresh workflow state:", err.message);
+        console.log("[FloatingHelper] Could not refresh data:", err.message);
       }
     };
 
-    refreshWorkflowState();
+    refreshData();
   }, [location.pathname, session]);
 
   const getUserStatus = () => {
     console.log("[GlobalFloatingHelper] Getting user status from:", userProfile);
     const answers = userProfile?.questionnaire_answers;
-    if (!answers) return "exploring";
+    console.log("[GlobalFloatingHelper] Questionnaire answers:", answers);
+    console.log("[GlobalFloatingHelper] Status value:", answers?.status);
+    
+    if (!answers) {
+      console.log("[GlobalFloatingHelper] No answers found, defaulting to exploring");
+      return "exploring";
+    }
     
     // Map from onboarding answers to status
-    if (answers.career_phase?.[0] === "have_interviews") return "interview_upcoming";
-    if (answers.career_phase?.[0] === "actively_applying") return "applying";
-    if (answers.career_phase?.[0] === "building_skills") return "building";
+    if (answers.status === "interview_upcoming") {
+      console.log("[GlobalFloatingHelper] Status matched: interview_upcoming");
+      return "interview_upcoming";
+    }
+    if (answers.status === "applying") {
+      console.log("[GlobalFloatingHelper] Status matched: applying");
+      return "applying";
+    }
+    if (answers.status === "building") {
+      console.log("[GlobalFloatingHelper] Status matched: building");
+      return "building";
+    }
+    
+    console.log("[GlobalFloatingHelper] No status match, defaulting to exploring");
     return "exploring";
   };
 
@@ -123,7 +166,9 @@ function GlobalFloatingHelper() {
     }
   };
 
-  if (!shouldShow || loading) {
+  // Don't show if on wrong page, still loading, or no profile data yet
+  if (!shouldShow || loading || !userProfile) {
+    console.log("[FloatingHelper] Not showing:", { shouldShow, loading, hasProfile: !!userProfile });
     return null;
   }
 

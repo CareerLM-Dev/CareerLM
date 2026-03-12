@@ -855,43 +855,132 @@ async def get_resume_for_editor(version_id: int):
         
         sections = content.get("sections", {}) if content else {}
         
-        # Extract suggestions with section context
-        bullet_rewrites = resume_analysis.get("bullet_rewrites", []) if resume_analysis else []
-        honest_improvements = resume_analysis.get("honest_improvements", []) if resume_analysis else []
+        # Extract RAG-based suggestions (actual structure in DB)
+        suggestions = resume_analysis.get("suggestions", []) if resume_analysis else []
+        strengths = resume_analysis.get("strengths", []) if resume_analysis else []
+        weaknesses = resume_analysis.get("weaknesses", []) if resume_analysis else []
         
-        # Add section metadata to bullet rewrites using text matching
-        enriched_rewrites = []
-        for rewrite in bullet_rewrites:
-            before_text = rewrite.get("before", rewrite.get("original", ""))
+        # Helper function to find original bullet text in sections
+        def find_original_bullet(rewritten_text, sections):
+            """
+            Find the original bullet point that matches the rewritten one.
+            Uses keyword matching to identify similar content.
+            Preserves bullet characters (-, •, etc.) from the original.
+            """
+            # Extract key terms from rewritten text (nouns, verbs, important words)
+            rewritten_lower = rewritten_text.lower()
+            # Get significant words (>4 chars, not common words)
+            stop_words = {'the', 'and', 'for', 'with', 'that', 'this', 'from', 'using', 'used', 'have', 'been'}
+            keywords = [w for w in rewritten_lower.split() if len(w) > 4 and w not in stop_words][:5]
+            
+            best_match = None
+            best_score = 0
             matched_section = None
             
-            # Find which section contains this bullet
             for section_key, section_content in sections.items():
-                if before_text and before_text in str(section_content):
-                    matched_section = section_key
-                    break
+                if not section_content or section_key in ['contact', 'summary', 'skills']:
+                    continue
+                    
+                section_str = str(section_content)
+                # Split into lines - preserve original formatting including bullets
+                lines = [line for line in section_str.split('\n') if line.strip()]
+                
+                for line in lines:
+                    line_stripped = line.strip()
+                    if len(line_stripped) < 20:  # Skip short lines
+                        continue
+                    
+                    line_lower = line_stripped.lower()
+                    # Count how many keywords appear in this line
+                    score = sum(1 for kw in keywords if kw in line_lower)
+                    
+                    if score > best_score:
+                        best_score = score
+                        # Keep the line with its original formatting (bullets, whitespace)
+                        best_match = line
+                        matched_section = section_key
             
-            enriched_rewrites.append({
-                **rewrite,
-                "section_key": matched_section or "unknown",
-                "type": "bullet_rewrite"
+            return best_match, matched_section
+        
+        # Transform RAG suggestions to match frontend SuggestionPanel structure
+        # bullet_rewrites: Array of { before, after, reason, section_key }
+        bullet_rewrites = []
+        for suggestion in suggestions:
+            bullet_text = suggestion.get("bullet_rewrite", "")
+            explanation = suggestion.get("explanation", "")
+            suggestion_title = suggestion.get("suggestion", "")
+            
+            if not bullet_text:
+                continue
+            
+            # Find the original bullet point in the resume sections
+            original_bullet, matched_section = find_original_bullet(bullet_text, sections)
+            
+            if original_bullet:
+                bullet_rewrites.append({
+                    "before": original_bullet,
+                    "after": bullet_text,
+                    "reason": explanation,
+                    "section_key": matched_section or "general",
+                    "original": original_bullet,
+                    "rewritten": bullet_text
+                })
+            else:
+                # If we can't find original, create a suggestion-only entry
+                bullet_rewrites.append({
+                    "before": suggestion_title or "Original bullet (not found in current resume)",
+                    "after": bullet_text,
+                    "reason": explanation,
+                    "section_key": "general",
+                    "original": "",
+                    "rewritten": bullet_text,
+                    "no_original": True  # Flag indicating we couldn't find original
+                })
+        
+        # improvements: Combine strengths and weaknesses 
+        # Array of { title, explanation, evidence, section_key }
+        improvements = []
+        
+        for strength in strengths:
+            title = strength.get("title", "Strength")
+            explanation = strength.get("explanation", "")
+            matched_section = None
+            
+            for section_key, section_content in sections.items():
+                section_str = str(section_content).lower()
+                if explanation:
+                    explanation_words = explanation.split()[:5]
+                    if any(word.lower() in section_str for word in explanation_words if len(word) > 3):
+                        matched_section = section_key
+                        break
+            
+            improvements.append({
+                "title": f"✅ {title}",
+                "explanation": explanation,
+                "evidence": "",
+                "section_key": matched_section or "general",
+                "type": "strength"
             })
         
-        # Format improvements as suggestions
-        enriched_improvements = []
-        for improvement in honest_improvements:
-            evidence = improvement.get("evidence", "")
+        for weakness in weaknesses:
+            title = weakness.get("title", "Area for Improvement")
+            explanation = weakness.get("explanation", "")
             matched_section = None
             
             for section_key, section_content in sections.items():
-                if evidence and evidence in str(section_content):
-                    matched_section = section_key
-                    break
+                section_str = str(section_content).lower()
+                if explanation:
+                    explanation_words = explanation.split()[:5]
+                    if any(word.lower() in section_str for word in explanation_words if len(word) > 3):
+                        matched_section = section_key
+                        break
             
-            enriched_improvements.append({
-                **improvement,
+            improvements.append({
+                "title": f"⚠️ {title}",
+                "explanation": explanation,
+                "evidence": "",
                 "section_key": matched_section or "general",
-                "type": "improvement"
+                "type": "weakness"
             })
         
         return JSONResponse({
@@ -899,11 +988,16 @@ async def get_resume_for_editor(version_id: int):
             "version_id": version_id,
             "sections": sections,
             "suggestions": {
-                "bullet_rewrites": enriched_rewrites,
-                "improvements": enriched_improvements,
+                "bullet_rewrites": bullet_rewrites,
+                "improvements": improvements
             },
             "job_description": version_data.get("job_description", ""),
             "ats_score": version_data.get("ats_score"),
+            "structure_score": resume_analysis.get("structure_score") if resume_analysis else None,
+            "completeness_score": resume_analysis.get("completeness_score") if resume_analysis else None,
+            "relevance_score": resume_analysis.get("relevance_score") if resume_analysis else None,
+            "impact_score": resume_analysis.get("impact_score") if resume_analysis else None,
+            "score_zone": resume_analysis.get("score_zone") if resume_analysis else None,
             "resume_text": version_data.get("resume_text", ""),
         })
         

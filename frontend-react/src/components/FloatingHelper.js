@@ -9,44 +9,60 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
   const [isVisible, setIsVisible] = useState(true);
+  const [lastPhase, setLastPhase] = useState(null);
+  const [showNewBadge, setShowNewBadge] = useState(false);
 
   // Debug logging
   useEffect(() => {
     console.log("[FloatingHelper] Props:", { currentPhase, supervisorDecision, userStatus });
   }, [currentPhase, supervisorDecision, userStatus]);
 
-  // Check if user dismissed this specific phase before
+  // Detect phase changes and auto-reopen helper
+  useEffect(() => {
+    // If phase changed and new phase is active (not idle)
+    if (currentPhase && currentPhase !== lastPhase && currentPhase !== "idle") {
+      console.log("[FloatingHelper] Phase changed from", lastPhase, "to", currentPhase);
+      
+      // Clear any previous dismissal for the old phase
+      localStorage.removeItem("helper_dismissed");
+      
+      // Force re-show and expand
+      setIsDismissed(false);
+      setIsVisible(true);
+      setIsExpanded(true);
+      
+      // Show "NEW" badge for 5 seconds
+      setShowNewBadge(true);
+      setTimeout(() => setShowNewBadge(false), 5000);
+      
+      console.log("[FloatingHelper] ✨ Re-opening helper for new phase:", currentPhase);
+    }
+    
+    // Update tracked phase
+    setLastPhase(currentPhase);
+  }, [currentPhase, lastPhase]);
+
+  // Check if user dismissed this specific phase before (only on initial mount)
   useEffect(() => {
     const dismissed = localStorage.getItem("helper_dismissed");
-    if (dismissed) {
+    if (dismissed && !lastPhase) {  // Only check on first render
       const data = JSON.parse(dismissed);
-      // If DIFFERENT phase, show the helper for the new phase
-      if (data.phase !== currentPhase) {
-        setIsDismissed(false);
-        setIsVisible(true);
-        console.log("[FloatingHelper] Phase changed, showing helper again");
-      }
       // If same phase and dismissed less than 5 minutes ago, keep dismissed
-      else if (data.phase === currentPhase && Date.now() - data.timestamp < 300000) {
+      if (data.phase === currentPhase && Date.now() - data.timestamp < 300000) {
         setIsDismissed(true);
         setIsVisible(false);
         console.log("[FloatingHelper] Same phase dismissed recently, staying hidden");
-      } else {
-        // Dismissal expired, show again
-        setIsDismissed(false);
-        setIsVisible(true);
-        console.log("[FloatingHelper] Dismissal expired, showing helper");
       }
     }
-  }, [currentPhase]);
+  }, []);  // Run only once on mount
 
   // Auto-expand when there's an active workflow phase
   useEffect(() => {
-    if (currentPhase && currentPhase !== "idle" && supervisorDecision) {
+    if (currentPhase && currentPhase !== "idle" && supervisorDecision && !isDismissed) {
       setIsExpanded(true);
       console.log("[FloatingHelper] Auto-expanding for phase:", currentPhase);
     }
-  }, [currentPhase, supervisorDecision]);
+  }, [currentPhase, supervisorDecision, isDismissed]);
 
   const handleDismiss = () => {
     setIsDismissed(true);
@@ -213,8 +229,15 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
       {!isExpanded && (
         <button
           onClick={() => setIsExpanded(true)}
-          className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-full p-4 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-110 flex items-center gap-2 group"
+          className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-full p-4 shadow-2xl hover:shadow-3xl transition-all duration-300 hover:scale-110 flex items-center gap-2 group relative"
         >
+          {/* New badge on collapsed state */}
+          {showNewBadge && (
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
+          )}
+          {showNewBadge && (
+            <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full"></div>
+          )}
           <Sparkles className="w-6 h-6 animate-pulse" />
           <span className="font-medium">Next Step</span>
           <ChevronUp className="w-4 h-4 group-hover:translate-y-[-2px] transition-transform" />
@@ -223,12 +246,18 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
 
       {/* Expanded card */}
       {isExpanded && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl border-2 border-blue-400 dark:border-blue-500 overflow-hidden animate-in slide-in-from-bottom-5 duration-300">
           {/* Header */}
-          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 text-white">
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-4 text-white relative">
+            {/* New recommendation badge */}
+            {showNewBadge && (
+              <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg animate-bounce">
+                NEW
+              </div>
+            )}
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5" />
+                <Sparkles className="w-5 h-5 animate-pulse" />
                 <h3 className="font-semibold">What's Next?</h3>
               </div>
               <div className="flex gap-1">
