@@ -10,7 +10,8 @@ import {
   BookOpen,
   Briefcase,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Edit3
 } from "lucide-react";
 
 function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
@@ -49,6 +50,11 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
       id: "job_matcher",
       label: "Job Matcher",
       icon: Briefcase,
+    },
+    {
+      id: "resume_editor",
+      label: "Resume Editor",
+      icon: Edit3,
     },
   ];
 

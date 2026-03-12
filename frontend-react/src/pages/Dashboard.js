@@ -14,6 +14,7 @@ import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
 import JobMatcher from "../components/JobMatcher";
 import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
+import ResumeEditorPage from "./ResumeEditorPage";
 import { formatText } from "../utils/textFormatter";
 
 
@@ -283,6 +284,8 @@ function Dashboard() {
         return <StudyPlanner resumeData={resumeData} />;
       case "job_matcher":
         return <JobMatcher resumeData={resumeData} setCurrentPage={setCurrentPage} />;
+      case "resume_editor":
+        return <ResumeEditorPage />;
       default:
         return (
           <div className="w-full">
@@ -526,7 +529,7 @@ function Dashboard() {
                           <h4 className="text-sm font-semibold text-destructive">Skills to Develop</h4>
                           <span className="text-xs bg-destructive/10 text-destructive px-2 py-1 rounded-full">
                             {resumeData?.careerAnalysis?.top_3_careers?.[0]?.missing_skills?.length || 
-                             resumeData?.gaps?.length || 0} missing
+                            resumeData?.gaps?.length || 0} missing
                           </span>
                         </div>
                         <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-2.5">
@@ -563,7 +566,7 @@ function Dashboard() {
                           <h4 className="text-sm font-semibold text-primary">Your Strengths</h4>
                           <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
                             {resumeData?.careerAnalysis?.top_3_careers?.[0]?.matched_skills?.length || 
-                             resumeData?.alignment_suggestions?.length || 0} matched
+                            resumeData?.alignment_suggestions?.length || 0} matched
                           </span>
                         </div>
                         <div className="bg-primary/5 border border-primary/20 rounded-lg p-2.5">

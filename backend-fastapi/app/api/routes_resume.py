@@ -811,3 +811,377 @@ async def remove_from_google_calendar(
                 "message": "Failed to remove events from Google Calendar",
             },
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RESUME EDITOR ENDPOINTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/editor/{version_id}")
+async def get_resume_for_editor(version_id: int):
+    """
+    Fetch resume sections and suggestions for the editor.
+    
+    Returns:
+        - sections: Parsed resume content by section
+        - suggestions: Bullet rewrites and improvements with section metadata
+        - job_description: Original JD used for analysis
+        - ats_score: Overall ATS score
+    """
+    try:
+        # Fetch resume version
+        result = supabase.table("resume_versions") \
+            .select("*") \
+            .eq("version_id", version_id) \
+            .single() \
+            .execute()
+        
+        if not result.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Resume version not found"}
+            )
+        
+        version_data = result.data
+        
+        # Parse stored JSON fields
+        content = version_data.get("content")
+        if isinstance(content, str):
+            content = json.loads(content)
+        
+        resume_analysis = version_data.get("resume_analysis")
+        if isinstance(resume_analysis, str):
+            resume_analysis = json.loads(resume_analysis)
+        
+        sections = content.get("sections", {}) if content else {}
+        
+        # Extract suggestions with section context
+        bullet_rewrites = resume_analysis.get("bullet_rewrites", []) if resume_analysis else []
+        honest_improvements = resume_analysis.get("honest_improvements", []) if resume_analysis else []
+        
+        # Add section metadata to bullet rewrites using text matching
+        enriched_rewrites = []
+        for rewrite in bullet_rewrites:
+            before_text = rewrite.get("before", rewrite.get("original", ""))
+            matched_section = None
+            
+            # Find which section contains this bullet
+            for section_key, section_content in sections.items():
+                if before_text and before_text in str(section_content):
+                    matched_section = section_key
+                    break
+            
+            enriched_rewrites.append({
+                **rewrite,
+                "section_key": matched_section or "unknown",
+                "type": "bullet_rewrite"
+            })
+        
+        # Format improvements as suggestions
+        enriched_improvements = []
+        for improvement in honest_improvements:
+            evidence = improvement.get("evidence", "")
+            matched_section = None
+            
+            for section_key, section_content in sections.items():
+                if evidence and evidence in str(section_content):
+                    matched_section = section_key
+                    break
+            
+            enriched_improvements.append({
+                **improvement,
+                "section_key": matched_section or "general",
+                "type": "improvement"
+            })
+        
+        return JSONResponse({
+            "success": True,
+            "version_id": version_id,
+            "sections": sections,
+            "suggestions": {
+                "bullet_rewrites": enriched_rewrites,
+                "improvements": enriched_improvements,
+            },
+            "job_description": version_data.get("job_description", ""),
+            "ats_score": version_data.get("ats_score"),
+            "resume_text": version_data.get("resume_text", ""),
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error fetching resume for editor: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.patch("/editor/{version_id}/sections")
+async def update_resume_sections(version_id: int, sections: dict):
+    """
+    Save edited resume sections back to database.
+    
+    Args:
+        version_id: Resume version ID
+        sections: Updated sections dictionary
+    """
+    try:
+        # Fetch current version to get resume_id
+        current = supabase.table("resume_versions") \
+            .select("resume_id, content") \
+            .eq("version_id", version_id) \
+            .single() \
+            .execute()
+        
+        if not current.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Resume version not found"}
+            )
+        
+        # Update content with new sections
+        content = current.data.get("content")
+        if isinstance(content, str):
+            content = json.loads(content)
+        if not content:
+            content = {}
+        
+        content["sections"] = sections
+        
+        # Update in database
+        supabase.table("resume_versions") \
+            .update({
+                "content": json.dumps(content),
+                "updated_at": datetime.utcnow().isoformat()
+            }) \
+            .eq("version_id", version_id) \
+            .execute()
+        
+        logger.info(f"Updated sections for resume version {version_id}")
+        
+        return JSONResponse({
+            "success": True,
+            "message": "Sections updated successfully",
+            "version_id": version_id
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error updating resume sections: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/generate-latex")
+async def generate_latex_code(sections: dict):
+    """
+    Generate LaTeX code from resume sections using Jake's Resume Template.
+    
+    Args:
+        sections: Dictionary with resume section contents
+    
+    Returns:
+        LaTeX code as string
+    """
+    try:
+        from app.services.latex_generator import generate_latex
+        
+        latex_code = generate_latex(sections)
+        
+        return JSONResponse({
+            "success": True,
+            "latex_code": latex_code,
+            "template": "jakes_resume"
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error generating LaTeX: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/generate-pdf")
+async def generate_pdf(sections: dict):
+    """
+    Generate PDF from resume sections using Jake's Resume Template.
+    
+    Compiles LaTeX to PDF using pdflatex (with API fallback).
+    
+    Args:
+        sections: Dictionary with resume section contents
+    
+    Returns:
+        PDF file as binary response
+    """
+    try:
+        from app.services.latex_generator import generate_latex
+        from app.services.pdf_compiler import compile_latex_with_fallback, PDFCompilationError
+        from fastapi.responses import Response
+        
+        # Generate LaTeX code
+        latex_code = generate_latex(sections)
+        
+        try:
+            # Compile to PDF
+            pdf_bytes = await compile_latex_with_fallback(latex_code)
+            
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={
+                    "Content-Disposition": "attachment; filename=resume.pdf"
+                }
+            )
+        except PDFCompilationError as pdf_err:
+            logger.warning(f"PDF compilation failed: {pdf_err}")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": str(pdf_err),
+                    "log": pdf_err.log_output,
+                    "latex_code": latex_code,  # Return LaTeX so user can compile elsewhere
+                    "message": "PDF compilation failed. LaTeX code returned for manual compilation."
+                }
+            )
+        
+    except Exception as e:
+        logger.exception(f"Error generating PDF: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.post("/apply-suggestion")
+async def apply_suggestion(
+    version_id: int,
+    suggestion_type: str,  # "bullet_rewrite" or "improvement"
+    section_key: str,
+    original_text: str,
+    replacement_text: str
+):
+    """
+    Apply a single suggestion to a resume section.
+    
+    Finds and replaces the original text with the suggested replacement.
+    """
+    try:
+        # Fetch current sections
+        result = supabase.table("resume_versions") \
+            .select("content") \
+            .eq("version_id", version_id) \
+            .single() \
+            .execute()
+        
+        if not result.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Resume version not found"}
+            )
+        
+        content = result.data.get("content")
+        if isinstance(content, str):
+            content = json.loads(content)
+        
+        sections = content.get("sections", {})
+        
+        # Apply replacement
+        if section_key in sections:
+            section_content = sections[section_key]
+            if original_text in section_content:
+                sections[section_key] = section_content.replace(original_text, replacement_text, 1)
+                content["sections"] = sections
+                
+                # Save back to database
+                supabase.table("resume_versions") \
+                    .update({
+                        "content": json.dumps(content),
+                        "updated_at": datetime.utcnow().isoformat()
+                    }) \
+                    .eq("version_id", version_id) \
+                    .execute()
+                
+                logger.info(f"Applied suggestion to {section_key} in version {version_id}")
+                
+                return JSONResponse({
+                    "success": True,
+                    "message": f"Suggestion applied to {section_key}",
+                    "updated_sections": sections
+                })
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "error": "Original text not found in section",
+                        "section_key": section_key
+                    }
+                )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Section '{section_key}' not found",
+                }
+            )
+        
+    except Exception as e:
+        logger.exception(f"Error applying suggestion: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@router.get("/user/{user_id}/latest-version")
+async def get_latest_resume_version(user_id: str):
+    """
+    Get the latest resume version ID for a user.
+    """
+    try:
+        result = supabase.table("resumes") \
+            .select("resume_id, current_version") \
+            .eq("user_id", user_id) \
+            .single() \
+            .execute()
+        
+        if not result.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "No resume found for user"}
+            )
+        
+        resume_id = result.data["resume_id"]
+        current_version = result.data["current_version"]
+        
+        # Get version_id for current version
+        version_result = supabase.table("resume_versions") \
+            .select("version_id") \
+            .eq("resume_id", resume_id) \
+            .eq("version_number", current_version) \
+            .single() \
+            .execute()
+        
+        if not version_result.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Resume version not found"}
+            )
+        
+        return JSONResponse({
+            "success": True,
+            "version_id": version_result.data["version_id"],
+            "resume_id": resume_id,
+            "version_number": current_version
+        })
+        
+    except Exception as e:
+        logger.exception(f"Error getting latest version: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )

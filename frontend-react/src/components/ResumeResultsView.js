@@ -1,6 +1,7 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  Upload, Lightbulb, Edit, CheckSquare, CheckCircle, AlertCircle
+  Upload, Lightbulb, Edit, CheckSquare, CheckCircle, AlertCircle, Edit3,
 } from "lucide-react";
 
 // ── Circular Progress for Overall Score ────────────────────────────────────
