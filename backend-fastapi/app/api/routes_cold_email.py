@@ -20,8 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class ColdEmailRequest(BaseModel):
-    target_company: str
-    target_role: str
+    outreach_type: Optional[str] = None  # referral, recruiter, alumni, internship
+    form_data: Optional[dict] = None  # Dynamic fields based on outreach type
+    tone: Optional[str] = "professional"  # professional or casual
+    format: Optional[str] = "email"  # email or message
+    # Legacy fields for backward compatibility
+    target_company: Optional[str] = None
+    target_role: Optional[str] = None
     job_description: Optional[str] = None
     template_subject: Optional[str] = None
     template_body: Optional[str] = None
@@ -125,6 +130,43 @@ async def create_cold_email(
 ):
     """Generate a personalized cold email using user's latest resume from database"""
     try:
+        # Handle new structure with outreach_type or fall back to legacy
+        if request.outreach_type and request.form_data:
+            # New structure
+            outreach_type = request.outreach_type
+            form_data = request.form_data
+            tone = request.tone or "professional"
+            format_type = request.format or "email"
+            
+            # Extract fields based on outreach type
+            if outreach_type == "referral":
+                target_company = form_data.get("companyName", "")
+                target_role = form_data.get("targetRole", "")
+                recipient_name = form_data.get("recipientName", "")
+                recipient_position = form_data.get("recipientPosition", "")
+                mutual_connection = form_data.get("mutualConnection", "")
+            elif outreach_type == "recruiter":
+                target_company = form_data.get("companyName", "")
+                target_role = form_data.get("targetRole", "")
+                recipient_name = form_data.get("recipientName", "")
+                team_domain = form_data.get("teamDomain", "")
+                company_reason = form_data.get("companyReason", "")
+            elif outreach_type == "alumni":
+                recipient_name = form_data.get("recipientName", "")
+                recipient_role = form_data.get("recipientRole", "")
+                recipient_company = form_data.get("recipientCompany", "")
+                reachout_reason = form_data.get("reachoutReason", "")
+                target_company = recipient_company
+                target_role = ""
+        else:
+            # Legacy structure
+            outreach_type = "general"
+            tone = "professional"
+            format_type = "email"
+            target_company = request.target_company
+            target_role = request.target_role
+            form_data = {}
+        
         # Fetch user's latest resume from database
         logger.info(f"Fetching latest resume for user: {user.id}")
         
@@ -214,14 +256,18 @@ async def create_cold_email(
         result = await generate_cold_email(
             user_name=user_name,
             user_skills=user_skills,
-            target_company=request.target_company,
-            target_role=request.target_role,
+            target_company=target_company,
+            target_role=target_role,
             job_description=request.job_description,
             user_experience=experience_section[:200] if experience_section else None,  # Brief summary
             resume_text=resume_text,
-                projects_section=projects_section,
-                template_subject=request.template_subject,
-                template_body=request.template_body
+            projects_section=projects_section,
+            template_subject=request.template_subject,
+            template_body=request.template_body,
+            outreach_type=outreach_type,
+            tone=tone,
+            format_type=format_type,
+            form_data=form_data
         )
         
         if not result.get("success"):

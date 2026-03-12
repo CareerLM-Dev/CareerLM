@@ -44,12 +44,6 @@ INTERVIEW_LLM = ChatGroq(
     temperature=0.7
 )
 # model="llama-3.3-70b-versatile",
-# ===== COLD EMAIL MODULE =====
-EMAIL_LLM = ChatGroq(
-    api_key=os.getenv("OSS_API_KEY"),
-    model="openai/gpt-oss-20b",
-    temperature=0.9
-)
 
 # ──────────────────────────────────────────────
 # Model name constants (for services that pass

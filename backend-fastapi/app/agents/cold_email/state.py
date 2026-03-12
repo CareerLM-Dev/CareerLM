@@ -2,7 +2,7 @@
 State definition for Cold Email agent workflow
 """
 
-from typing import TypedDict, Optional, List
+from typing import TypedDict, Optional, List, Dict
 
 
 class ColdEmailState(TypedDict):
@@ -20,6 +20,10 @@ class ColdEmailState(TypedDict):
     projects_section: Optional[str]  # Parsed projects section
     template_subject: Optional[str]  # Saved template subject
     template_body: Optional[str]  # Saved template body
+    outreach_type: Optional[str]  # Type: referral, recruiter, alumni, internship, general
+    tone: Optional[str]  # Tone: professional or casual
+    format_type: Optional[str]  # Format: email or message
+    form_data: Optional[Dict]  # Additional outreach-specific data
     
     # Output
     email_subject: Optional[str]
