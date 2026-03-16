@@ -10,6 +10,8 @@ import {
   Save,
   X,
   Loader2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
 import {
@@ -117,6 +119,9 @@ function Profile() {
   const [draftSkills, setDraftSkills] = useState([]);
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
+  const [activeTab, setActiveTab] = useState("basic");
+  // New state for accordion
+  const [expandedSection, setExpandedSection] = useState("intro"); 
   const [addingNewItem, setAddingNewItem] = useState({
     key: null,
     isAdding: false,
@@ -525,6 +530,10 @@ function Profile() {
     });
   };
 
+  const toggleSection = (key) => {
+    setExpandedSection(prev => prev === key ? null : key);
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -537,489 +546,526 @@ function Profile() {
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto bg-background">
-      {/* Hero */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-primary/5 to-transparent border-b border-border">
-        <div className="max-w-4xl mx-auto px-6 py-12">
-          <p className="text-sm font-semibold uppercase tracking-widest text-primary mb-2">
-            Profile
-          </p>
-          <h1 className="text-3xl font-bold text-foreground">
-            Your profile, shaped around your goals
-          </h1>
-          <p className="text-muted-foreground mt-2 max-w-xl">
-            Review your basics and keep your questionnaire answers fresh as your
-            plans evolve.
-          </p>
-        </div>
+    <div ref={scrollRef} className="h-full overflow-y-auto bg-background pb-12">
+      {/* Top Banner Cover */}
+      <div className="h-60 w-full bg-gradient-to-r from-blue-600 to-indigo-600 relative">
+        <div className="absolute inset-0 bg-black/10" />
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        <ProfileCompletionWidget />
-
-        {error && (
-          <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm">
-            {error}
+      {/* Main Content Container with negative margin */}
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 -mt-24 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          
+          {/* LEFT COLUMN: Sidebar (Span 4 of 12) */}
+          <div className="lg:col-span-4">
+            <div className="sticky top-6 space-y-6">
+            
+            {/* Profile Identity Card */}
+            <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden flex flex-col items-center p-6 text-center">
+               {/* Avatar Area */}
+               <div className="h-24 w-24 rounded-full border-4 border-card bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground shadow-sm mb-4 relative z-10 -mt-2">
+                  {profile?.first_name ? profile.first_name.charAt(0).toUpperCase() : (profile?.name ? profile.name.charAt(0).toUpperCase() : <User className="h-10 w-10"/>)}
+               </div>
+               
+               <h2 className="text-xl font-bold text-foreground">
+                 {profile?.name || "User"}
+               </h2>
+               <p className="text-sm text-muted-foreground mb-1">
+                  {profile?.email}
+               </p>
+               <div className="mt-2">
+                 <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20 capitalize">
+                   {statusLabel}
+                 </span>
+               </div>
+  
+               {/* Resume Metadata moved here */}
+               <div className="w-full mt-6 pt-6 border-t border-border text-left">
+                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-3">Latest Resume</p>
+                  <div className="flex items-start gap-3 bg-muted/50 p-3 rounded-lg">
+                     <FileText className="h-5 w-5 text-primary mt-0.5" />
+                     <div className="overflow-hidden">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {latestResume?.filename || "No resume uploaded"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {latestResume ? formatDate(latestResume.created_at) : "N/A"}
+                        </p>
+                     </div>
+                  </div>
+               </div>
+            </div>
+  
+            {/* Completion Widget */}
+            <ProfileCompletionWidget />
+            </div>
           </div>
-        )}
-
-        {/* Basic Details */}
-        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <User className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Basic details
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Snapshot of your account details.
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-              Read-only for now
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
-            <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Name
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                {profile?.name || "Not set"}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Email
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                {profile?.email || "Not set"}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Status
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                {statusLabel}
-              </p>
-            </div>
-            {(profile?.status === "professional" ||
-              profile?.status === "prof") && (
-              <div className="space-y-1">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Current company
-                </span>
-                <p className="text-sm font-medium text-foreground">
-                  {profile?.current_company || "Not set"}
-                </p>
+  
+          {/* RIGHT COLUMN: Main Content (Span 8 of 12) */}
+          <div className="lg:col-span-8 space-y-6">
+            
+            {error && (
+              <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm font-medium shadow-sm backdrop-blur-sm relative z-20">
+                {error}
               </div>
             )}
-          </div>
-        </section>
+  
+            {/* Improved Tab Navigation (Pills) */}
+            <div className="flex p-1 bg-muted rounded-xl border border-border overflow-x-auto no-scrollbar shadow-sm relative z-10">
+                {[
+                  { id: 'basic', label: 'Basic Information' },
+                  { id: 'questionnaire', label: 'Questionnaire' },
+                  { id: 'resume', label: 'Resume Profile' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`
+                      flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 whitespace-nowrap
+                      ${activeTab === tab.id 
+                        ? 'bg-background shadow-sm text-foreground ring-1 ring-border' 
+                        : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'}
+                    `}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+            </div>
 
-        {/* Latest Resume */}
-        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <FileText className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">
-                Latest resume
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Quick snapshot of your most recent upload.
-              </p>
-            </div>
-          </div>
+            {/* Content Area */}
+            <div className="min-h-[500px]">
+              {/* Basic Information Content */}
+              {activeTab === 'basic' && (
+                <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in duration-300 ease-in-out">
+                  <div className="px-6 py-4 border-b border-border bg-muted/5">
+                    <h3 className="text-lg font-semibold text-foreground">Basic Information</h3>
+                    <p className="text-sm text-muted-foreground">Account details and preferences.</p>
+                  </div>
+                  <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="space-y-2">
+                       <label className="text-sm font-medium text-muted-foreground">Full Name</label>
+                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                         {profile?.name || "Not provided"}
+                       </div>
+                     </div>
+                     
+                     <div className="space-y-2">
+                       <label className="text-sm font-medium text-muted-foreground">Email Address</label>
+                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                         {profile?.email || "Not provided"}
+                       </div>
+                     </div>
+      
+                     <div className="space-y-2">
+                       <label className="text-sm font-medium text-muted-foreground">Current Company</label>
+                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                         {profile?.current_company || "Not set"}
+                       </div>
+                     </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 px-6 py-5">
-            <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                File name
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                {latestResume?.filename || "No resume uploaded yet"}
-              </p>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Uploaded
-              </span>
-              <p className="text-sm font-medium text-foreground">
-                {latestResume
-                  ? formatDate(latestResume.created_at)
-                  : "Not available"}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Questionnaire */}
-        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <ClipboardList className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Questionnaire
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Edit answers to keep recommendations relevant.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                onClick={() => navigate(`/onboarding/${session?.user?.id}`)}
-              >
-                Change my goal
-              </button>
-              <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-                Inline editing
-              </span>
-            </div>
-          </div>
-
-          <div className="divide-y divide-border">
-            {questions.map((question) => (
-              <div key={question.field} className="px-6 py-5">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    {question.title}
-                  </h3>
-                  {editingField !== question.field && (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                      onClick={() => startEdit(question.field)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
-                  )}
+                     <div className="space-y-2">
+                       <label className="text-sm font-medium text-muted-foreground">Target Role</label>
+                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground capitalize">
+                          {typeof formatAnswer === 'function' && questionnaireAnswers?.target_role ? formatAnswer('target_role') : "Not set"} 
+                       </div>
+                     </div>
+                  </div>
                 </div>
-
-                {editingField === question.field ? (
-                  <div className="mt-3 space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {question.options.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => toggleDraftValue(option.value)}
-                          aria-pressed={draftValues.includes(option.value)}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
-                            draftValues.includes(option.value)
-                              ? "border-primary bg-primary/5 text-foreground"
-                              : "border-border bg-background hover:border-primary/40 text-muted-foreground"
-                          }`}
-                        >
-                          <div
-                            className={`h-4 w-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                              draftValues.includes(option.value)
-                                ? "border-primary bg-primary"
-                                : "border-muted-foreground/40"
-                            }`}
-                          >
-                            {draftValues.includes(option.value) && (
-                              <svg
-                                className="h-3 w-3 text-primary-foreground"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={3}
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            )}
-                          </div>
-                          <span className="text-sm">{option.label}</span>
-                        </button>
-                      ))}
+              )}
+    
+              {/* Questionnaire Content */}
+              {activeTab === 'questionnaire' && (
+                <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in duration-300 ease-in-out">
+                  <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-muted/5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <ClipboardList className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-foreground">
+                          Questionnaire
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                          Edit answers to keep recommendations relevant.
+                        </p>
+                      </div>
                     </div>
+                    {/* Keep existing button logic */}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                        onClick={() => saveAnswers(question.field)}
-                        disabled={savingField === question.field}
+                        className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                        onClick={() => navigate(`/onboarding/${session?.user?.id}`)}
                       >
-                        {savingField === question.field ? (
-                          <>
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-3.5 w-3.5" />
-                            Save
-                          </>
-                        )}
+                        Change my goal
                       </button>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-                        onClick={cancelEdit}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                        Cancel
-                      </button>
+                      <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
+                        Inline editing
+                      </span>
                     </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {formatAnswer(question.field)}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Resume Profile Sections */}
-        <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-foreground">
-                  Resume profile
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Edit section details extracted from your latest resume.
-                </p>
-              </div>
-            </div>
-            <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-              Inline editing
-            </span>
-          </div>
-
-          <div className="divide-y divide-border">
-            {profileSections.map((section) => {
-              const isEditing = editingProfileSection === section.key;
-              const displayValue = formatProfileValue(section.key);
-              return (
-                <div key={section.key} className="px-6 py-5">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {section.title}
-                    </h3>
-                    {!isEditing && section.type !== "cards" && (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                        onClick={() => startProfileEdit(section.key)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </button>
-                    )}
-                  </div>
-
-                  {isEditing ? (
-                    <div className="mt-3 space-y-4">
-                      {section.type === "skills" ? (
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap gap-2">
-                            {draftSkills.length > 0 ? (
-                              draftSkills.map((skill) => (
-                                <span
-                                  key={skill}
-                                  className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
-                                >
-                                  {skill}
-                                  <button
-                                    type="button"
-                                    onClick={() => removeSkill(skill)}
-                                    className="text-primary/70 hover:text-primary"
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
-                                </span>
-                              ))
-                            ) : (
-                              <p className="text-xs text-muted-foreground">
-                                No skills added yet.
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              value={skillInput}
-                              onChange={(e) => setSkillInput(e.target.value)}
-                              placeholder="Add a skill"
-                              className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                            />
+        
+                  <div className="divide-y divide-border">
+                    {questions.map((question) => (
+                      <div key={question.field} className="px-6 py-5">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold text-foreground">
+                            {question.title}
+                          </h3>
+                          {editingField !== question.field && (
                             <button
                               type="button"
-                              onClick={addSkill}
-                              className="px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                              onClick={() => {
+                                if (typeof startEdit !== 'undefined') startEdit(question.field);
+                              }}
                             >
-                              Add
+                              <Pencil className="h-3.5 w-3.5" />
+                              Edit
                             </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <textarea
-                          value={draftProfileText}
-                          onChange={(e) => setDraftProfileText(e.target.value)}
-                          rows={5}
-                          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                        />
-                      )}
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                          onClick={() => saveProfileSection(section.key)}
-                          disabled={savingProfileSection === section.key}
-                        >
-                          {savingProfileSection === section.key ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Saving...
-                            </>
-                          ) : (
-                            <>
-                              <Save className="h-3.5 w-3.5" />
-                              Save
-                            </>
                           )}
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-                          onClick={cancelProfileEdit}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                          Cancel
-                        </button>
+                        </div>
+        
+                        {editingField === question.field ? (
+                          <div className="mt-3 space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {question.options.map((option) => (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  onClick={() => toggleDraftValue(option.value)}
+                                  aria-pressed={draftValues.includes(option.value)}
+                                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
+                                    draftValues.includes(option.value)
+                                      ? "border-primary bg-primary/5 text-foreground"
+                                      : "border-border bg-background hover:border-primary/40 text-muted-foreground"
+                                  }`}
+                                >
+                                  <div
+                                    className={`h-4 w-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                      draftValues.includes(option.value)
+                                        ? "border-primary bg-primary"
+                                        : "border-muted-foreground/40"
+                                    }`}
+                                  >
+                                    {draftValues.includes(option.value) && (
+                                      <svg
+                                        className="h-3 w-3 text-primary-foreground"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={3}
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          d="M5 13l4 4L19 7"
+                                        />
+                                      </svg>
+                                    )}
+                                  </div>
+                                  <span className="text-sm">{option.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                onClick={() => saveAnswers(question.field)}
+                                disabled={savingField === question.field}
+                              >
+                                {savingField === question.field ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="h-3.5 w-3.5" />
+                                    Save
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                                onClick={cancelEdit}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            {formatAnswer(question.field)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+    
+              {/* Resume Profile Content */}
+                            {activeTab === 'resume' && (
+                <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-muted/5">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <FileText className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-foreground">
+                          Resume Profile
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                          Edit section details extracted from your latest resume.
+                        </p>
                       </div>
                     </div>
-                  ) : section.type === "skills" ? (
-                    displayValue ? (
-                      <div className="flex flex-wrap gap-2">
-                        {displayValue.map((skill) => (
-                          <span
-                            key={skill}
-                            className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
-                          >
-                            {skill}
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Not set</p>
-                    )
-                  ) : section.type === "cards" ? (
-                    (() => {
-                      const currentText =
-                        userProfileSections?.[section.key] || "";
-                      const parser =
-                        section.key === "projects"
-                          ? parseProjects
-                          : parseExperience;
-                      const items = parser(currentText);
-                      const isAddingNew =
-                        addingNewItem.key === section.key &&
-                        addingNewItem.isAdding;
-                      const newItem =
-                        section.key === "projects"
-                          ? {
-                              title: "",
-                              description: "",
-                              techStack: "",
-                              links: "",
-                              date: "",
-                              bullets: [],
-                            }
-                          : {
-                              title: "",
-                              company: "",
-                              location: "",
-                              dateRange: "",
-                              bullets: [],
-                            };
+                  </div>
+        
+                  <div className="divide-y divide-border">
+                    {profileSections.map((section) => {
+                      const isEditing = editingProfileSection === section.key;
+                      const displayValue = formatProfileValue(section.key);
+                      const isExpanded = expandedSection === section.key;
 
                       return (
-                        <div className="space-y-3 mt-3">
-                          {items.length > 0 &&
-                            items.map((item, index) => (
-                              <ProfileItemCard
-                                key={index}
-                                item={item}
-                                type={
-                                  section.key === "projects"
-                                    ? "project"
-                                    : "experience"
-                                }
-                                onSave={(updatedItem) =>
-                                  handleSaveItem(section.key, updatedItem, item)
-                                }
-                                onDelete={(itemToDelete) =>
-                                  handleDeleteItem(section.key, itemToDelete)
-                                }
-                              />
-                            ))}
-                          {isAddingNew && (
-                            <ProfileItemCard
-                              key="new"
-                              item={newItem}
-                              type={
-                                section.key === "projects"
-                                  ? "project"
-                                  : "experience"
-                              }
-                              onSave={(updatedItem) =>
-                                handleSaveItem(section.key, updatedItem, null)
-                              }
-                              onDelete={handleCancelAddItem}
-                              startInEditMode={true}
-                            />
-                          )}
-                          {!isAddingNew && (
-                            <AddItemButton
-                              type={
-                                section.key === "projects"
-                                  ? "project"
-                                  : "experience"
-                              }
-                              onClick={() => handleAddNewItem(section.key)}
-                            />
+                        <div key={section.key} className="transition-all duration-200 ease-in-out">
+                          {/* Accordion Header */}
+                          <div 
+                            className={`flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-muted/5 select-none ${isExpanded ? 'bg-muted/5' : ''}`}
+                            onClick={() => toggleSection(section.key)}
+                          >
+                            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground rotate-90" />}
+                                {section.title}
+                            </h3>
+                            
+                            <div className="flex items-center gap-3">
+                                {section.type === "cards" && !isExpanded && (
+                                   <span className="text-xs text-muted-foreground">
+                                      {(() => {
+                                         const currentText = userProfileSections?.[section.key] || "";
+                                         const parser = section.key === "projects" ? parseProjects : parseExperience;
+                                         return `${parser(currentText).length} items`;
+                                      })()}
+                                   </span>
+                                )}
+                                {!isEditing && section.type !== "cards" && isExpanded && (
+                                <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        startProfileEdit(section.key);
+                                    }}
+                                >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                    Edit
+                                </button>
+                                )}
+                            </div>
+                          </div>
+        
+                          {/* Accordion Content */}
+                          {isExpanded && (
+                            <div className="px-6 pb-6 animate-in slide-in-from-top-2 duration-200">
+                                {isEditing ? (
+                                    <div className="mt-3 space-y-4">
+                                    {section.type === "skills" ? (
+                                        <div className="space-y-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {draftSkills.length > 0 ? (
+                                            draftSkills.map((skill) => (
+                                                <span
+                                                key={skill}
+                                                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                                                >
+                                                {skill}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeSkill(skill)}
+                                                    className="text-primary/70 hover:text-primary"
+                                                >
+                                                    <X className="h-3 w-3" />
+                                                </button>
+                                                </span>
+                                            ))
+                                            ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                                No skills added yet.
+                                            </p>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                            value={skillInput}
+                                            onChange={(e) => setSkillInput(e.target.value)}
+                                            placeholder="Add a skill"
+                                            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                            />
+                                            <button
+                                            type="button"
+                                            onClick={addSkill}
+                                            className="px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                                            >
+                                            Add
+                                            </button>
+                                        </div>
+                                        </div>
+                                    ) : (
+                                        <textarea
+                                        value={draftProfileText}
+                                        onChange={(e) => setDraftProfileText(e.target.value)}
+                                        rows={5}
+                                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                        />
+                                    )}
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                        onClick={() => saveProfileSection(section.key)}
+                                        disabled={savingProfileSection === section.key}
+                                        >
+                                        {savingProfileSection === section.key ? (
+                                            <>
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            Saving...
+                                            </>
+                                        ) : (
+                                            <>
+                                            <Save className="h-3.5 w-3.5" />
+                                            Save
+                                            </>
+                                        )}
+                                        </button>
+                                        <button
+                                        type="button"
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                                        onClick={cancelProfileEdit}
+                                        >
+                                        <X className="h-3.5 w-3.5" />
+                                        Cancel
+                                        </button>
+                                    </div>
+                                    </div>
+                                ) : section.type === "skills" ? (
+                                    displayValue ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {displayValue.map((skill) => (
+                                        <span
+                                            key={skill}
+                                            className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                                        >
+                                            {skill}
+                                        </span>
+                                        ))}
+                                    </div>
+                                    ) : (
+                                    <p className="text-sm text-muted-foreground">Not set</p>
+                                    )
+                                ) : section.type === "cards" ? (
+                                    (() => {
+                                    const currentText =
+                                        userProfileSections?.[section.key] || "";
+                                    const parser =
+                                        section.key === "projects"
+                                        ? parseProjects
+                                        : parseExperience;
+                                    const items = parser(currentText);
+                                    const isAddingNew =
+                                        addingNewItem.key === section.key &&
+                                        addingNewItem.isAdding;
+                                    const newItem =
+                                        section.key === "projects"
+                                        ? {
+                                            title: "",
+                                            description: "",
+                                            techStack: "",
+                                            links: "",
+                                            date: "",
+                                            bullets: [],
+                                            }
+                                        : {
+                                            title: "",
+                                            company: "",
+                                            location: "",
+                                            dateRange: "",
+                                            bullets: [],
+                                            };
+                
+                                    return (
+                                        <div className="space-y-3 mt-3">
+                                        {items.length > 0 &&
+                                            items.map((item, index) => (
+                                            <ProfileItemCard
+                                                key={index}
+                                                item={item}
+                                                type={
+                                                section.key === "projects"
+                                                    ? "project"
+                                                    : "experience"
+                                                }
+                                                onSave={(updatedItem) =>
+                                                handleSaveItem(section.key, updatedItem, item)
+                                                }
+                                                onDelete={(itemToDelete) =>
+                                                handleDeleteItem(section.key, itemToDelete)
+                                                }
+                                            />
+                                            ))}
+                                        {isAddingNew && (
+                                            <ProfileItemCard
+                                            key="new"
+                                            item={newItem}
+                                            type={
+                                                section.key === "projects"
+                                                ? "project"
+                                                : "experience"
+                                            }
+                                            onSave={(updatedItem) =>
+                                                handleSaveItem(section.key, updatedItem, null)
+                                            }
+                                            onDelete={handleCancelAddItem}
+                                            startInEditMode={true}
+                                            />
+                                        )}
+                                        {!isAddingNew && (
+                                            <AddItemButton
+                                            type={
+                                                section.key === "projects"
+                                                ? "project"
+                                                : "experience"
+                                            }
+                                            onClick={() => handleAddNewItem(section.key)}
+                                            />
+                                        )}
+                                        </div>
+                                    );
+                                    })()
+                                ) : displayValue ? (
+                                    <p className="text-sm text-muted-foreground whitespace-pre-line">
+                                    {displayValue}
+                                    </p>
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">Not set</p>
+                                )}
+                            </div>
                           )}
                         </div>
                       );
-                    })()
-                  ) : displayValue ? (
-                    <p className="text-sm text-muted-foreground whitespace-pre-line">
-                      {displayValue}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">Not set</p>
-                  )}
-                </div>
-              );
-            })}
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
-        </section>
+        </div>
       </div>
     </div>
   );
