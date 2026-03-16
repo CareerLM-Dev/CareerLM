@@ -59,7 +59,10 @@ async def get_current_user_optional(authorization: Optional[str] = Header(None))
 
 
 @router.post("/skill-gap-analysis")
-async def skill_gap_analysis(resume: UploadFile = File(...)):
+async def skill_gap_analysis(
+    resume: UploadFile = File(...),
+    user_id: Optional[str] = Form(None)
+):
     """
     Analyze career matches based on skills clustering.
     
@@ -67,6 +70,7 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
     
     Args:
         resume: The uploaded resume file (PDF).
+        user_id: Optional user ID to personalize recommendations based on preferences.
         
     Returns:
         JSON response with skill analysis and career recommendations.
@@ -107,11 +111,81 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         # Parse structured sections so skill extractor uses skills + projects only
         sections = parser.parse_sections(resume_text)
         
+        # Fetch questionnaire answers + user_profile if user_id is provided
+        questionnaire_answers = None
+        if user_id:
+            try:
+                profile = (
+                    supabase.table("user")
+                    .select("questionnaire_answers,user_profile")
+                    .eq("id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+                if profile.data:
+                    row = profile.data[0] or {}
+                    qa = row.get("questionnaire_answers") if isinstance(row.get("questionnaire_answers"), dict) else {}
+                    up = row.get("user_profile") if isinstance(row.get("user_profile"), dict) else None
+
+                    merged = dict(qa)
+                    if up:
+                        merged["user_profile"] = up
+
+                    questionnaire_answers = merged if merged else None
+                    if questionnaire_answers:
+                        logger.info("Using user preferences/profile for skill gap analysis")
+            except Exception as e:
+                logger.warning(f"Could not fetch user questionnaire: {e}")
+        
         # Analyze skill gaps using LangGraph workflow
         logger.info("Running skill gap analysis workflow")
         analysis_result = analyze_skill_gap(
-            resume_text, filename=resume.filename, sections=sections
+            resume_text, filename=resume.filename, sections=sections, questionnaire_answers=questionnaire_answers
         )
+
+        # Filter to user's interested role(s) when available.
+        # Questionnaire can contain either target_role or target_roles.
+        interested_roles: list[str] = []
+        if questionnaire_answers:
+            raw_roles = questionnaire_answers.get("target_roles") or questionnaire_answers.get("target_role") or []
+            if isinstance(raw_roles, str):
+                interested_roles = [raw_roles]
+            elif isinstance(raw_roles, list):
+                interested_roles = [r for r in raw_roles if isinstance(r, str) and r.strip()]
+
+        def _normalize_role(role: str) -> str:
+            return (role or "").strip().lower().replace("_", " ").replace("-", " ")
+
+        def _role_matches(career_name: str, interested: list[str]) -> bool:
+            career_norm = _normalize_role(career_name)
+            for role in interested:
+                role_norm = _normalize_role(role)
+                if not role_norm:
+                    continue
+                if role_norm == career_norm:
+                    return True
+                # Tolerate small naming differences like "software engineer" vs "software engineering"
+                if role_norm in career_norm or career_norm in role_norm:
+                    return True
+            return False
+
+        if interested_roles:
+            filtered_careers = [
+                c for c in analysis_result.get("career_matches", [])
+                if _role_matches(c.get("career", ""), interested_roles)
+            ]
+
+            # Only override when we can match at least one interested role.
+            if filtered_careers:
+                analysis_result["career_matches"] = filtered_careers
+                analysis_result["top_3_careers"] = filtered_careers[:3]
+
+                # Keep summary consistent with filtered results.
+                best = filtered_careers[0]
+                summary = analysis_result.get("analysis_summary") or {}
+                summary["best_match"] = best.get("career")
+                summary["best_match_probability"] = best.get("probability", 0)
+                analysis_result["analysis_summary"] = summary
         
         if "error" in analysis_result:
             logger.warning(f"Analysis error: {analysis_result['error']}")
@@ -128,8 +202,21 @@ async def skill_gap_analysis(resume: UploadFile = File(...)):
         return JSONResponse({
             "success": True,
             "filename": resume.filename,
+            "interested_roles": interested_roles,
+            "target_role": analysis_result.get("target_role"),
+            "selected_cluster_source": analysis_result.get("selected_cluster_source"),
+            "selected_cluster_confidence": analysis_result.get("selected_cluster_confidence"),
+            "timeline_weeks": analysis_result.get("timeline_weeks"),
             "user_skills": analysis_result["user_skills"],
+            "normalized_skills": analysis_result.get("normalized_skills", []),
+            "skill_proficiency": analysis_result.get("skill_proficiency", {}),
             "total_skills_found": analysis_result["total_skills_found"],
+            "gap_buckets": analysis_result.get("gap_buckets", {}),
+            "study_planner_skills": analysis_result.get("study_planner_skills", []),
+            "resume_optimizer_skills": analysis_result.get("resume_optimizer_skills", []),
+            "out_of_scope_skills": analysis_result.get("out_of_scope_skills", []),
+            "timeline_note": analysis_result.get("timeline_note"),
+            "selected_target_career_match": analysis_result.get("selected_target_career_match"),
             "career_matches": analysis_result["career_matches"],
             "top_3_careers": analysis_result["top_3_careers"],
             "ai_recommendations": analysis_result["ai_recommendations"],
@@ -212,6 +299,60 @@ async def get_study_materials_cache(
     except Exception as e:
         logger.warning(f"Failed to load study materials cache: {e}")
         return JSONResponse({"success": True, "cached": False, "plans": []})
+
+
+@router.delete("/study-materials-cache/{target_career}")
+async def delete_study_plan(
+    target_career: str,
+    user=Depends(get_current_user_optional),
+):
+    """
+    Delete a specific study plan from cache by target career.
+    Also removes associated calendar sync if it exists.
+    """
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Not authenticated"},
+        )
+
+    try:
+        # Delete the study materials cache entry
+        delete_result = (
+            supabase.table("study_materials_cache")
+            .delete()
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .execute()
+        )
+
+        # Also remove associated calendar sync if exists
+        try:
+            supabase.table("calendar_sync") \
+                .delete() \
+                .eq("user_id", user.id) \
+                .eq("target_career", target_career) \
+                .execute()
+        except Exception as sync_err:
+            logger.warning(f"Failed to delete calendar_sync record: {sync_err}")
+
+        logger.info(f"Deleted study plan for user {user.id}, career: {target_career}")
+
+        return JSONResponse({
+            "success": True,
+            "message": f"Study plan for {target_career} deleted successfully",
+        })
+
+    except Exception as e:
+        logger.exception(f"Failed to delete study plan: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Failed to delete study plan",
+            },
+        )
 
 
 # ── Mapping from questionnaire target_role values to CAREER_CLUSTERS keys ──
@@ -810,472 +951,4 @@ async def remove_from_google_calendar(
                 "error": str(e),
                 "message": "Failed to remove events from Google Calendar",
             },
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# RESUME EDITOR ENDPOINTS
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get("/editor/{version_id}")
-async def get_resume_for_editor(version_id: int):
-    """
-    Fetch resume sections and suggestions for the editor.
-    
-    Returns:
-        - sections: Parsed resume content by section
-        - suggestions: Bullet rewrites and improvements with section metadata
-        - job_description: Original JD used for analysis
-        - ats_score: Overall ATS score
-    """
-    try:
-        # Fetch resume version
-        result = supabase.table("resume_versions") \
-            .select("*") \
-            .eq("version_id", version_id) \
-            .single() \
-            .execute()
-        
-        if not result.data:
-            return JSONResponse(
-                status_code=404,
-                content={"success": False, "error": "Resume version not found"}
-            )
-        
-        version_data = result.data
-        
-        # Parse stored JSON fields
-        content = version_data.get("content")
-        if isinstance(content, str):
-            content = json.loads(content)
-        
-        resume_analysis = version_data.get("resume_analysis")
-        if isinstance(resume_analysis, str):
-            resume_analysis = json.loads(resume_analysis)
-        
-        sections = content.get("sections", {}) if content else {}
-        
-        # Extract RAG-based suggestions (actual structure in DB)
-        suggestions = resume_analysis.get("suggestions", []) if resume_analysis else []
-        strengths = resume_analysis.get("strengths", []) if resume_analysis else []
-        weaknesses = resume_analysis.get("weaknesses", []) if resume_analysis else []
-        
-        # Helper function to find original bullet text in sections
-        def find_original_bullet(rewritten_text, sections):
-            """
-            Find the original bullet point that matches the rewritten one.
-            Uses keyword matching to identify similar content.
-            Preserves bullet characters (-, •, etc.) from the original.
-            """
-            # Extract key terms from rewritten text (nouns, verbs, important words)
-            rewritten_lower = rewritten_text.lower()
-            # Get significant words (>4 chars, not common words)
-            stop_words = {'the', 'and', 'for', 'with', 'that', 'this', 'from', 'using', 'used', 'have', 'been'}
-            keywords = [w for w in rewritten_lower.split() if len(w) > 4 and w not in stop_words][:5]
-            
-            best_match = None
-            best_score = 0
-            matched_section = None
-            
-            for section_key, section_content in sections.items():
-                if not section_content or section_key in ['contact', 'summary', 'skills']:
-                    continue
-                    
-                section_str = str(section_content)
-                # Split into lines - preserve original formatting including bullets
-                lines = [line for line in section_str.split('\n') if line.strip()]
-                
-                for line in lines:
-                    line_stripped = line.strip()
-                    if len(line_stripped) < 20:  # Skip short lines
-                        continue
-                    
-                    line_lower = line_stripped.lower()
-                    # Count how many keywords appear in this line
-                    score = sum(1 for kw in keywords if kw in line_lower)
-                    
-                    if score > best_score:
-                        best_score = score
-                        # Keep the line with its original formatting (bullets, whitespace)
-                        best_match = line
-                        matched_section = section_key
-            
-            return best_match, matched_section
-        
-        # Transform RAG suggestions to match frontend SuggestionPanel structure
-        # bullet_rewrites: Array of { before, after, reason, section_key }
-        bullet_rewrites = []
-        for suggestion in suggestions:
-            bullet_text = suggestion.get("bullet_rewrite", "")
-            explanation = suggestion.get("explanation", "")
-            suggestion_title = suggestion.get("suggestion", "")
-            
-            if not bullet_text:
-                continue
-            
-            # Find the original bullet point in the resume sections
-            original_bullet, matched_section = find_original_bullet(bullet_text, sections)
-            
-            if original_bullet:
-                bullet_rewrites.append({
-                    "before": original_bullet,
-                    "after": bullet_text,
-                    "reason": explanation,
-                    "section_key": matched_section or "general",
-                    "original": original_bullet,
-                    "rewritten": bullet_text
-                })
-            else:
-                # If we can't find original, create a suggestion-only entry
-                bullet_rewrites.append({
-                    "before": suggestion_title or "Original bullet (not found in current resume)",
-                    "after": bullet_text,
-                    "reason": explanation,
-                    "section_key": "general",
-                    "original": "",
-                    "rewritten": bullet_text,
-                    "no_original": True  # Flag indicating we couldn't find original
-                })
-        
-        # improvements: Combine strengths and weaknesses 
-        # Array of { title, explanation, evidence, section_key }
-        improvements = []
-        
-        for strength in strengths:
-            title = strength.get("title", "Strength")
-            explanation = strength.get("explanation", "")
-            matched_section = None
-            
-            for section_key, section_content in sections.items():
-                section_str = str(section_content).lower()
-                if explanation:
-                    explanation_words = explanation.split()[:5]
-                    if any(word.lower() in section_str for word in explanation_words if len(word) > 3):
-                        matched_section = section_key
-                        break
-            
-            improvements.append({
-                "title": f"✅ {title}",
-                "explanation": explanation,
-                "evidence": "",
-                "section_key": matched_section or "general",
-                "type": "strength"
-            })
-        
-        for weakness in weaknesses:
-            title = weakness.get("title", "Area for Improvement")
-            explanation = weakness.get("explanation", "")
-            matched_section = None
-            
-            for section_key, section_content in sections.items():
-                section_str = str(section_content).lower()
-                if explanation:
-                    explanation_words = explanation.split()[:5]
-                    if any(word.lower() in section_str for word in explanation_words if len(word) > 3):
-                        matched_section = section_key
-                        break
-            
-            improvements.append({
-                "title": f"⚠️ {title}",
-                "explanation": explanation,
-                "evidence": "",
-                "section_key": matched_section or "general",
-                "type": "weakness"
-            })
-        
-        return JSONResponse({
-            "success": True,
-            "version_id": version_id,
-            "sections": sections,
-            "suggestions": {
-                "bullet_rewrites": bullet_rewrites,
-                "improvements": improvements
-            },
-            "job_description": version_data.get("job_description", ""),
-            "ats_score": version_data.get("ats_score"),
-            "structure_score": resume_analysis.get("structure_score") if resume_analysis else None,
-            "completeness_score": resume_analysis.get("completeness_score") if resume_analysis else None,
-            "relevance_score": resume_analysis.get("relevance_score") if resume_analysis else None,
-            "impact_score": resume_analysis.get("impact_score") if resume_analysis else None,
-            "score_zone": resume_analysis.get("score_zone") if resume_analysis else None,
-            "resume_text": version_data.get("resume_text", ""),
-        })
-        
-    except Exception as e:
-        logger.exception(f"Error fetching resume for editor: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@router.patch("/editor/{version_id}/sections")
-async def update_resume_sections(version_id: int, sections: dict):
-    """
-    Save edited resume sections back to database.
-    
-    Args:
-        version_id: Resume version ID
-        sections: Updated sections dictionary
-    """
-    try:
-        # Fetch current version to get resume_id
-        current = supabase.table("resume_versions") \
-            .select("resume_id, content") \
-            .eq("version_id", version_id) \
-            .single() \
-            .execute()
-        
-        if not current.data:
-            return JSONResponse(
-                status_code=404,
-                content={"success": False, "error": "Resume version not found"}
-            )
-        
-        # Update content with new sections
-        content = current.data.get("content")
-        if isinstance(content, str):
-            content = json.loads(content)
-        if not content:
-            content = {}
-        
-        content["sections"] = sections
-        
-        # Update in database
-        supabase.table("resume_versions") \
-            .update({
-                "content": json.dumps(content),
-                "updated_at": datetime.utcnow().isoformat()
-            }) \
-            .eq("version_id", version_id) \
-            .execute()
-        
-        logger.info(f"Updated sections for resume version {version_id}")
-        
-        return JSONResponse({
-            "success": True,
-            "message": "Sections updated successfully",
-            "version_id": version_id
-        })
-        
-    except Exception as e:
-        logger.exception(f"Error updating resume sections: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@router.post("/generate-latex")
-async def generate_latex_code(sections: dict):
-    """
-    Generate LaTeX code from resume sections using Jake's Resume Template.
-    
-    Args:
-        sections: Dictionary with resume section contents
-    
-    Returns:
-        LaTeX code as string
-    """
-    try:
-        from app.services.latex_generator import generate_latex
-        
-        latex_code = generate_latex(sections)
-        
-        return JSONResponse({
-            "success": True,
-            "latex_code": latex_code,
-            "template": "jakes_resume"
-        })
-        
-    except Exception as e:
-        logger.exception(f"Error generating LaTeX: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@router.post("/generate-pdf")
-async def generate_pdf(sections: dict):
-    """
-    Generate PDF from resume sections using Jake's Resume Template.
-    
-    Compiles LaTeX to PDF using pdflatex (with API fallback).
-    
-    Args:
-        sections: Dictionary with resume section contents
-    
-    Returns:
-        PDF file as binary response
-    """
-    try:
-        from app.services.latex_generator import generate_latex
-        from app.services.pdf_compiler import compile_latex_with_fallback, PDFCompilationError
-        from fastapi.responses import Response
-        
-        # Generate LaTeX code
-        latex_code = generate_latex(sections)
-        
-        try:
-            # Compile to PDF
-            pdf_bytes = await compile_latex_with_fallback(latex_code)
-            
-            return Response(
-                content=pdf_bytes,
-                media_type="application/pdf",
-                headers={
-                    "Content-Disposition": "attachment; filename=resume.pdf"
-                }
-            )
-        except PDFCompilationError as pdf_err:
-            logger.warning(f"PDF compilation failed: {pdf_err}")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "error": str(pdf_err),
-                    "log": pdf_err.log_output,
-                    "latex_code": latex_code,  # Return LaTeX so user can compile elsewhere
-                    "message": "PDF compilation failed. LaTeX code returned for manual compilation."
-                }
-            )
-        
-    except Exception as e:
-        logger.exception(f"Error generating PDF: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@router.post("/apply-suggestion")
-async def apply_suggestion(
-    version_id: int,
-    suggestion_type: str,  # "bullet_rewrite" or "improvement"
-    section_key: str,
-    original_text: str,
-    replacement_text: str
-):
-    """
-    Apply a single suggestion to a resume section.
-    
-    Finds and replaces the original text with the suggested replacement.
-    """
-    try:
-        # Fetch current sections
-        result = supabase.table("resume_versions") \
-            .select("content") \
-            .eq("version_id", version_id) \
-            .single() \
-            .execute()
-        
-        if not result.data:
-            return JSONResponse(
-                status_code=404,
-                content={"success": False, "error": "Resume version not found"}
-            )
-        
-        content = result.data.get("content")
-        if isinstance(content, str):
-            content = json.loads(content)
-        
-        sections = content.get("sections", {})
-        
-        # Apply replacement
-        if section_key in sections:
-            section_content = sections[section_key]
-            if original_text in section_content:
-                sections[section_key] = section_content.replace(original_text, replacement_text, 1)
-                content["sections"] = sections
-                
-                # Save back to database
-                supabase.table("resume_versions") \
-                    .update({
-                        "content": json.dumps(content),
-                        "updated_at": datetime.utcnow().isoformat()
-                    }) \
-                    .eq("version_id", version_id) \
-                    .execute()
-                
-                logger.info(f"Applied suggestion to {section_key} in version {version_id}")
-                
-                return JSONResponse({
-                    "success": True,
-                    "message": f"Suggestion applied to {section_key}",
-                    "updated_sections": sections
-                })
-            else:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "error": "Original text not found in section",
-                        "section_key": section_key
-                    }
-                )
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": f"Section '{section_key}' not found",
-                }
-            )
-        
-    except Exception as e:
-        logger.exception(f"Error applying suggestion: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
-
-
-@router.get("/user/{user_id}/latest-version")
-async def get_latest_resume_version(user_id: str):
-    """
-    Get the latest resume version ID for a user.
-    """
-    try:
-        result = supabase.table("resumes") \
-            .select("resume_id, current_version") \
-            .eq("user_id", user_id) \
-            .single() \
-            .execute()
-        
-        if not result.data:
-            return JSONResponse(
-                status_code=404,
-                content={"success": False, "error": "No resume found for user"}
-            )
-        
-        resume_id = result.data["resume_id"]
-        current_version = result.data["current_version"]
-        
-        # Get version_id for current version
-        version_result = supabase.table("resume_versions") \
-            .select("version_id") \
-            .eq("resume_id", resume_id) \
-            .eq("version_number", current_version) \
-            .single() \
-            .execute()
-        
-        if not version_result.data:
-            return JSONResponse(
-                status_code=404,
-                content={"success": False, "error": "Resume version not found"}
-            )
-        
-        return JSONResponse({
-            "success": True,
-            "version_id": version_result.data["version_id"],
-            "resume_id": resume_id,
-            "version_number": current_version
-        })
-        
-    except Exception as e:
-        logger.exception(f"Error getting latest version: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
         )

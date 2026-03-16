@@ -217,35 +217,9 @@ def calculate_skill_match_percentage(user_skills: list, career_skills: list) -> 
     return round(match_percentage, 2)
 
 
-def calculate_semantic_similarity(user_text: str, career_keywords: list) -> float:
-    """
-    Calculate semantic similarity using TF-IDF and cosine similarity.
-    
-    Args:
-        user_text: The resume text.
-        career_keywords: List of career keywords.
-        
-    Returns:
-        Similarity score as a percentage.
-    """
-    try:
-        # Combine career keywords into a single text
-        career_text = " ".join(career_keywords)
-        
-        # Create TF-IDF vectors
-        vectorizer = TfidfVectorizer(stop_words='english')
-        vectors = vectorizer.fit_transform([user_text.lower(), career_text.lower()])
-        
-        # Calculate cosine similarity
-        similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
-        return round(similarity * 100, 2)
-    except:
-        return 0.0
-
-
 def calculate_career_probabilities(resume_text: str, user_skills: list) -> list:
     """
-    Calculate probability scores for each career based on skills and semantic matching.
+    Calculate probability scores for each career based on skills matching.
     
     Args:
         resume_text: The extracted resume text.
@@ -259,12 +233,6 @@ def calculate_career_probabilities(resume_text: str, user_skills: list) -> list:
     for career_name, cluster_data in CAREER_CLUSTERS.items():
         # Calculate skill-based match
         skill_match = calculate_skill_match_percentage(user_skills, cluster_data["skills"])
-        
-        # Calculate semantic similarity
-        semantic_match = calculate_semantic_similarity(resume_text, cluster_data["keywords"])
-        
-        # Combined probability (weighted average: 70% skills, 30% semantic)
-        combined_probability = (skill_match * 0.7) + (semantic_match * 0.3)
         
         # Find matched and missing skills
         user_skills_lower = set(skill.lower() for skill in user_skills)
@@ -281,9 +249,8 @@ def calculate_career_probabilities(resume_text: str, user_skills: list) -> list:
         
         career_matches.append({
             "career": career_name,
-            "probability": round(combined_probability, 2),
+            "probability": round(skill_match, 2),
             "skill_match_percentage": skill_match,
-            "semantic_match_percentage": semantic_match,
             "matched_skills": matched_skills,
             "missing_skills": missing_skills,
             "total_required_skills": len(cluster_data["skills"]),

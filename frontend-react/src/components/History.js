@@ -18,7 +18,6 @@ import {
   AlertCircle,
   Inbox,
 } from "lucide-react";
-import { Alert, AlertDescription } from "./ui/alert";
 
 function History() {
   const { session, loading: authLoading } = useUser();
@@ -105,10 +104,10 @@ function History() {
   if (error) {
     return (
       <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-background p-6">
-        <Alert variant="destructive" className="max-w-md">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md max-w-md">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <p>{error}</p>
+        </div>
       </div>
     );
   }

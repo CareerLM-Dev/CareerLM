@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _dump_compact_json(payload: dict) -> str:
+    """Serialize JSON payload with compact separators to reduce storage overhead."""
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+
 def ensure_user_row(user_id: str):
     """Make sure a row exists in the `user` table for this auth user.
     Avoids FK violations when inserting into `resumes` or other tables."""
@@ -243,8 +248,28 @@ async def analyze_resume(
         # ===== SKILL GAP ANALYSIS =====
         from app.agents.skill_gap import analyze_skill_gap
 
+        questionnaire_answers = None
+        try:
+            user_pref = (
+                supabase.table("user")
+                .select("questionnaire_answers, user_profile")
+                .eq("id", user_id)
+                .limit(1)
+                .execute()
+            )
+            if user_pref.data:
+                row = user_pref.data[0]
+                questionnaire_answers = row.get("questionnaire_answers") or {}
+                if isinstance(questionnaire_answers, dict) and row.get("user_profile"):
+                    questionnaire_answers["user_profile"] = row.get("user_profile")
+        except Exception as pref_err:
+            logger.warning(f"[ANALYZE_RESUME] Could not load user preferences for skill-gap: {pref_err}")
+
         skill_gap_result = analyze_skill_gap(
-            resume_text, filename=resume.filename, sections=sections
+            resume_text,
+            filename=resume.filename,
+            sections=sections,
+            questionnaire_answers=questionnaire_answers,
         )
 
         # ===== STORE RESUME VERSION (LEAN) =====
@@ -301,9 +326,11 @@ async def analyze_resume(
                 "resume_id": resume_id,
                 "version_number": new_version_number,
                 "job_description": job_description or "",
-                "content": json.dumps(content_data),
-                "resume_analysis": json.dumps(analysis_payload),
-                "skill_gap": json.dumps(skill_gap_result),
+                # content is jsonb: store native object for faster reads/filters.
+                "content": content_data,
+                # resume_analysis/skill_gap are text columns: store compact JSON strings.
+                "resume_analysis": _dump_compact_json(analysis_payload),
+                "skill_gap": _dump_compact_json(skill_gap_result),
                 "ats_score": resume_analysis.get("overall_score"),
                 "raw_file_path": resume.filename,
                 "notes": f"Orchestrator resume analysis | has_jd: {bool(job_description)}",

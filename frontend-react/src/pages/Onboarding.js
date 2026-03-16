@@ -10,7 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
-import { Alert, AlertDescription } from "../components/ui/alert";
 import { AlertCircle, ArrowLeft, ArrowRight, Check } from "lucide-react";
 
 
@@ -256,16 +255,17 @@ function Onboarding() {
   return (
     <div className="h-full overflow-y-auto no-scrollbar bg-primary">
       <div className="min-h-full flex items-center justify-center py-4 px-5">
-      <div className="w-full max-w-xl">
-        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
-          {/* Header */}
-          <CardHeader className="text-center space-y-1 pt-5 pb-2">
-            <CardTitle className="text-2xl font-bold text-primary">
-              Let's Get to Know You!
-            </CardTitle>
-            <CardDescription className="text-sm text-muted-foreground">
-              Just a few quick questions to personalize your learning experience
-            </CardDescription>
+        <div className="w-full max-w-xl">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+            {/* Header */}
+            <CardHeader className="text-center space-y-1 pt-5 pb-2">
+              <CardTitle className="text-2xl font-bold text-primary">
+                Let's Get to Know You!
+              </CardTitle>
+              <CardDescription className="text-sm text-muted-foreground">
+                Just a few quick questions to personalize your learning
+                experience
+              </CardDescription>
 
             {/* Progress Bar */}
             <div className="pt-1 space-y-1">
@@ -281,16 +281,16 @@ function Onboarding() {
             </div>
           </CardHeader>
 
-          {/* Question Content */}
-          <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold text-foreground">
-                {currentQuestion.title}
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {currentQuestion.description}
-              </p>
-            </div>
+            {/* Question Content */}
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-foreground">
+                  {currentQuestion.title}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {currentQuestion.description}
+                </p>
+              </div>
 
             {/* Options */}
             <div className="grid gap-1.5">
@@ -334,34 +334,31 @@ function Onboarding() {
               })}
             </div>
 
-            {/* Error Message */}
-            {error && (
-              <Alert
-                variant="destructive"
-                className="animate-in fade-in slide-in-from-top-2 duration-300"
-              >
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-
-          {/* Navigation Buttons */}
-          <CardFooter className="flex flex-col gap-2 border-t border-border pt-4">
-            <div className="flex w-full items-center justify-between gap-3">
-              {currentStep > 1 ? (
-                <Button
-                  variant="outline"
-                  onClick={handlePrevious}
-                  disabled={loading}
-                  className="gap-2"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Previous
-                </Button>
-              ) : (
-                <div />
+              {/* Error Message */}
+              {error && (
+                <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md animate-in fade-in slide-in-from-top-2 duration-300">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <p>{error}</p>
+                </div>
               )}
+            </CardContent>
+
+            {/* Navigation Buttons */}
+            <CardFooter className="flex flex-col gap-2 border-t border-border pt-4">
+              <div className="flex w-full items-center justify-between gap-3">
+                {currentStep > 1 ? (
+                  <Button
+                    variant="outline"
+                    onClick={handlePrevious}
+                    disabled={loading}
+                    className="gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                ) : (
+                  <div />
+                )}
 
               {currentStep < totalSteps ? (
                 <Button

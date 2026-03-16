@@ -3,7 +3,6 @@ import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
-import { Alert, AlertDescription } from "./ui/alert";
 import { Upload, Zap, ChevronDown } from "lucide-react";
 
 // Role labels matching questionnaire values
@@ -50,8 +49,8 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
             const roles = Array.isArray(qa.target_role)
               ? qa.target_role
               : qa.target_role
-              ? [qa.target_role]
-              : [];
+                ? [qa.target_role]
+                : [];
             setProfileRoles(roles);
             if (roles.length > 0) setRoleType(roles[0]);
           }
@@ -286,14 +285,24 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
                       {profileRoles.map((r) => {
                         const opt = ROLE_OPTIONS.find((o) => o.value === r);
                         return opt ? (
-                          <option key={r} value={r}>{opt.label}</option>
+                          <option key={r} value={r}>
+                            {opt.label}
+                          </option>
                         ) : null;
                       })}
                     </optgroup>
                   )}
-                  <optgroup label={profileRoles.length > 0 ? "All roles" : "Select a role"}>
-                    {ROLE_OPTIONS.filter((o) => !profileRoles.includes(o.value)).map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
+                  <optgroup
+                    label={
+                      profileRoles.length > 0 ? "All roles" : "Select a role"
+                    }
+                  >
+                    {ROLE_OPTIONS.filter(
+                      (o) => !profileRoles.includes(o.value),
+                    ).map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
                     ))}
                   </optgroup>
                 </select>
@@ -340,9 +349,9 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
         {/* Error */}
         {error && (
           <div className="px-5 pb-5">
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
+            <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
           </div>
         )}
       </div>
