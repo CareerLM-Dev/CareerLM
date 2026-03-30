@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from supabase_client import supabase
+from app.services.resume_parser import get_parser
 import json
 import logging
 
@@ -188,20 +189,22 @@ async def get_resume_text(
         if item["resumes"]["user_id"] != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
         
+        parser = get_parser()
+
         # Parse content for sections
         content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
-        sections = content.get("sections", {}) if content else {}
+        sections = parser.sanitize_sections_for_storage(content.get("sections", {}) if content else {})
 
-        # Build a text-only view from stored sections
-        resume_text = "\n\n".join([
-            section_text.strip()
-            for section_text in sections.values()
-            if isinstance(section_text, str) and section_text.strip()
-        ])
+        # Prefer sanitized flattened text if available.
+        resume_text = parser.normalize_for_storage(parser.scrub_contact_pii(content.get("resume_text", "") if content else ""))
 
-        # Fallback to old structure if present
-        if not resume_text and content and "resume_text" in content:
-            resume_text = content["resume_text"]
+        # Fallback for legacy rows without content.resume_text
+        if not resume_text:
+            resume_text = parser.normalize_for_storage(" ".join([
+                section_text.strip()
+                for section_text in sections.values()
+                if isinstance(section_text, str) and section_text.strip()
+            ]))
         
         return {
             "success": True,

@@ -9,9 +9,12 @@ import {
   Shield,
   Lock,
   CheckCircle,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import Sidebar from "../components/layout/Sidebar";
 
 /**
  * HomePage - Resume Evaluation landing page for authenticated users
@@ -22,6 +25,8 @@ function HomePage() {
   const navigate = useNavigate();
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [builderNotice, setBuilderNotice] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -48,12 +53,17 @@ function HomePage() {
   }, [session]);
 
   const handleUploadResume = () => {
-    navigate("/upload-resume");
+    setBuilderNotice(null);
+    navigate("/dashboard/resume-analyzer");
   };
 
   const handleBuildFromScratch = () => {
-    // Navigate to resume builder or form
-    navigate("/dashboard", { state: { initialPage: "resume_optimizer" } });
+    if (!userProfile?.questionnaire_answered) {
+      setBuilderNotice("Complete your profile first to unlock resume builder when it launches.");
+      return;
+    }
+
+    setBuilderNotice("Build from Scratch is coming soon.");
   };
 
   if (loading) {
@@ -68,9 +78,14 @@ function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Main Content */}
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-20">
+    <div className="flex h-full bg-background">
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((prev) => !prev)}
+      />
+
+      <main className="flex-1 overflow-auto no-scrollbar">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-20">
         {/* Title Section */}
         <div className="mb-8">
           <h1 className="text-4xl md:text-5xl font-bold text-foreground mb-3">
@@ -108,6 +123,13 @@ function HomePage() {
           </p>
         </div>
 
+        {builderNotice && (
+          <Alert className="mb-6 border-primary/20 bg-primary/5 text-foreground">
+            <AlertCircle className="h-4 w-4 text-primary" />
+            <AlertDescription>{builderNotice}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Two Options Grid */}
         <div className="grid md:grid-cols-2 gap-6 mb-12">
           {/* Upload Your Resume */}
@@ -120,30 +142,28 @@ function HomePage() {
                 <h3 className="text-xl font-bold text-foreground mb-2">
                   Upload Your Resume
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Drag and drop your PDF or DOCX file here to get a detailed evaluation score and improvement suggestions.
+                <p className="text-sm text-muted-foreground mb-6">
+                  Upload your PDF or DOCX file to get a detailed evaluation score and improvement suggestions.
                 </p>
               </div>
               
-              <button
+              <Button
                 onClick={handleUploadResume}
-                className="w-full border-2 border-dashed border-border rounded-lg py-12 hover:border-primary/50 hover:bg-muted/50 transition-all group"
+                variant="outline"
+                className="w-full"
+                size="lg"
               >
-                <div className="flex flex-col items-center gap-2">
-                  <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
-                  <p className="text-sm font-medium text-foreground">
-                    Drop files here or click to upload
-                  </p>
-                </div>
-              </button>
+                <Upload className="w-4 h-4 mr-2" />
+                Upload Resume
+              </Button>
             </div>
           </div>
 
           {/* Build from Scratch */}
           <div className="bg-card border-2 border-primary/30 rounded-xl overflow-hidden relative">
             <div className="absolute top-4 right-4">
-              <span className="inline-flex items-center px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                Recommended
+              <span className="inline-flex items-center px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-xs font-medium text-amber-600 dark:text-amber-400">
+                Coming Soon
               </span>
             </div>
             <div className="p-6 space-y-4">
@@ -155,17 +175,18 @@ function HomePage() {
                   Build from Scratch
                 </h3>
                 <p className="text-sm text-muted-foreground mb-6">
-                  Create a professional resume tailored to your industry using our AI builder. Answer a few questions and we'll handle the formatting.
+                  Create a professional resume tailored to your industry using our AI builder. Complete your profile first so we can use your details when this feature is ready.
                 </p>
               </div>
               
               <Button
                 onClick={handleBuildFromScratch}
+                variant="outline"
                 className="w-full"
                 size="lg"
               >
                 <Wand2 className="w-4 h-4 mr-2" />
-                Start Building
+                Build from Scratch
               </Button>
             </div>
           </div>
@@ -197,6 +218,8 @@ function HomePage() {
               </span>
             </div>
           </div>
+        </div>
+
         </div>
       </main>
     </div>

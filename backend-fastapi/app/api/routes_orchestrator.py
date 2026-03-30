@@ -205,8 +205,12 @@ async def analyze_resume(
         # ===== PARSE RESUME =====
         parser = get_parser()
         resume_bytes = await resume.read()
-        resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
-        sections = parser.parse_sections(resume_text)
+        raw_resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
+        parsed_sections = parser.parse_sections(raw_resume_text)
+
+        # Keep analysis quality from extracted text but sanitize before state persistence.
+        resume_text = parser.normalize_for_storage(parser.scrub_contact_pii(raw_resume_text))
+        sections = parser.sanitize_sections_for_storage(parsed_sections)
         
         if not resume_text:
             raise ValueError("Could not extract text from resume")
@@ -218,6 +222,7 @@ async def analyze_resume(
         
         # ===== POPULATE WITH RESUME + JOB INFO =====
         state["resume_analysis"]["resume_text"] = resume_text
+        state["resume_analysis"]["parsed_sections"] = sections
         
         if job_description:
             state["active_job"]["job_description"] = job_description
@@ -265,12 +270,10 @@ async def analyze_resume(
         except Exception as pref_err:
             logger.warning(f"[ANALYZE_RESUME] Could not load user preferences for skill-gap: {pref_err}")
 
-        skill_gap_result = analyze_skill_gap(
-            resume_text,
+        skill_gap_result = analyze_skill_gap(resume_text,
             filename=resume.filename,
             sections=sections,
-            questionnaire_answers=questionnaire_answers,
-        )
+            questionnaire_answers=questionnaire_answers,)
 
         # ===== STORE RESUME VERSION (LEAN) =====
         try:
@@ -316,10 +319,11 @@ async def analyze_resume(
                 "impact_score": resume_analysis.get("impact_score"),
             }
 
-            # Store only section-wise resume text (exclude contact info).
-            cleaned_sections = {k: v for k, v in (sections or {}).items() if k != "contact"}
+            # Store only sanitized sections and sanitized flattened text.
+            cleaned_sections = parser.sanitize_sections_for_storage(sections)
             content_data = {
                 "sections": cleaned_sections,
+                "resume_text": resume_text,
             }
 
             insert_result = supabase.table("resume_versions").insert({

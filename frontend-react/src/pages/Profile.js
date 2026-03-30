@@ -102,6 +102,55 @@ const stripSectionHeader = (value, sectionKey, title) => {
   return value;
 };
 
+const parseSkillsValue = (rawSkills) => {
+  const source = Array.isArray(rawSkills)
+    ? rawSkills.join(",")
+    : typeof rawSkills === "string"
+      ? rawSkills
+      : "";
+
+  if (!source.trim()) return [];
+
+  const normalized = source
+    .replace(/\\n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  const parts = normalized
+    .split(/[\n,;•]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const cleaned = [];
+
+  for (let token of parts) {
+    token = token.replace(/^[-*–—]\s*/, "").trim();
+
+    // Generic cleanup: remove label fragments ending with ':'
+    token = token.replace(/(^|[.])\s*[^:]{1,70}:\s*/g, "$1").trim();
+
+    // If any colon remains, keep only the right-most content.
+    if (token.includes(":")) {
+      token = token.split(":").pop()?.trim() || "";
+    }
+
+    // Remove trailing punctuation-only leftovers.
+    token = token.replace(/^[:;,.\-\s]+|[:;,.\-\s]+$/g, "").trim();
+
+    if (!token) continue;
+    cleaned.push(token);
+  }
+
+  // De-duplicate while preserving order.
+  const seen = new Set();
+  return cleaned.filter((skill) => {
+    const key = skill.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 function Profile() {
   const navigate = useNavigate();
   const { session, loading: authLoading } = useUser();
@@ -281,14 +330,7 @@ function Profile() {
   const startProfileEdit = (key) => {
     setEditingProfileSection(key);
     if (key === "skills") {
-      const skills = Array.isArray(userProfileSections?.skills)
-        ? userProfileSections.skills
-        : userProfileSections?.skills
-          ? userProfileSections.skills
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : [];
+      const skills = parseSkillsValue(userProfileSections?.skills);
       setDraftSkills(skills);
       setSkillInput("");
       setDraftProfileText("");
@@ -359,12 +401,8 @@ function Profile() {
   try {
     const currentText = userProfileSections?.[key] || "";
 
-    // FIX: merge wrapped lines that are not bullets
-    const normalizedText = currentText
-      .replace(/\r/g, "")
-      .replace(/\n(?![–•-])/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    // Preserve original line structure so profile parsers can detect entries reliably.
+    const normalizedText = currentText.replace(/\r/g, "").trim();
 
     const parser = key === "projects" ? parseProjects : parseExperience;
     const serializer =
@@ -416,11 +454,8 @@ function Profile() {
   try {
     const currentText = userProfileSections?.[key] || "";
 
-    const normalizedText = currentText
-      .replace(/\r/g, "")
-      .replace(/\n(?![–•-])/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
+    // Preserve original line structure so profile parsers can detect entries reliably.
+    const normalizedText = currentText.replace(/\r/g, "").trim();
 
     const parser = key === "projects" ? parseProjects : parseExperience;
     const serializer =
@@ -482,14 +517,7 @@ function Profile() {
 
   const formatProfileValue = (key) => {
     if (key === "skills") {
-      const skills = Array.isArray(userProfileSections?.skills)
-        ? userProfileSections.skills
-        : userProfileSections?.skills
-          ? userProfileSections.skills
-              .split(",")
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : [];
+      const skills = parseSkillsValue(userProfileSections?.skills);
       return skills.length ? skills : null;
     }
     if (
@@ -850,8 +878,13 @@ function Profile() {
                                    <span className="text-xs text-muted-foreground">
                                       {(() => {
                                          const currentText = userProfileSections?.[section.key] || "";
+                                          const normalizedCardText = stripSectionHeader(
+                                           currentText,
+                                           section.key,
+                                           section.title
+                                          );
                                          const parser = section.key === "projects" ? parseProjects : parseExperience;
-                                         return `${parser(currentText).length} items`;
+                                          return `${parser(normalizedCardText || "").length} items`;
                                       })()}
                                    </span>
                                 )}
@@ -973,11 +1006,16 @@ function Profile() {
                                     (() => {
                                     const currentText =
                                         userProfileSections?.[section.key] || "";
+                                    const normalizedCardText = stripSectionHeader(
+                                      currentText,
+                                      section.key,
+                                      section.title
+                                    );
                                     const parser =
                                         section.key === "projects"
                                         ? parseProjects
                                         : parseExperience;
-                                    const items = parser(currentText);
+                                    const items = parser(normalizedCardText || "");
                                     const isAddingNew =
                                         addingNewItem.key === section.key &&
                                         addingNewItem.isAdding;

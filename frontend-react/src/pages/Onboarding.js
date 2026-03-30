@@ -20,6 +20,7 @@ function Onboarding() {
   // phase: "loading" | "questionnaire" | "resume-check"
   const [phase, setPhase] = useState("loading");
   const [currentStep, setCurrentStep] = useState(1);
+  const [stepDirection, setStepDirection] = useState("forward");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -76,16 +77,31 @@ function Onboarding() {
   const currentQuestion = questions.find(
     (q) => q.step === currentStep
   );
+  const shouldSkipTargetRole = currentStep === 1 && answers.status === "exploring";
+  const progressPercent = shouldSkipTargetRole
+    ? 100
+    : (currentStep / totalSteps) * 100;
 
   const handleAnswerChange = (value) => {
     if (currentQuestion.field === "target_role") {
       const currentValues = answers.target_role;
       const isSelected = currentValues.includes(value);
+
+      if (value === "undecided") {
+        setAnswers({
+          ...answers,
+          target_role: isSelected ? [] : ["undecided"],
+        });
+        return;
+      }
+
+      const nextValues = currentValues.filter((v) => v !== "undecided");
+
       setAnswers({
         ...answers,
         target_role: isSelected
-          ? currentValues.filter((v) => v !== value)
-          : [...currentValues, value],
+          ? nextValues.filter((v) => v !== value)
+          : [...nextValues, value],
       });
       return;
     }
@@ -98,6 +114,7 @@ function Onboarding() {
 
   const handlePrevious = () => {
     if (currentStep > 1) {
+      setStepDirection("backward");
       setCurrentStep(currentStep - 1);
       setError(null);
     }
@@ -162,9 +179,11 @@ function Onboarding() {
         return;
       }
       // Otherwise, advance to step 2 (target_role question)
+      setStepDirection("forward");
       setCurrentStep(2);
       return;
     }
+    setStepDirection("forward");
     setCurrentStep(currentStep + 1);
   };
 
@@ -272,25 +291,34 @@ function Onboarding() {
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${(currentStep / totalSteps) * 100}%` }}
+              style={{ width: `${progressPercent}%` }}
               />
             </div>
               <p className="text-sm text-muted-foreground">
-                Question {currentStep} of {totalSteps}
+                {shouldSkipTargetRole
+                  ? "Questionnaire complete"
+                  : `Question ${currentStep} of ${totalSteps}`}
               </p>
             </div>
           </CardHeader>
 
-            {/* Question Content */}
-            <CardContent className="space-y-3">
-              <div className="space-y-1">
-                <h2 className="text-lg font-semibold text-foreground">
-                  {currentQuestion.title}
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  {currentQuestion.description}
-                </p>
-              </div>
+          {/* Question Content */}
+          <CardContent
+            key={currentStep}
+            className={`space-y-3 animate-in duration-300 ${
+              stepDirection === "backward"
+                ? "fade-in slide-in-from-left-2"
+                : "fade-in slide-in-from-right-2"
+            }`}
+          >
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold text-foreground">
+                {currentQuestion.title}
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                {currentQuestion.description}
+              </p>
+            </div>
 
             {/* Options */}
             <div className="grid gap-1.5">

@@ -1,10 +1,10 @@
 // src/components/SkillGapAnalyzer.js
 import React, { useState } from "react";
-import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import { cleanMarkdown } from "../utils/textFormatter";
 import { Button } from "./ui/button";
 import {
-  Upload,
+ 
   TrendingUp,
   Target,
   Briefcase,
@@ -15,10 +15,8 @@ import {
 import { supabase } from "../api/supabaseClient";
 
 function SkillGapAnalyzer({ resumeData }) {
-  const [resumeFile, setResumeFile] = useState(null);
+  const navigate = useNavigate();
   const [analysisResult, setAnalysisResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [selectedCareer, setSelectedCareer] = useState(null);
   const [showAllCareers, setShowAllCareers] = useState(false);
   const [showSkillsModal, setShowSkillsModal] = useState(false);
@@ -292,7 +290,7 @@ function SkillGapAnalyzer({ resumeData }) {
         <div className="bg-card border border-border rounded-lg p-6 space-y-4">
           <div className="bg-muted/50 border border-border rounded-lg p-4">
             <p className="text-sm text-muted-foreground">
-              No resume uploaded. Please upload in Resume Optimizer first.
+              Skill Gap Analyzer needs an analyzed resume first. Upload your resume in Resume Analyzer to generate career match insights.
             </p>
           </div>
 

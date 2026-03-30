@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
@@ -32,6 +32,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
   const [error, setError] = useState("");
   const [abortController, setAbortController] = useState(null);
   const [hasExistingResults, setHasExistingResults] = useState(false);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -100,6 +101,12 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
       waiting_for_user: payload?.waiting_for_user || state.waiting_for_user,
       waiting_for_input_type: payload?.waiting_for_input_type || state.waiting_for_input_type,
       score_delta: payload?.score_delta,
+      ats_score: payload?.resume_score ?? resumeAnalysis.overall_score ?? 0,
+      score_zone: resumeAnalysis.score_zone || "",
+      structure_score: resumeAnalysis.structure_score ?? 0,
+      completeness_score: resumeAnalysis.completeness_score ?? 0,
+      relevance_score: resumeAnalysis.relevance_score ?? 0,
+      impact_score: resumeAnalysis.impact_score ?? 0,
       profile,
       strengths: resumeAnalysis.strengths || [],
       weaknesses: resumeAnalysis.weaknesses || [],
@@ -226,6 +233,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
                 onChange={handleResumeChange}
                 className="hidden"
                 id="resume-file"
+                ref={fileInputRef}
               />
               <label
                 htmlFor="resume-file"
@@ -242,7 +250,15 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
                     </p>
                   </div>
                   {!resumeFile && (
-                    <Button type="button" size="sm" variant="outline">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }}
+                    >
                       Browse Files
                     </Button>
                   )}

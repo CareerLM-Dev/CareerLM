@@ -41,7 +41,7 @@ function App() {
             <Route path="/skip-complete/:userId" element={<ProtectedRoute><SkipComplete /></ProtectedRoute>} />
             <Route path="/upload-resume" element={<ProtectedRoute><ResumeUploadPage /></ProtectedRoute>} />
             <Route path="/resume-results" element={<ProtectedRoute><ResumeResultsPage /></ProtectedRoute>} />
-            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/dashboard/*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/resume-editor" element={<ProtectedRoute><ResumeEditorPage /></ProtectedRoute>} />

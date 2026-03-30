@@ -18,6 +18,7 @@ import re
 import pdfplumber
 import io
 import json
+import fitz
 from typing import Dict, List, Optional, Tuple
 
 from app.agents.llm_config import GROQ_CLIENT, GROQ_DEFAULT_MODEL
@@ -120,6 +121,46 @@ class ResumeParser:
         text = re.sub(r'[ \t]+', ' ', text)
         return text
 
+    def normalize_for_storage(self, text: str) -> str:
+        """Flatten text for storage while preserving parser-first workflow."""
+        if not text:
+            return ""
+
+        normalized = text.replace("\\n", " ")
+        normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = re.sub(r'\s*\n+\s*', ' ', normalized)
+        normalized = re.sub(r'\s{2,}', ' ', normalized)
+        return normalized.strip()
+
+    def scrub_contact_pii(self, text: str) -> str:
+        """Redact direct contact identifiers from free text."""
+        if not text:
+            return ""
+
+        cleaned = text
+        cleaned = re.sub(r'\b[\w.%-]+@[\w.-]+\.[A-Za-z]{2,}\b', '[REDACTED_EMAIL]', cleaned)
+        cleaned = re.sub(r'\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b', '[REDACTED_PHONE]', cleaned)
+        cleaned = re.sub(r'https?://(?:www\.)?(?:linkedin\.com|github\.com)/[^\s)]+', '[REDACTED_URL]', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\b(?:linkedin|github)\s*[:|]\s*[^\s]+', '[REDACTED_URL]', cleaned, flags=re.IGNORECASE)
+        return cleaned
+
+    def sanitize_sections_for_storage(self, sections: Optional[Dict[str, str]]) -> Dict[str, str]:
+        """Drop contact section and scrub PII from every stored section."""
+        sanitized: Dict[str, str] = {}
+        for key, value in (sections or {}).items():
+            if key == "contact":
+                continue
+            if isinstance(value, str):
+                # Preserve line breaks so downstream project/experience parsers keep working.
+                cleaned = self.scrub_contact_pii(value)
+                cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+                cleaned = re.sub(r'[^\S\n]+', ' ', cleaned)
+                cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+                sanitized[key] = cleaned.strip()
+            else:
+                sanitized[key] = value
+        return sanitized
+
     # ── PDF / text extraction ─────────────────────────────────────────────────
 
     def extract_text_from_pdf(self, file_bytes: bytes) -> str:
@@ -132,7 +173,57 @@ class ResumeParser:
                         text += page_text + "\n"
         except Exception as e:
             raise ValueError(f"Failed to extract text from PDF: {str(e)}")
-        return self._clean_text(text)
+
+        text = self._clean_text(text)
+
+        words = text.split()
+        avg_word_len = sum(len(w) for w in words) / max(1, len(words))
+
+        if avg_word_len > 15 and words:
+            print(f"[PARSER] pdfplumber spacing broken (avg word len {avg_word_len:.1f}), falling back to PyMuPDF")
+            text = self._extract_with_pymupdf(file_bytes)
+
+        return text
+
+    def _extract_with_pymupdf(self, file_bytes: bytes) -> str:
+        """Fallback extraction using positioned words to recover spacing."""
+        try:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            full_text = []
+
+            for page in doc:
+                words = page.get_text("words")
+                if not words:
+                    continue
+
+                words_sorted = sorted(words, key=lambda w: (round(w[1] / 5) * 5, w[0]))
+
+                lines = []
+                current_line = []
+                current_y = None
+
+                for word in words_sorted:
+                    y = round(word[1] / 5) * 5
+                    if current_y is None or abs(y - current_y) < 8:
+                        current_line.append(word[4])
+                        current_y = y
+                    else:
+                        if current_line:
+                            lines.append(" ".join(current_line))
+                        current_line = [word[4]]
+                        current_y = y
+
+                if current_line:
+                    lines.append(" ".join(current_line))
+
+                full_text.append("\n".join(lines))
+
+            doc.close()
+            return self._clean_text("\n\n".join(full_text))
+
+        except Exception as e:
+            print(f"[PARSER] PyMuPDF fallback failed: {e}")
+            raise ValueError(f"Both extraction methods failed: {str(e)}")
 
     def extract_text(self, file_bytes: bytes, filename: Optional[str] = None) -> str:
         if filename and filename.lower().endswith('.pdf'):

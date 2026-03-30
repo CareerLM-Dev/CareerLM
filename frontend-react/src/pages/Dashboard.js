@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../api/supabaseClient";
@@ -21,15 +21,46 @@ import { formatText } from "../utils/textFormatter";
 function Dashboard() {
   const { session, loading: authLoading } = useUser();
   const location = useLocation();
-  const [currentPage, setCurrentPage] = useState(
-    location.state?.initialPage ?? "dashboard"
-  );
+  const navigate = useNavigate();
+
+  const pathToPage = {
+    "/dashboard": "dashboard",
+    "/dashboard/resume-analyzer": "resume_optimizer",
+    "/dashboard/skill-gap": "skill_gap",
+    "/dashboard/mock-interview": "mock_interview",
+    "/dashboard/cold-email": "cold_email",
+    "/dashboard/study-planner": "study_planner",
+    "/dashboard/job-matcher": "job_matcher",
+    "/dashboard/resume-editor": "resume_editor",
+  };
+
+  const pageToRoute = {
+    dashboard: "/dashboard",
+    resume_optimizer: "/dashboard/resume-analyzer",
+    skill_gap: "/dashboard/skill-gap",
+    mock_interview: "/dashboard/mock-interview",
+    cold_email: "/dashboard/cold-email",
+    study_planner: "/dashboard/study-planner",
+    job_matcher: "/dashboard/job-matcher",
+    resume_editor: "/dashboard/resume-editor",
+  };
+
+  const currentPage = pathToPage[location.pathname] ?? "dashboard";
+  const setCurrentPage = (pageId) => navigate(pageToRoute[pageId] ?? "/dashboard");
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [backendDown, setBackendDown] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
+
+  const isBackendError = (error) => {
+    if (!error?.response) {
+      return true;
+    }
+
+    return error.response.status >= 500;
+  };
 
   // Fetch most recent resume data from Supabase
   const fetchLatestResumeData = useCallback(async () => {
@@ -49,6 +80,8 @@ function Dashboard() {
           },
         }
       );
+
+      setBackendDown(false);
 
       const history = response.data.data || [];
 
@@ -92,10 +125,6 @@ function Dashboard() {
           keyword_gap_table: content.keyword_gap_table || [],
           skills_analysis: content.skills_analysis || [],
           honest_improvements: content.honest_improvements || [],
-          human_reader_issues: content.human_reader_issues || [],
-          redundancy_issues: content.redundancy_issues || [],
-          bullet_rewrites: content.bullet_rewrites || [],
-          bullet_quality_breakdown: content.bullet_quality_breakdown || {},
           learning_roadmap: content.learning_roadmap || [],
           learning_priorities: content.learning_priorities || [],
           job_readiness_estimate: content.job_readiness_estimate || null,
@@ -127,6 +156,9 @@ function Dashboard() {
         setResumeData(transformedData);
       }
     } catch (error) {
+      if (isBackendError(error)) {
+        setBackendDown(true);
+      }
       console.error("Failed to fetch resume data from Supabase:", error);
     } finally {
       setLoading(false);
@@ -160,6 +192,8 @@ function Dashboard() {
           }
         );
 
+        setBackendDown(false);
+
         const history = response.data.data || [];
 
         // Extract ATS scores and sort by date
@@ -175,6 +209,9 @@ function Dashboard() {
 
         setScoreHistory(scores);
       } catch (err) {
+        if (isBackendError(err)) {
+          setBackendDown(true);
+        }
         console.error("Error fetching score history:", err);
       }
     };
@@ -198,17 +235,6 @@ function Dashboard() {
     role
       ? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
       : null;
-
-  // Backend health check — run once on mount; show banner if server is unreachable
-  useEffect(() => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-    fetch("http://localhost:8000/", { signal: controller.signal })
-      .then((res) => { if (!res.ok) setBackendDown(true); })
-      .catch(() => setBackendDown(true))
-      .finally(() => clearTimeout(timeoutId));
-  }, []);
 
   // Handle resume data update (now data is automatically stored in Supabase by backend)
   const handleResumeDataUpdate = async (data) => {
@@ -616,8 +642,6 @@ function Dashboard() {
   return (
     <div className="flex h-full bg-background">
       <Sidebar
-        setCurrentPage={setCurrentPage}
-        currentPage={currentPage}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />

@@ -1,4 +1,5 @@
 "use client";
+import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "../../lib/utils";
 import { 
   Upload, 
@@ -14,7 +15,20 @@ import {
   Edit3
 } from "lucide-react";
 
-function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
+const routeMap = {
+  dashboard: "/dashboard",
+  resume_optimizer: "/dashboard/resume-analyzer",
+  skill_gap: "/dashboard/skill-gap",
+  mock_interview: "/dashboard/mock-interview",
+  cold_email: "/dashboard/cold-email",
+  study_planner: "/dashboard/study-planner",
+  job_matcher: "/dashboard/job-matcher",
+  resume_editor: "/dashboard/resume-editor",
+};
+
+function Sidebar({ collapsed, onToggle }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const menuItems = [
     {
       id: "dashboard",
@@ -81,12 +95,12 @@ function Sidebar({ setCurrentPage, currentPage, collapsed, onToggle }) {
         <ul className="flex flex-col gap-0.5">
           {menuItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPage === item.id;
+            const isActive = location.pathname === routeMap[item.id];
             
             return (
               <li
                 key={item.id}
-                onClick={() => setCurrentPage(item.id)}
+                onClick={() => navigate(routeMap[item.id])}
                 title={collapsed ? item.label : undefined}
                 className={cn(
                   "group flex cursor-pointer items-center rounded-lg font-medium transition-all duration-200",

@@ -46,7 +46,7 @@ function ResumeUploadPage() {
   const handleResumeAnalysisComplete = (resumeData) => {
     setCurrentResults(resumeData);
     // Also navigate to dedicated results page
-    navigate("/resume-results", { state: { resumeData } });
+    // navigate("/resume-results", { state: { resumeData } });
   };
 
   const handleSetPage = (pageId) => {
@@ -74,8 +74,6 @@ function ResumeUploadPage() {
   return (
     <div className="flex h-full bg-background">
       <Sidebar
-        setCurrentPage={handleSetPage}
-        currentPage="upload"
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((p) => !p)}
       />

@@ -41,7 +41,7 @@ function GlobalFloatingHelper() {
         // Get user profile from Supabase
         const { data: profileData, error } = await supabase
           .from("user")
-          .select("questionnaire_answers, user_profile_onboarding_complete")
+          .select("questionnaire_answers, questionnaire_answered")
           .eq("id", session.user.id)
           .single();
 

@@ -69,18 +69,22 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
         return state
 
     job_description = active_job.get("job_description", "")
-    # Get target_roles list from profile (multi-select from onboarding)
+    job_title = active_job.get("job_title", "")
     target_roles = profile.get("target_roles", [])
     target_role = target_roles[0] if target_roles else None
-    
-    # Make target_role optional with fallback to None (generic analysis)
-    # Users can skip target_role selection; analysis works fine without it
-    role_type = (target_role or "").lower().replace(" ", "_") if target_role else None
 
-    # ===== PARSE RESUME SECTIONS BEFORE WORKFLOW =====
-    # This is critical for completeness_score calculation
-    print("[RESUME_WRAPPER] Parsing resume sections...")
-    parsed_sections = get_parser().parse_sections(resume_text)
+    # Priority: explicit job_title from request > profile target role > generic.
+    role_hint = (job_title or target_role or "").strip()
+    role_type = role_hint.lower().replace(" ", "_") if role_hint else None
+
+    parser = get_parser()
+
+    # Reuse parsed sections prepared by the API route; fallback only for legacy states.
+    parsed_sections = resume_analysis.get("parsed_sections") or {}
+    if not parsed_sections:
+        print("[RESUME_WRAPPER] parsed_sections missing in state, parsing fallback")
+        parsed_sections = parser.parse_sections(resume_text)
+    parsed_sections = parser.sanitize_sections_for_storage(parsed_sections)
     print(f"[RESUME_WRAPPER] Parsed sections: {list(parsed_sections.keys())}")
 
     # ===== PREPARE INPUT FOR RESUME WORKFLOW =====
@@ -179,8 +183,7 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
     if user_id and parsed_sections:
         try:
             # Extract parsed sections from resume analysis
-            cleaned_sections = {k: v for k, v in parsed_sections.items() if k != "contact"}
-            parser = get_parser()
+            cleaned_sections = parser.sanitize_sections_for_storage(parsed_sections)
             profile_payload = {
                 "intro": cleaned_sections.get("summary", ""),
                 "skills": parser.parse_skills_list(cleaned_sections.get("skills", "")),
