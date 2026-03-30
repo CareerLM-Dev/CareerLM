@@ -16,6 +16,7 @@ import JobMatcher from "../components/JobMatcher";
 import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
 import ResumeEditorPage from "./ResumeEditorPage";
 import { formatText } from "../utils/textFormatter";
+import { AlertCircle } from "lucide-react";
 
 
 function Dashboard() {
@@ -51,8 +52,8 @@ function Dashboard() {
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [backendDown, setBackendDown] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
+  const [backendDown, setBackendDown] = useState(false);
 
   const isBackendError = (error) => {
     if (!error?.response) {
@@ -646,17 +647,17 @@ function Dashboard() {
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />
       <main className="flex-1 overflow-auto no-scrollbar transition-all duration-300">
-        {backendDown && (
-          <div className="flex items-center gap-3 bg-destructive/10 border-b border-destructive/30 text-destructive px-4 py-3 text-sm">
-            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-            <span>
-              <strong>Backend unavailable</strong> — The CareerLM server is not reachable. Cached data is shown below, but AI features won't work until the server is back online.
-            </span>
-          </div>
-        )}
-        <div className="max-w-7xl mx-auto p-4">{renderPage()}</div>
+        <div className="max-w-7xl mx-auto p-4">
+          {backendDown && (
+            <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-xl text-sm flex items-center gap-3 mb-4">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <p>
+                <strong>Unable to reach the server.</strong> Please ensure the backend is running.
+              </p>
+            </div>
+          )}
+          {renderPage()}
+        </div>
       </main>
     </div>
   );

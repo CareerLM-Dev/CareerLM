@@ -4,10 +4,23 @@ import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import GoogleCalendarSync from "./GoogleCalendarSync";
 import {
-  BookOpen, ExternalLink, FileText, GraduationCap,
-  ChevronDown, ChevronUp, Star, TrendingUp, Plus,
-  RefreshCw, Sparkles, Target, Layers, Map,
-  Clock, CalendarDays,
+  BookOpen,
+  ExternalLink,
+  FileText,
+  GraduationCap,
+  ChevronDown,
+  ChevronUp,
+  Star,
+  TrendingUp,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Target,
+  Layers,
+  Map as MapIcon,
+  Clock,
+  CalendarDays,
+  X,
 } from "lucide-react";
 
 function StudyPlanner({ resumeData }) {
@@ -29,11 +42,12 @@ function StudyPlanner({ resumeData }) {
   const [error, setError] = useState(null);
   const [showNewPathPicker, setShowNewPathPicker] = useState(false);
   const [selectedNewRole, setSelectedNewRole] = useState(null);
+  const [deletingCareer, setDeletingCareer] = useState(null);
 
-  const getAuthToken = async () => {
+  const getAuthToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     return data?.session?.access_token || null;
-  };
+  }, []);
 
   // Load ALL cached plans on mount
   useEffect(() => {
@@ -41,10 +55,13 @@ function StudyPlanner({ resumeData }) {
     (async () => {
       try {
         const token = await getAuthToken();
-        if (!token) { setLoadingCache(false); return; }
+        if (!token) {
+          setLoadingCache(false);
+          return;
+        }
         const res = await fetch(
           "http://localhost:8000/api/v1/orchestrator/study-materials-cache",
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${token}` } },
         );
         const data = await res.json();
         if (cancelled) return;
@@ -68,33 +85,47 @@ function StudyPlanner({ resumeData }) {
         if (!cancelled) setLoadingCache(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [getAuthToken]);
 
   // Fetch suggested roles (re-runs when activeStack changes)
-  const fetchSuggestedRoles = useCallback(async (stackOverride) => {
-    try {
-      setLoadingRoles(true);
-      const token = await getAuthToken();
-      if (!token) { setLoadingRoles(false); return; }
-      const stackParam = stackOverride !== undefined ? stackOverride : activeStack;
-      const url = new URL("http://localhost:8000/api/v1/orchestrator/suggested-roles");
-      if (stackParam) url.searchParams.set("stack", stackParam);
-      const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      if (data.success) {
-        setSuggestedRoles(data.suggested_roles || []);
-        setInterestedRoles(data.interested_roles || []);
-        if (data.detected_stacks) setDetectedStacks(data.detected_stacks);
-        if (data.available_stacks) setAvailableStacks(data.available_stacks);
-        if (data.active_stack && activeStack === null) setActiveStack(data.active_stack);
+  const fetchSuggestedRoles = useCallback(
+    async (stackOverride) => {
+      try {
+        setLoadingRoles(true);
+        const token = await getAuthToken();
+        if (!token) {
+          setLoadingRoles(false);
+          return;
+        }
+        const stackParam =
+          stackOverride !== undefined ? stackOverride : activeStack;
+        const url = new URL(
+          "http://localhost:8000/api/v1/orchestrator/suggested-roles",
+        );
+        if (stackParam) url.searchParams.set("stack", stackParam);
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success) {
+          setSuggestedRoles(data.suggested_roles || []);
+          setInterestedRoles(data.interested_roles || []);
+          if (data.detected_stacks) setDetectedStacks(data.detected_stacks);
+          if (data.available_stacks) setAvailableStacks(data.available_stacks);
+          if (data.active_stack && activeStack === null)
+            setActiveStack(data.active_stack);
+        }
+      } catch (err) {
+        console.warn("Could not load suggested roles:", err);
+      } finally {
+        setLoadingRoles(false);
       }
-    } catch (err) {
-      console.warn("Could not load suggested roles:", err);
-    } finally {
-      setLoadingRoles(false);
-    }
-  }, [activeStack]);
+    },
+    [activeStack, getAuthToken],
+  );
 
   // Load suggested roles on mount
   useEffect(() => {
@@ -103,84 +134,201 @@ function StudyPlanner({ resumeData }) {
   }, []);
 
   // Career metadata lookup
-  const getCareerMeta = useCallback((careerName) => {
-    const sr = suggestedRoles.find((r) => r.career === careerName);
-    if (sr && sr.missing_skills?.length > 0) return sr;
-    if (resumeData?.careerAnalysis) {
-      const all = resumeData.careerAnalysis.career_matches || resumeData.careerAnalysis.top_3_careers || [];
-      const found = all.find((c) => c.career === careerName);
-      if (found) return found;
-    }
-    return null;
-  }, [suggestedRoles, resumeData]);
+  const skillGapCareers = useMemo(() => {
+    const analysis = resumeData?.careerAnalysis;
+    if (!analysis) return [];
+
+    const candidates = Array.isArray(analysis.career_matches) && analysis.career_matches.length > 0
+      ? analysis.career_matches
+      : Array.isArray(analysis.top_3_careers)
+        ? analysis.top_3_careers
+        : [];
+
+    return candidates.filter(
+      (career) => career?.career && Array.isArray(career?.missing_skills),
+    );
+  }, [resumeData]);
+
+  const availableCareerOptions = useMemo(() => {
+    const merged = new Map();
+
+    skillGapCareers.forEach((career, index) => {
+      merged.set(career.career, {
+        ...career,
+        boosted_score: career.probability || 0,
+        base_score: career.probability || 0,
+        is_interested: false,
+        source: "skill_gap",
+        sort_rank: index,
+      });
+    });
+
+    suggestedRoles.forEach((role, index) => {
+      const existing = merged.get(role.career);
+      merged.set(role.career, {
+        ...(existing || {}),
+        ...role,
+        missing_skills:
+          role.missing_skills?.length > 0
+            ? role.missing_skills
+            : existing?.missing_skills || [],
+        missing_skills_metadata:
+          existing?.missing_skills_metadata || role.missing_skills_metadata,
+        source: existing ? "skill_gap+suggested" : "suggested",
+        sort_rank: existing?.sort_rank ?? skillGapCareers.length + index,
+      });
+    });
+
+    return Array.from(merged.values()).sort((left, right) => {
+      const rightScore = right.boosted_score ?? right.probability ?? 0;
+      const leftScore = left.boosted_score ?? left.probability ?? 0;
+      if (rightScore !== leftScore) return rightScore - leftScore;
+      return (left.sort_rank ?? 0) - (right.sort_rank ?? 0);
+    });
+  }, [skillGapCareers, suggestedRoles]);
+
+  const getCareerMeta = useCallback(
+    (careerName) => {
+      const found = availableCareerOptions.find((c) => c.career === careerName);
+      if (found?.missing_skills?.length > 0) return found;
+      return null;
+    },
+    [availableCareerOptions],
+  );
 
   // Generate study plan for a career
-  const generateForCareer = useCallback(async (careerName) => {
-    const meta = getCareerMeta(careerName);
-    if (!meta || !meta.missing_skills?.length) {
-      setError(`No skill gaps found for "${careerName}". Analyze your resume first.`);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getAuthToken();
-      const formData = new FormData();
-      formData.append("target_career", careerName);
-      formData.append("missing_skills", JSON.stringify(meta.missing_skills.slice(0, 7)));
-      const headers = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      const response = await fetch(
-        "http://localhost:8000/api/v1/orchestrator/generate-study-materials-simple",
-        { method: "POST", body: formData, headers }
-      );
-      const data = await response.json();
-      if (data.success) {
-        setAllPlans((prev) => ({
-          ...prev,
-          [careerName]: {
-            skill_gap_report: data.skill_gap_report,
-            study_plan: data.study_plan,
-            schedule_summary: data.schedule_summary || null,
-            cached_at: new Date().toISOString(),
-          },
-        }));
-        setActiveCareer(careerName);
-        setExpandedSkills({ 0: true });
-        setShowNewPathPicker(false);
-        setSelectedNewRole(null);
-      } else {
-        setError(data.error || "Failed to generate study materials");
+  const generateForCareer = useCallback(
+    async (careerName) => {
+      const meta = getCareerMeta(careerName);
+      if (!meta || !meta.missing_skills?.length) {
+        setError(
+          `No skill gaps found for "${careerName}". Analyze your resume first.`,
+        );
+        return;
       }
-    } catch (err) {
-      console.error("Error generating study materials:", err);
-      setError("Error generating study materials. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [getCareerMeta]);
+      setLoading(true);
+      setError(null);
+      try {
+        const token = await getAuthToken();
+        const formData = new FormData();
+        formData.append("target_career", careerName);
+        formData.append(
+          "missing_skills",
+          JSON.stringify(meta.missing_skills.slice(0, 7)),
+        );
+        const headers = {};
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+        const response = await fetch(
+          "http://localhost:8000/api/v1/orchestrator/generate-study-materials-simple",
+          { method: "POST", body: formData, headers },
+        );
+        const data = await response.json();
+        if (data.success) {
+          setAllPlans((prev) => ({
+            ...prev,
+            [careerName]: {
+              skill_gap_report: data.skill_gap_report,
+              study_plan: data.study_plan,
+              schedule_summary: data.schedule_summary || null,
+              cached_at: new Date().toISOString(),
+            },
+          }));
+          setActiveCareer(careerName);
+          setExpandedSkills({ 0: true });
+          setShowNewPathPicker(false);
+          setSelectedNewRole(null);
+        } else {
+          setError(data.error || "Failed to generate study materials");
+        }
+      } catch (err) {
+        console.error("Error generating study materials:", err);
+        setError("Error generating study materials. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [getCareerMeta, getAuthToken],
+  );
 
-  const toggleSkill = (idx) => setExpandedSkills((p) => ({ ...p, [idx]: !p[idx] }));
+  const deleteCareerPlan = useCallback(
+    async (careerName, event) => {
+      event.stopPropagation();
+      if (!careerName) return;
+
+      setDeletingCareer(careerName);
+      setError(null);
+
+      try {
+        const token = await getAuthToken();
+        if (!token) {
+          throw new Error("Please login again to delete this plan.");
+        }
+
+        const response = await fetch(
+          `http://localhost:8000/api/v1/orchestrator/study-materials-cache/${encodeURIComponent(careerName)}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Failed to delete study plan");
+        }
+
+        setAllPlans((prev) => {
+          const next = { ...prev };
+          delete next[careerName];
+          return next;
+        });
+
+        setActiveCareer((prev) => {
+          if (prev !== careerName) return prev;
+          const remaining = Object.keys(allPlans).filter((c) => c !== careerName);
+          return remaining.length > 0 ? remaining[0] : null;
+        });
+      } catch (err) {
+        console.error("Error deleting study plan:", err);
+        setError(err.message || "Failed to delete study plan");
+      } finally {
+        setDeletingCareer(null);
+      }
+    },
+    [allPlans, getAuthToken],
+  );
+
+  const toggleSkill = (idx) =>
+    setExpandedSkills((p) => ({ ...p, [idx]: !p[idx] }));
   const expandAll = () => {
     const plan = allPlans[activeCareer];
     if (!plan) return;
     const all = {};
-    plan.skill_gap_report?.forEach((_, i) => { all[i] = true; });
+    plan.skill_gap_report?.forEach((_, i) => {
+      all[i] = true;
+    });
     setExpandedSkills(all);
   };
   const collapseAll = () => setExpandedSkills({});
 
   // Handle tech-stack change — re-fetch roles with new filter
-  const handleStackChange = useCallback((newStack) => {
-    const next = newStack === activeStack ? null : newStack;  // toggle off if same
-    setActiveStack(next);
-    fetchSuggestedRoles(next || "");
-  }, [activeStack, fetchSuggestedRoles]);
+  const handleStackChange = useCallback(
+    (newStack) => {
+      const next = newStack === activeStack ? null : newStack; // toggle off if same
+      setActiveStack(next);
+      fetchSuggestedRoles(next || "");
+    },
+    [activeStack, fetchSuggestedRoles],
+  );
 
   // Stack selector component (reused in both empty & main views)
   const StackSelector = () => {
-    if (availableStacks.length === 0 && detectedStacks.length === 0) return null;
-    const stacks = availableStacks.length > 0 ? availableStacks : detectedStacks.map((d) => d.stack);
+    if (availableStacks.length === 0 && detectedStacks.length === 0)
+      return null;
+    const stacks =
+      availableStacks.length > 0
+        ? availableStacks
+        : detectedStacks.map((d) => d.stack);
     return (
       <div className="bg-card border border-border rounded-lg p-4">
         <div className="flex items-center gap-2 mb-3">
@@ -204,8 +352,8 @@ function StudyPlanner({ resumeData }) {
                   isActive
                     ? "border-primary bg-primary text-primary-foreground shadow-sm"
                     : isDetected
-                    ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-                    : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                      ? "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                      : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
                 }`}
               >
                 {s}
@@ -227,29 +375,39 @@ function StudyPlanner({ resumeData }) {
 
   // Show interested roles first, then remaining suggested roles
   const availableNewRoles = useMemo(() => {
-    const remaining = suggestedRoles.filter((r) => !allPlans[r.career] && r.missing_skills?.length > 0);
+    const remaining = availableCareerOptions.filter(
+      (r) => !allPlans[r.career] && r.missing_skills?.length > 0,
+    );
     const interested = remaining.filter((r) => r.is_interested);
     const others = remaining.filter((r) => !r.is_interested);
     return [...interested, ...others];
-  }, [suggestedRoles, allPlans]);
+  }, [availableCareerOptions, allPlans]);
 
   const careerNames = Object.keys(allPlans);
 
   // Style helpers
   const getStepIcon = (type) => {
     switch (type) {
-      case "Documentation": return <FileText className="w-4 h-4" />;
-      case "YouTube": return <BookOpen className="w-4 h-4" />;
-      case "Course": return <GraduationCap className="w-4 h-4" />;
-      default: return <BookOpen className="w-4 h-4" />;
+      case "Documentation":
+        return <FileText className="w-4 h-4" />;
+      case "YouTube":
+        return <BookOpen className="w-4 h-4" />;
+      case "Course":
+        return <GraduationCap className="w-4 h-4" />;
+      default:
+        return <BookOpen className="w-4 h-4" />;
     }
   };
   const getTypeBadgeColor = (type) => {
     switch (type) {
-      case "Documentation": return "bg-blue-500/10 text-blue-600 border-blue-500/20";
-      case "YouTube": return "bg-red-500/10 text-red-600 border-red-500/20";
-      case "Course": return "bg-green-500/10 text-green-600 border-green-500/20";
-      default: return "bg-muted text-muted-foreground border-border";
+      case "Documentation":
+        return "bg-blue-500/10 text-blue-600 border-blue-500/20";
+      case "YouTube":
+        return "bg-red-500/10 text-red-600 border-red-500/20";
+      case "Course":
+        return "bg-green-500/10 text-green-600 border-green-500/20";
+      default:
+        return "bg-muted text-muted-foreground border-border";
     }
   };
 
@@ -260,7 +418,9 @@ function StudyPlanner({ resumeData }) {
         <div className="bg-card border border-border rounded-lg p-8 text-center">
           <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
           <h2 className="text-xl font-bold mb-2">Loading Study Plans...</h2>
-          <p className="text-muted-foreground">Checking for saved learning paths</p>
+          <p className="text-muted-foreground">
+            Checking for saved learning paths
+          </p>
         </div>
       </div>
     );
@@ -268,8 +428,7 @@ function StudyPlanner({ resumeData }) {
 
   // ── RENDER: no plans yet ──
   if (careerNames.length === 0 && !loading) {
-    const hasRoles = suggestedRoles.length > 0;
-    const fallbackCareer = resumeData?.careerAnalysis?.top_3_careers?.[0];
+    const hasRoles = availableCareerOptions.length > 0;
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Tech Stack Selector */}
@@ -287,10 +446,11 @@ function StudyPlanner({ resumeData }) {
               )}
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              Select a role below, then generate a personalized study plan. You can add more paths later.
+              Select a role below, then generate a personalized study plan. You
+              can add more paths later.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {suggestedRoles.slice(0, 8).map((role) => (
+              {availableCareerOptions.map((role) => (
                 <button
                   key={role.career}
                   onClick={() => setSelectedNewRole(role.career)}
@@ -304,15 +464,26 @@ function StudyPlanner({ resumeData }) {
                     <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 absolute top-2 right-2" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{role.career}</div>
+                    <div className="font-medium text-sm truncate">
+                      {role.career}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${Math.min(100, role.boosted_score)}%` }} />
+                        <div
+                          className="h-full bg-primary rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(100, role.boosted_score)}%`,
+                          }}
+                        />
                       </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">{role.boosted_score}% match</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {Math.round(role.boosted_score ?? role.probability ?? 0)}% match
+                      </span>
                     </div>
                     {role.missing_skills?.length > 0 && (
-                      <p className="text-xs text-muted-foreground mt-1 truncate">{role.missing_skills.length} skills to learn</p>
+                      <p className="text-xs text-muted-foreground mt-1 truncate">
+                        {role.missing_skills.length} skills to learn
+                      </p>
                     )}
                   </div>
                 </button>
@@ -320,7 +491,10 @@ function StudyPlanner({ resumeData }) {
             </div>
             {selectedNewRole && (
               <div className="mt-4 flex justify-center">
-                <Button onClick={() => generateForCareer(selectedNewRole)} disabled={loading}>
+                <Button
+                  onClick={() => generateForCareer(selectedNewRole)}
+                  disabled={loading}
+                >
                   <Sparkles className="w-4 h-4 mr-2" />
                   Generate Study Plan for {selectedNewRole}
                 </Button>
@@ -328,25 +502,14 @@ function StudyPlanner({ resumeData }) {
             )}
           </div>
         )}
-        {!hasRoles && !loadingRoles && fallbackCareer && (
-          <div
-            className="bg-card border border-border rounded-lg p-8 text-center cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all"
-            onClick={() => generateForCareer(fallbackCareer.career)}
-          >
-            <BookOpen className="w-12 h-12 text-primary mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Generate Study Materials</h2>
-            <p className="text-muted-foreground mb-2">
-              For <strong className="text-foreground">{fallbackCareer.career}</strong>
-            </p>
-            <p className="text-sm text-muted-foreground/70">{fallbackCareer.missing_skills?.length || 0} skills to learn</p>
-            <Button className="mt-4"><BookOpen className="w-4 h-4 mr-2" /> Generate</Button>
-          </div>
-        )}
-        {!hasRoles && !loadingRoles && !fallbackCareer && (
+        {!hasRoles && !loadingRoles && (
           <div className="bg-card border border-border rounded-lg p-8 text-center">
             <GraduationCap className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2">No Study Plan Available</h2>
-            <p className="text-muted-foreground mb-2">Upload your resume in Resume Optimizer first to identify skill gaps</p>
+            <p className="text-muted-foreground mb-2">
+              Run Skill Gap Analyzer or upload your resume in Resume Optimizer to
+              identify career-specific skill gaps first.
+            </p>
           </div>
         )}
         {error && (
@@ -364,9 +527,15 @@ function StudyPlanner({ resumeData }) {
       <div className="max-w-4xl mx-auto">
         <div className="bg-card border border-border rounded-lg p-8 text-center">
           <div className="animate-spin w-10 h-10 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-2">Generating Study Materials...</h2>
-          <p className="text-muted-foreground mb-2">Searching for the best learning resources...</p>
-          <p className="text-sm text-muted-foreground/70">This may take 5-10 seconds</p>
+          <h2 className="text-xl font-bold mb-2">
+            Generating Study Materials...
+          </h2>
+          <p className="text-muted-foreground mb-2">
+            Searching for the best learning resources...
+          </p>
+          <p className="text-sm text-muted-foreground/70">
+            This may take 5-10 seconds
+          </p>
         </div>
       </div>
     );
@@ -375,7 +544,10 @@ function StudyPlanner({ resumeData }) {
   // ── RENDER: main view ──
   const activePlan = allPlans[activeCareer];
   const skillReport = activePlan?.skill_gap_report || [];
-  const totalResources = skillReport.reduce((s, sk) => s + (sk.learning_path?.length || 0), 0);
+  const totalResources = skillReport.reduce(
+    (s, sk) => s + (sk.learning_path?.length || 0),
+    0,
+  );
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -387,15 +559,34 @@ function StudyPlanner({ resumeData }) {
         {careerNames.map((name) => (
           <button
             key={name}
-            onClick={() => { setActiveCareer(name); setExpandedSkills({ 0: true }); setError(null); }}
-            className={`relative flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-medium whitespace-nowrap transition-all ${
+            onClick={() => {
+              setActiveCareer(name);
+              setExpandedSkills({ 0: true });
+              setError(null);
+            }}
+            disabled={deletingCareer === name}
+            className={`relative flex items-center gap-2 px-4 py-2.5 pr-8 rounded-lg border-2 text-sm font-medium whitespace-nowrap transition-all group ${
               activeCareer === name
                 ? "border-primary bg-primary/5 text-primary"
                 : "border-border hover:border-primary/40 text-muted-foreground"
-            }`}
+            } ${deletingCareer === name ? "opacity-50 cursor-not-allowed" : ""}`}
           >
             <Target className="w-4 h-4" />
             {name}
+            {careerNames.length > 1 && (
+              <button
+                onClick={(e) => deleteCareerPlan(name, e)}
+                disabled={deletingCareer === name}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+                title={`Delete ${name} study plan`}
+              >
+                {deletingCareer === name ? (
+                  <div className="w-3 h-3 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <X className="w-3 h-3" />
+                )}
+              </button>
+            )}
           </button>
         ))}
         <button
@@ -412,26 +603,40 @@ function StudyPlanner({ resumeData }) {
         <div className="bg-card border border-border rounded-lg p-5">
           <h3 className="font-semibold mb-3">Select a career to add</h3>
           {availableNewRoles.length === 0 && !loadingRoles ? (
-            <p className="text-sm text-muted-foreground">No additional roles available. Analyze your resume to discover more paths.</p>
+            <p className="text-sm text-muted-foreground">
+              No additional roles available. Analyze your resume to discover
+              more paths.
+            </p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {availableNewRoles.slice(0, 6).map((role) => (
+              {availableNewRoles.map((role) => (
                 <button
                   key={role.career}
                   onClick={() => generateForCareer(role.career)}
                   disabled={loading}
                   className="relative flex items-center gap-3 p-3 rounded-lg border border-border hover:border-primary/40 hover:bg-muted/50 text-left transition-all disabled:opacity-50"
                 >
-                  {role.is_interested && <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 absolute top-2 right-2" />}
+                  {role.is_interested && (
+                    <Star className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 absolute top-2 right-2" />
+                  )}
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium text-sm truncate">{role.career}</div>
-                    <p className="text-xs text-muted-foreground">{role.missing_skills?.length} skills &middot; {role.boosted_score}% match</p>
+                    <div className="font-medium text-sm truncate">
+                      {role.career}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {role.missing_skills?.length} skills &middot;{" "}
+                      {Math.round(role.boosted_score ?? role.probability ?? 0)}% match
+                    </p>
                   </div>
                 </button>
               ))}
             </div>
           )}
-          {loading && <p className="text-sm text-primary mt-3 animate-pulse">Generating plan...</p>}
+          {loading && (
+            <p className="text-sm text-primary mt-3 animate-pulse">
+              Generating plan...
+            </p>
+          )}
         </div>
       )}
 
@@ -450,7 +655,9 @@ function StudyPlanner({ resumeData }) {
               <GraduationCap className="w-6 h-6 text-primary" />
               <div>
                 <h2 className="text-xl font-bold">{activeCareer}</h2>
-                <p className="text-sm text-muted-foreground">Your personalized learning roadmap</p>
+                <p className="text-sm text-muted-foreground">
+                  Your personalized learning roadmap
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -459,8 +666,15 @@ function StudyPlanner({ resumeData }) {
                   Saved {new Date(activePlan.cached_at).toLocaleDateString()}
                 </span>
               )}
-              <Button variant="outline" size="sm" onClick={() => generateForCareer(activeCareer)} disabled={loading}>
-                <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => generateForCareer(activeCareer)}
+                disabled={loading}
+              >
+                <RefreshCw
+                  className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`}
+                />
                 {loading ? "Refreshing..." : "Refresh"}
               </Button>
             </div>
@@ -472,11 +686,15 @@ function StudyPlanner({ resumeData }) {
       {activePlan && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4 text-center">
-            <div className="text-2xl font-bold text-primary">{skillReport.length}</div>
+            <div className="text-2xl font-bold text-primary">
+              {skillReport.length}
+            </div>
             <div className="text-sm text-muted-foreground">Skills to Learn</div>
           </div>
           <div className="bg-card border border-border rounded-lg p-4 text-center">
-            <div className="text-2xl font-bold text-primary">{totalResources}</div>
+            <div className="text-2xl font-bold text-primary">
+              {totalResources}
+            </div>
             <div className="text-sm text-muted-foreground">Resources</div>
           </div>
           {activePlan.schedule_summary && (
@@ -493,7 +711,9 @@ function StudyPlanner({ resumeData }) {
                   <CalendarDays className="w-5 h-5" />
                   {activePlan.schedule_summary.total_weeks}w
                 </div>
-                <div className="text-sm text-muted-foreground">Est. Duration</div>
+                <div className="text-sm text-muted-foreground">
+                  Est. Duration
+                </div>
               </div>
             </>
           )}
@@ -510,21 +730,44 @@ function StudyPlanner({ resumeData }) {
               <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                 {activePlan.schedule_summary.hours_per_week}h/week
               </span>
+              {activePlan.schedule_summary.parallel_tracks > 1 && (
+                <span className="text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full">
+                  {activePlan.schedule_summary.parallel_tracks} parallel tracks
+                </span>
+              )}
             </div>
           </div>
+
+          {activePlan.schedule_summary.note && (
+            <p className="text-sm text-muted-foreground">
+              {activePlan.schedule_summary.note}
+            </p>
+          )}
 
           {/* Per-skill breakdown */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {activePlan.schedule_summary.skills?.map((s, i) => (
-              <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 border border-border">
+              <div
+                key={i}
+                className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/50 border border-border"
+              >
                 <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
                   {i + 1}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{s.skill}</div>
                   <div className="text-xs text-muted-foreground">
-                    {s.hours}h &middot; {s.sessions} session{s.sessions !== 1 ? 's' : ''}
+                    {s.hours}h &middot; {s.sessions} session
+                    {s.sessions !== 1 ? "s" : ""}
                   </div>
+                  {(s.track || s.start_week !== undefined || s.end_week !== undefined) && (
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {s.track ? `Track ${s.track}` : "Planned"}
+                      {s.start_week !== undefined && s.end_week !== undefined
+                        ? ` • Week ${s.start_week}-${s.end_week}`
+                        : ""}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -533,7 +776,8 @@ function StudyPlanner({ resumeData }) {
           {/* Google Calendar Sync */}
           <div className="pt-2 border-t border-border">
             <p className="text-xs text-muted-foreground mb-3">
-              Add your study sessions directly to Google Calendar. Events are spread across weekdays based on your time commitment.
+              Add your study sessions directly to Google Calendar. Events are
+              spread across weekdays based on your time commitment.
             </p>
             <GoogleCalendarSync
               targetCareer={activeCareer}
@@ -559,7 +803,10 @@ function StudyPlanner({ resumeData }) {
       {skillReport.length > 0 ? (
         <div className="space-y-4">
           {skillReport.map((skillData, skillIdx) => (
-            <div key={skillIdx} className="bg-card border border-border rounded-lg overflow-hidden">
+            <div
+              key={skillIdx}
+              className="bg-card border border-border rounded-lg overflow-hidden"
+            >
               <button
                 className="w-full flex items-center justify-between p-4 hover:bg-muted/50 transition-colors text-left"
                 onClick={() => toggleSkill(skillIdx)}
@@ -577,7 +824,7 @@ function StudyPlanner({ resumeData }) {
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 transition-colors border border-emerald-500/20"
                     >
-                      <Map className="w-3 h-3" />
+                      <MapIcon className="w-3 h-3" />
                       roadmap.sh
                     </a>
                   )}
@@ -596,34 +843,48 @@ function StudyPlanner({ resumeData }) {
                 <div className="border-t border-border p-4 space-y-3">
                   {skillData.learning_path?.map((resource, resIdx) => (
                     <div key={resIdx} className="flex gap-4 relative">
-                      {resIdx < (skillData.learning_path.length - 1) && (
+                      {resIdx < skillData.learning_path.length - 1 && (
                         <div className="absolute left-[18px] top-10 bottom-0 w-0.5 bg-border" />
                       )}
                       <div className="flex-shrink-0">
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 ${getTypeBadgeColor(resource.type)}`}>
+                        <div
+                          className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border-2 ${getTypeBadgeColor(resource.type)}`}
+                        >
                           {resource.step || resIdx + 1}
                         </div>
                       </div>
                       <div className="flex-1 pb-3">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${getTypeBadgeColor(resource.type)}`}>
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${getTypeBadgeColor(resource.type)}`}
+                          >
                             {getStepIcon(resource.type)}
                             {resource.type}
                           </span>
                           {resource.label && (
-                            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">{resource.label}</span>
+                            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                              {resource.label}
+                            </span>
                           )}
                         </div>
-                        <h5 className="font-medium text-sm mb-2">{resource.title}</h5>
+                        <h5 className="font-medium text-sm mb-2">
+                          {resource.title}
+                        </h5>
                         <div className="flex flex-wrap gap-2 mb-2">
                           {resource.platform && (
-                            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">{resource.platform}</span>
+                            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
+                              {resource.platform}
+                            </span>
                           )}
                           {resource.est_time && (
-                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{resource.est_time}</span>
+                            <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                              {resource.est_time}
+                            </span>
                           )}
                           {resource.cost && (
-                            <span className={`text-xs px-2 py-0.5 rounded ${resource.cost === "Free" ? "bg-green-500/10 text-green-600" : "bg-orange-500/10 text-orange-600"}`}>
+                            <span
+                              className={`text-xs px-2 py-0.5 rounded ${resource.cost === "Free" ? "bg-green-500/10 text-green-600" : "bg-orange-500/10 text-orange-600"}`}
+                            >
                               {resource.cost}
                             </span>
                           )}
@@ -642,7 +903,9 @@ function StudyPlanner({ resumeData }) {
                         {/* Alternative platform links */}
                         {resource.alt_platforms?.length > 0 && (
                           <div className="flex items-center gap-2 mt-2 flex-wrap">
-                            <span className="text-xs text-muted-foreground">Also on:</span>
+                            <span className="text-xs text-muted-foreground">
+                              Also on:
+                            </span>
                             {resource.alt_platforms.map((alt, altIdx) => (
                               <a
                                 key={altIdx}
@@ -669,7 +932,9 @@ function StudyPlanner({ resumeData }) {
         <div className="bg-card border border-border rounded-lg p-8 text-center">
           <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
           <h2 className="text-lg font-semibold mb-1">No resources found</h2>
-          <p className="text-muted-foreground text-sm">Try refreshing or analyzing your skill gaps first</p>
+          <p className="text-muted-foreground text-sm">
+            Try refreshing or analyzing your skill gaps first
+          </p>
         </div>
       ) : null}
     </div>

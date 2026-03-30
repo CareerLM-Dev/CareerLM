@@ -186,7 +186,7 @@ async def skill_gap_analysis(
                 summary["best_match"] = best.get("career")
                 summary["best_match_probability"] = best.get("probability", 0)
                 analysis_result["analysis_summary"] = summary
-        
+
         if "error" in analysis_result:
             logger.warning(f"Analysis error: {analysis_result['error']}")
             return JSONResponse(

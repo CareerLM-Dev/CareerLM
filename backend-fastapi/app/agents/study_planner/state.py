@@ -35,8 +35,11 @@ class SkillRoadmap(TypedDict):
 class SkillScheduleEntry(TypedDict):
     """Per-skill schedule breakdown."""
     skill: str
-    est_hours: float
-    est_weeks: float
+    hours: float
+    sessions: int
+    track: NotRequired[int]
+    start_week: NotRequired[float]
+    end_week: NotRequired[float]
 
 
 class ScheduleSummary(TypedDict):
@@ -44,7 +47,9 @@ class ScheduleSummary(TypedDict):
     total_hours: float
     hours_per_week: float
     total_weeks: float
-    per_skill: list[SkillScheduleEntry]
+    skills: list[SkillScheduleEntry]
+    parallel_tracks: NotRequired[int]
+    learning_mode: NotRequired[str]
     note: str
 
 

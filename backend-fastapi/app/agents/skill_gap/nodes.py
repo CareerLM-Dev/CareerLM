@@ -1524,6 +1524,11 @@ def calculate_career_probabilities_node(state: SkillGapState) -> SkillGapState:
     try:
         user_skills = state.get("user_skills", [])
         questionnaire_answers = state.get("questionnaire_answers", {})
+        preferred_tech_stack = None
+        if isinstance(questionnaire_answers, dict):
+            preferred_tech_stack = questionnaire_answers.get("preferred_tech_stack")
+        effective_stack, _ = _resolve_effective_tech_stack(preferred_tech_stack, user_skills)
+        career_reference = _build_career_reference(effective_stack)
         timeline_weeks = _extract_timeline_weeks(questionnaire_answers)
         proficiency_map = _build_proficiency_map(state, questionnaire_answers)
         confidence_by_skill: dict[str, dict] = {}
@@ -1568,6 +1573,14 @@ Rules:
             model=GROQ_SKILLGAP_MODEL,
             messages=[
                 {"role": "system", "content": "Return only JSON. No markdown."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Use this canonical career-skill reference for role grounding. "
+                        "These clusters are authoritative context, not mandatory exact output names.\n"
+                        f"{career_reference}"
+                    ),
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,

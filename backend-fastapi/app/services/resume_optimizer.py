@@ -110,7 +110,10 @@ def optimize_resume_logic(
         "_status": "processing",
     }
 
-    invoke_config = {"configurable": {"thread_id": user_id}} if user_id else {}
+    # Resume workflow is compiled with a checkpointer, so a stable thread_id
+    # is required even when requests are anonymous (e.g., tests/local scripts).
+    thread_id = str(user_id).strip() if user_id else "resume-opt-anon"
+    invoke_config = {"configurable": {"thread_id": thread_id}}
     final_state = resume_workflow.invoke(initial_state, config=invoke_config)
 
     rag_eval = get_resume_rag_evaluation(

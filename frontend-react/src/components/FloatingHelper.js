@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sparkles, X, ChevronUp, ChevronDown, ArrowRight } from "lucide-react";
 
 /**
@@ -11,6 +11,7 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
   const [isVisible, setIsVisible] = useState(true);
   const [lastPhase, setLastPhase] = useState(null);
   const [showNewBadge, setShowNewBadge] = useState(false);
+  const hasCheckedDismissal = useRef(false);
 
   // Debug logging
   useEffect(() => {
@@ -44,6 +45,9 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
 
   // Check if user dismissed this specific phase before (only on initial mount)
   useEffect(() => {
+    if (hasCheckedDismissal.current) return;
+    hasCheckedDismissal.current = true;
+
     const dismissed = localStorage.getItem("helper_dismissed");
     if (dismissed && !lastPhase) {  // Only check on first render
       const data = JSON.parse(dismissed);
@@ -54,7 +58,7 @@ function FloatingHelper({ currentPhase, supervisorDecision, userStatus, onNaviga
         console.log("[FloatingHelper] Same phase dismissed recently, staying hidden");
       }
     }
-  }, []);  // Run only once on mount
+  }, [currentPhase, lastPhase]);
 
   // Auto-expand when there's an active workflow phase
   useEffect(() => {

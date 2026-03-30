@@ -1,10 +1,11 @@
 """
 Nodes for the study planner agent.
-Uses Gemini 2.0 Flash with Google Search grounding to fetch
-live, verified learning resources for each missing skill.
+Integrates roadmap.sh AI for authoritative learning sequences, then enhances
+with Gemini 2.0 Flash Google Search to fetch verified learning resources.
 
 Improvements:
-- Per-skill Gemini calls instead of one massive prompt
+- Roadmap.sh as source of truth for skill sequencing
+- Per-skill Gemini calls to find resources aligned with roadmap structure
 - Retry with simplified prompt before falling to curated fallback
 - Schedule builder that rolls up durations into a weekly timeline
 """
@@ -16,6 +17,7 @@ import re as _re
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from typing import Optional
 
 import requests
 
@@ -28,10 +30,140 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # ────────────────────────────────────────────────────────
+# Roadmap.sh API Integration
+# ────────────────────────────────────────────────────────
+ROADMAP_SH_API = "https://roadmap.sh/api/v1"
+ROADMAP_SH_BASE = "https://roadmap.sh"
+ROADMAP_API_TIMEOUT = 10
+
+# Skill-to-roadmap mapping for roadmap.sh API
+SKILL_TO_ROADMAP_ID = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "react": "react",
+    "angular": "angular",
+    "vue.js": "vue",
+    "vue": "vue",
+    "node.js": "nodejs",
+    "nodejs": "nodejs",
+    "java": "java",
+    "c++": "cpp",
+    "cpp": "cpp",
+    "rust": "rust",
+    "go": "golang",
+    "golang": "golang",
+    "docker": "docker",
+    "kubernetes": "kubernetes",
+    "terraform": "terraform",
+    "jenkins": "devops",
+    "aws": "aws",
+    "azure": "devops",
+    "gcp": "devops",
+    "google cloud": "devops",
+    "google cloud platform": "devops",
+    "sql": "sql",
+    "postgresql": "postgresql-dba",
+    "mysql": "sql",
+    "mongodb": "mongodb",
+    "git": "git-github",
+    "graphql": "graphql",
+    "linux": "linux",
+    "devops": "devops",
+    "django": "python",
+    "flask": "python",
+    "fastapi": "python",
+    "spring": "spring-boot",
+    "spring-boot": "spring-boot",
+    "system design": "system-design",
+    "rest api": "api-design",
+    "full stack": "full-stack",
+    "frontend": "frontend",
+    "backend": "backend",
+}
+
+# ────────────────────────────────────────────────────────
 # URL validation timeout (seconds) for HEAD requests
 # ────────────────────────────────────────────────────────
 URL_CHECK_TIMEOUT = 5
 URL_CHECK_MAX_WORKERS = 10
+
+
+def _get_roadmap_sh_id(skill: str) -> Optional[str]:
+    """Get the roadmap.sh roadmap ID for a skill.
+
+    Normalizes noisy skill labels (e.g., "Terraform6", "Azure (Cloud)")
+    before lookup so links remain stable.
+    """
+    if not skill:
+        return None
+
+    key = skill.strip().lower()
+
+    # direct hit first
+    mapped = SKILL_TO_ROADMAP_ID.get(key)
+    if mapped:
+        return mapped
+
+    # remove bracketed qualifiers: "azure (cloud)" -> "azure"
+    normalized = _re.sub(r"\(.*?\)", "", key).strip()
+    # keep useful chars, collapse separators
+    normalized = _re.sub(r"[^a-z0-9+\-\.\s]", " ", normalized)
+    normalized = _re.sub(r"\s+", " ", normalized).strip()
+
+    # remove trailing digits per token: "terraform6" -> "terraform"
+    normalized = " ".join(_re.sub(r"\d+$", "", token) for token in normalized.split())
+    normalized = normalized.strip()
+
+    # normalized hit
+    mapped = SKILL_TO_ROADMAP_ID.get(normalized)
+    if mapped:
+        return mapped
+
+    # compact hit: "node js" -> "nodejs"
+    compact = normalized.replace(" ", "")
+    mapped = SKILL_TO_ROADMAP_ID.get(compact)
+    if mapped:
+        return mapped
+
+    # token-level fallback for phrases like "jenkins pipelines"
+    for token in normalized.split():
+        mapped = SKILL_TO_ROADMAP_ID.get(token)
+        if mapped:
+            return mapped
+
+    return None
+
+
+def _fetch_roadmap_sh_data(skill: str) -> Optional[dict]:
+    """
+    Fetch the JSON roadmap structure from roadmap.sh API.
+    Returns the roadmap data or None if not found.
+    """
+    roadmap_id = _get_roadmap_sh_id(skill)
+    if not roadmap_id:
+        return None
+    
+    try:
+        url = f"{ROADMAP_SH_API}/roadmaps/{roadmap_id}.json"
+        response = requests.get(url, timeout=ROADMAP_API_TIMEOUT)
+        if response.status_code == 200:
+            data = response.json()
+            logger.info(f"[Roadmap.sh] Fetched roadmap for {skill} (ID: {roadmap_id})")
+            return data
+    except Exception as e:
+        logger.warning(f"[Roadmap.sh] Failed to fetch roadmap for {skill}: {e}")
+    
+    return None
+
+
+def _get_roadmap_sh_url(skill: str) -> str:
+    """Get the roadmap.sh URL for a skill."""
+    roadmap_id = _get_roadmap_sh_id(skill)
+    if roadmap_id:
+        return f"{ROADMAP_SH_BASE}/{roadmap_id}"
+    # Fallback to best practices
+    return f"{ROADMAP_SH_BASE}/best-practices"
 
 
 def validate_input_node(state: StudyPlannerState) -> dict:
@@ -213,55 +345,62 @@ def _build_personalisation_block(qa: dict) -> str:
     )
 
 
-def _build_skill_prompt(skill: str, target_career: str, personalisation: str) -> str:
+def _build_skill_prompt(skill: str, target_career: str, personalisation: str, roadmap_url: str) -> str:
     """
     Build a focused Gemini prompt for a SINGLE skill.
-    Much shorter than the monolithic multi-skill prompt → better output quality.
+    Incorporates roadmap.sh URL as the authoritative learning guide,
+    then finds 3 vetted resources to supplement it.
     """
     return f"""Role: Professional Resource Scout.
 
 Context: The user wants to become a **{target_career}** and needs to learn **{skill}**.
 {personalisation}
-Task: Provide a 3-step learning roadmap for **{skill}** with EXACT, DIRECT resource URLs.
+Task: Provide 3 curated learning resources for **{skill}** to use alongside the roadmap.sh learning guide.
+
+Roadmap.sh Reference: {roadmap_url}
+(The user should refer to this roadmap as the authoritative learning sequence. Your job is to find 3 HIGH-QUALITY resources that align with key phases of that roadmap.)
 
 Rules:
-- Include a **roadmap_url** linking to roadmap.sh (e.g. https://roadmap.sh/python). Use the closest parent roadmap if no exact page exists.
+- Roadmap URL: Use this exact URL → {roadmap_url}
 - Provide exactly 3 resources, each from a DIFFERENT platform.
   Platforms: YouTube (freeCodeCamp, Fireship, Traversy Media, etc.), Udemy, Coursera, edX, freeCodeCamp, Codecademy, Exercism, Kaggle, Scrimba, official docs, MDN, etc.
 - Every URL must be a DIRECT link — no google.com/search or youtube.com/results links.
-- For each step, also provide 2 alt_platforms with name + direct URL.
+- For each resource, also suggest 2 alt_platforms with name + direct URL.
+- Resources should align with foundational, intermediate, and hands-on phases.
 
 Output strictly JSON, no preamble:
 {{
   "skill": "{skill}",
-  "roadmap_url": "https://roadmap.sh/...",
+  "roadmap_url": "{roadmap_url}",
   "roadmap": [
-    {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "...",
+    {{"step": 1, "label": "Foundations", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "...",
       "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
     }},
     {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "...", "url": "https://...", "est_time": "...",
       "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
     }},
-    {{"step": 3, "label": "Certification/Hands-on", "type": "Course", "title": "...", "platform": "...", "url": "https://...", "est_time": "...",
+    {{"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "...", "url": "https://...", "est_time": "...",
       "alt_platforms": [{{"name": "...", "url": "https://..."}}, {{"name": "...", "url": "https://..."}}]
     }}
   ]
 }}"""
 
 
-def _simplified_retry_prompt(skill: str, target_career: str) -> str:
+def _simplified_retry_prompt(skill: str, target_career: str, roadmap_url: str) -> str:
     """
     Simplified retry prompt — no personalisation, stricter format.
     Used when the first attempt fails or returns bad JSON.
+    Includes roadmap.sh URL as reference.
     """
     return f"""Find 3 learning resources for **{skill}** (career goal: {target_career}).
+Reference: {roadmap_url}
 
 Return ONLY this JSON (no extra text):
 {{
   "skill": "{skill}",
-  "roadmap_url": "https://roadmap.sh/...",
+  "roadmap_url": "{roadmap_url}",
   "roadmap": [
-    {{"step": 1, "label": "Read Basics", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "2-3 hours", "alt_platforms": []}},
+    {{"step": 1, "label": "Foundations", "type": "Documentation", "title": "...", "url": "https://...", "est_time": "2-3 hours", "alt_platforms": []}},
     {{"step": 2, "label": "Deep Dive", "type": "YouTube", "title": "...", "url": "https://...", "est_time": "4-6 hours", "alt_platforms": []}},
     {{"step": 3, "label": "Hands-on Practice", "type": "Interactive", "title": "...", "url": "https://...", "est_time": "1-2 weeks", "alt_platforms": []}}
   ]
@@ -318,19 +457,20 @@ def _fetch_single_skill(
     skill: str,
     target_career: str,
     personalisation: str,
+    roadmap_url: str,
     gemini_client,
     types_module,
 ) -> dict | None:
     """
     Fetch resources for ONE skill with retry logic.
 
-    Attempt 1: Full personalised prompt.
+    Attempt 1: Full personalised prompt with roadmap.sh reference.
     Attempt 2: Simplified prompt (fewer instructions, stricter format).
     Returns parsed result or None if both attempts fail.
     """
     prompts = [
-        _build_skill_prompt(skill, target_career, personalisation),
-        _simplified_retry_prompt(skill, target_career),
+        _build_skill_prompt(skill, target_career, personalisation, roadmap_url),
+        _simplified_retry_prompt(skill, target_career, roadmap_url),
     ]
 
     for attempt, prompt in enumerate(prompts, 1):
@@ -368,7 +508,7 @@ def _get_curated_skill_entry(skill: str) -> dict:
     Used when Gemini fails both attempts.
     """
     key = skill.strip().lower()
-    roadmap_url = _get_roadmap_url(skill)
+    roadmap_url = _get_roadmap_sh_url(skill)
 
     if key in CURATED_RESOURCES:
         return {
@@ -400,6 +540,9 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     """
     Call Gemini 2.0 Flash with Google Search grounding to get
     live learning resources — ONE call per skill for better quality.
+    
+    Leverages roadmap.sh as the authoritative learning structure,
+    then finds curated resources aligned with that roadmap.
 
     Each skill gets up to 2 attempts (full prompt → simplified retry).
     Skills that exhaust both attempts fall through to curated resources.
@@ -427,7 +570,11 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     curated_fallbacks = 0
 
     for skill in missing_skills:
-        result = _fetch_single_skill(skill, target_career, personalisation, gemini_client, types)
+        # Get the roadmap.sh URL for this skill
+        roadmap_url = _get_roadmap_sh_url(skill)
+        logger.info(f"[Roadmap.sh] Skill '{skill}' → {roadmap_url}")
+        
+        result = _fetch_single_skill(skill, target_career, personalisation, roadmap_url, gemini_client, types)
 
         if result:
             skill_gap_report.append(result)
@@ -464,56 +611,7 @@ def fetch_live_resources_node(state: StudyPlannerState) -> dict:
 # Static resource maps
 # ────────────────────────────────────────────────────────
 
-# Well-known roadmap.sh mappings for common skills / careers
-KNOWN_ROADMAPS = {
-    "python": "https://roadmap.sh/python",
-    "javascript": "https://roadmap.sh/javascript",
-    "typescript": "https://roadmap.sh/typescript",
-    "react": "https://roadmap.sh/react",
-    "angular": "https://roadmap.sh/angular",
-    "vue.js": "https://roadmap.sh/vue",
-    "node.js": "https://roadmap.sh/nodejs",
-    "java": "https://roadmap.sh/java",
-    "c++": "https://roadmap.sh/cpp",
-    "rust": "https://roadmap.sh/rust",
-    "go": "https://roadmap.sh/golang",
-    "docker": "https://roadmap.sh/docker",
-    "kubernetes": "https://roadmap.sh/kubernetes",
-    "aws": "https://roadmap.sh/aws",
-    "sql": "https://roadmap.sh/sql",
-    "postgresql": "https://roadmap.sh/postgresql-dba",
-    "mongodb": "https://roadmap.sh/mongodb",
-    "git": "https://roadmap.sh/git-github",
-    "graphql": "https://roadmap.sh/graphql",
-    "linux": "https://roadmap.sh/linux",
-    "devops": "https://roadmap.sh/devops",
-    "django": "https://roadmap.sh/python",
-    "flask": "https://roadmap.sh/python",
-    "fastapi": "https://roadmap.sh/python",
-    "spring": "https://roadmap.sh/spring-boot",
-    "machine learning": "https://roadmap.sh/mlops",
-    "deep learning": "https://roadmap.sh/ai-data-scientist",
-    "data science": "https://roadmap.sh/ai-data-scientist",
-    "cybersecurity": "https://roadmap.sh/cyber-security",
-    "system design": "https://roadmap.sh/system-design",
-    "ci/cd": "https://roadmap.sh/devops",
-    "terraform": "https://roadmap.sh/devops",
-    "rest api": "https://roadmap.sh/backend",
-    "full stack": "https://roadmap.sh/full-stack",
-    "frontend": "https://roadmap.sh/frontend",
-    "backend": "https://roadmap.sh/backend",
-}
-
-
-def _get_roadmap_url(skill: str) -> str:
-    """Return the known roadmap.sh URL for a skill, or the best-practices page."""
-    key = skill.strip().lower()
-    if key in KNOWN_ROADMAPS:
-        return KNOWN_ROADMAPS[key]
-    return "https://roadmap.sh/best-practices"
-
-
-# Well-known official documentation sites for common technologies
+# Well-known official documentation sites for common technologies (fallback)
 KNOWN_DOCS = {
     "python": "https://docs.python.org/3/tutorial/",
     "javascript": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
@@ -935,62 +1033,23 @@ def _parse_est_time_to_hours(est_time: str) -> float:
 
 def build_schedule_node(state: StudyPlannerState) -> dict:
     """
-    Roll up per-step est_time values into a total-hours estimate,
-    then divide by the user's weekly time commitment to produce a
-    concrete schedule summary like '~16 weeks at 10 hrs/week'.
+    Build the schedule summary from the shared calendar scheduling service.
+    This keeps the graph output consistent with the API/cache payloads.
     """
     skill_gap_report = state.get("skill_gap_report") or []
     if not skill_gap_report:
         return {}
+    from app.services.google_calendar import compute_schedule_summary
 
-    # Determine hours/week from questionnaire
-    qa = state.get("questionnaire_answers") or {}
-    time_commitments = qa.get("time_commitment", [])
-    if time_commitments and isinstance(time_commitments, list):
-        hours_per_week = _TIME_COMMITMENT_HOURS.get(time_commitments[0], _DEFAULT_HOURS_PER_WEEK)
-    elif isinstance(time_commitments, str):
-        hours_per_week = _TIME_COMMITMENT_HOURS.get(time_commitments, _DEFAULT_HOURS_PER_WEEK)
-    else:
-        hours_per_week = _DEFAULT_HOURS_PER_WEEK
-
-    # Sum up per-skill
-    per_skill: list[dict] = []
-    total_hours = 0.0
-
-    for skill_entry in skill_gap_report:
-        skill_name = skill_entry.get("skill", "Unknown")
-        skill_hours = 0.0
-
-        for step in skill_entry.get("learning_path", []):
-            skill_hours += _parse_est_time_to_hours(step.get("est_time", ""))
-
-        skill_weeks = skill_hours / hours_per_week if hours_per_week > 0 else 0
-        per_skill.append({
-            "skill": skill_name,
-            "est_hours": round(skill_hours, 1),
-            "est_weeks": round(skill_weeks, 1),
-        })
-        total_hours += skill_hours
-
-    total_weeks = total_hours / hours_per_week if hours_per_week > 0 else 0
-
-    schedule_summary = {
-        "total_hours": round(total_hours, 1),
-        "hours_per_week": hours_per_week,
-        "total_weeks": round(total_weeks, 1),
-        "per_skill": per_skill,
-        "note": (
-            f"At {hours_per_week} hrs/week, this plan will take approximately "
-            f"{math.ceil(total_weeks)} weeks (~{round(total_weeks / 4.3, 1)} months). "
-            f"Skills are ordered by prerequisite — complete them in sequence for best results."
-        ),
-    }
-
-    logger.info(
-        f"[Study Planner] Schedule: {round(total_hours, 1)} total hours, "
-        f"~{math.ceil(total_weeks)} weeks at {hours_per_week} hrs/week"
+    schedule_summary = compute_schedule_summary(
+        skill_gap_report,
+        state.get("questionnaire_answers"),
     )
-
+    logger.info(
+        f"[Study Planner] Schedule: {schedule_summary['total_hours']} total hours, "
+        f"~{math.ceil(schedule_summary['total_weeks'])} weeks at "
+        f"{schedule_summary['hours_per_week']} hrs/week"
+    )
     return {"schedule_summary": schedule_summary}
 
 
@@ -1012,7 +1071,7 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
 
     for skill in missing_skills:
         key = skill.strip().lower()
-        roadmap_url = _get_roadmap_url(skill)
+        roadmap_url = _get_roadmap_sh_url(skill)
 
         # Use curated resources if available
         if key in CURATED_RESOURCES:

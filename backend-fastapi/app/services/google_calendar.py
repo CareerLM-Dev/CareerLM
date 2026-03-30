@@ -36,6 +36,8 @@ DEFAULT_STUDY_DAYS = [0, 1, 2, 3, 4]  # Monday=0 ... Sunday=6
 # Default study start hour (24h format)
 DEFAULT_START_HOUR = 18  # 6 PM
 DEFAULT_SESSION_MINUTES = 60  # 1-hour blocks
+DEFAULT_SESSION_GAP_MINUTES = 15
+MAX_PARALLEL_TRACKS = 3
 
 
 def _parse_est_time_to_hours(est_time: str) -> float:
@@ -70,6 +72,141 @@ def _parse_est_time_to_hours(est_time: str) -> float:
     return 3.0
 
 
+def _resolve_hours_per_week(questionnaire_answers: Optional[dict] = None) -> float:
+    """Resolve the user's weekly time commitment into numeric hours."""
+    qa = questionnaire_answers or {}
+    time_keys = qa.get("time_commitment", [])
+    if isinstance(time_keys, list) and time_keys:
+        return TIME_COMMITMENT_HOURS.get(time_keys[0], DEFAULT_HOURS_PER_WEEK)
+    if isinstance(time_keys, str):
+        return TIME_COMMITMENT_HOURS.get(time_keys, DEFAULT_HOURS_PER_WEEK)
+    return DEFAULT_HOURS_PER_WEEK
+
+
+def _estimate_skill_hours(skill_entry: dict) -> float:
+    """Sum the estimated time across all learning steps for a skill."""
+    return sum(_parse_est_time_to_hours(step.get("est_time", "")) for step in skill_entry.get("learning_path", []))
+
+
+def _determine_parallel_tracks(hours_per_week: float, skill_count: int) -> int:
+    """Choose how many skills can reasonably run in parallel for the user's pace."""
+    if skill_count <= 0:
+        return 1
+    derived_tracks = max(1, int(hours_per_week // 10))
+    return max(1, min(skill_count, MAX_PARALLEL_TRACKS, derived_tracks))
+
+
+def _build_parallel_skill_schedule(
+    skill_gap_report: list[dict],
+    hours_per_week: float,
+) -> tuple[list[dict], float, int]:
+    """
+    Build a per-skill schedule with sequential or parallel lanes.
+
+    Higher time commitment unlocks more concurrent tracks. Skills are still
+    admitted in priority order, but can begin in parallel when a lane is free.
+    """
+    if not skill_gap_report:
+        return [], 0.0, 1
+
+    parallel_tracks = _determine_parallel_tracks(hours_per_week, len(skill_gap_report))
+    per_track_hours = hours_per_week / parallel_tracks if parallel_tracks > 0 else hours_per_week
+    track_load_hours = [0.0 for _ in range(parallel_tracks)]
+    skills: list[dict] = []
+
+    for entry in skill_gap_report:
+        skill_name = entry.get("skill", "Unknown")
+        skill_hours = _estimate_skill_hours(entry)
+        sessions = max(1, math.ceil(skill_hours / (DEFAULT_SESSION_MINUTES / 60)))
+
+        track_index = min(range(parallel_tracks), key=lambda idx: track_load_hours[idx])
+        start_week = track_load_hours[track_index] / per_track_hours if per_track_hours > 0 else 0.0
+        duration_weeks = skill_hours / per_track_hours if per_track_hours > 0 else 0.0
+        end_week = start_week + duration_weeks
+        track_load_hours[track_index] += skill_hours
+
+        skills.append({
+            "skill": skill_name,
+            "hours": round(skill_hours, 1),
+            "sessions": sessions,
+            "track": track_index + 1,
+            "start_week": round(start_week, 1),
+            "end_week": round(end_week, 1),
+        })
+
+    total_weeks = max((load / per_track_hours for load in track_load_hours), default=0.0) if per_track_hours > 0 else 0.0
+    return skills, total_weeks, parallel_tracks
+
+
+def _build_daily_session_capacity(
+    hours_per_week: float,
+    study_days: list[int],
+    session_minutes: int = DEFAULT_SESSION_MINUTES,
+) -> dict[int, int]:
+    """Spread the weekly study load across weekdays, including multi-session days."""
+    session_hours = session_minutes / 60
+    sessions_per_week = max(1, math.ceil(hours_per_week / session_hours))
+    active_days = study_days or DEFAULT_STUDY_DAYS
+    daily_capacity = {day: 0 for day in active_days}
+
+    if sessions_per_week <= len(active_days):
+        step = len(active_days) / sessions_per_week
+        for index in range(sessions_per_week):
+            day = active_days[min(len(active_days) - 1, int(index * step))]
+            daily_capacity[day] += 1
+        return daily_capacity
+
+    base_sessions, remainder = divmod(sessions_per_week, len(active_days))
+    for index, day in enumerate(active_days):
+        daily_capacity[day] = base_sessions + (1 if index < remainder else 0)
+    return daily_capacity
+
+
+def _get_day_start_hour(sessions_today: int) -> int:
+    """Shift earlier when the user's weekly commitment needs multiple sessions per day."""
+    if sessions_today >= 6:
+        return 9
+    if sessions_today >= 4:
+        return 13
+    return DEFAULT_START_HOUR
+
+
+def _generate_session_slots(
+    total_sessions: int,
+    hours_per_week: float,
+    start_date: datetime,
+    study_days: list[int],
+    session_minutes: int = DEFAULT_SESSION_MINUTES,
+) -> list[tuple[datetime, datetime]]:
+    """Generate non-overlapping calendar slots for the requested weekly capacity."""
+    if total_sessions <= 0:
+        return []
+
+    daily_capacity = _build_daily_session_capacity(hours_per_week, study_days, session_minutes)
+    slots: list[tuple[datetime, datetime]] = []
+    current = start_date
+
+    while len(slots) < total_sessions:
+        sessions_today = daily_capacity.get(current.weekday(), 0)
+        if sessions_today > 0:
+            day_start_hour = _get_day_start_hour(sessions_today)
+            for session_index in range(sessions_today):
+                if len(slots) >= total_sessions:
+                    break
+                offset_minutes = session_index * (session_minutes + DEFAULT_SESSION_GAP_MINUTES)
+                slot_start = current.replace(
+                    hour=day_start_hour + (offset_minutes // 60),
+                    minute=offset_minutes % 60,
+                    second=0,
+                    microsecond=0,
+                )
+                slot_end = slot_start + timedelta(minutes=session_minutes)
+                slots.append((slot_start, slot_end))
+        current += timedelta(days=1)
+
+    return slots
+
+
 def compute_schedule_summary(
     skill_gap_report: list[dict],
     questionnaire_answers: Optional[dict] = None,
@@ -82,44 +219,34 @@ def compute_schedule_summary(
 
     Returns dict with: total_hours, hours_per_week, total_weeks, skills[], note
     """
-    qa = questionnaire_answers or {}
-    time_keys = qa.get("time_commitment", [])
-    if isinstance(time_keys, list) and time_keys:
-        hours_per_week = TIME_COMMITMENT_HOURS.get(time_keys[0], DEFAULT_HOURS_PER_WEEK)
-    elif isinstance(time_keys, str):
-        hours_per_week = TIME_COMMITMENT_HOURS.get(time_keys, DEFAULT_HOURS_PER_WEEK)
+    hours_per_week = _resolve_hours_per_week(questionnaire_answers)
+    skills, total_weeks, parallel_tracks = _build_parallel_skill_schedule(
+        skill_gap_report,
+        hours_per_week,
+    )
+    total_hours = sum(skill["hours"] for skill in skills)
+    learning_mode = "parallel" if parallel_tracks > 1 else "sequential"
+    if parallel_tracks > 1:
+        note = (
+            f"At {hours_per_week} hrs/week, this plan runs up to {parallel_tracks} skills in parallel "
+            f"and should take about {math.ceil(total_weeks)} weeks (~{round(total_weeks / 4.3, 1)} months). "
+            f"Higher-priority skills start first, and the next skill begins as soon as a track frees up."
+        )
     else:
-        hours_per_week = DEFAULT_HOURS_PER_WEEK
-
-    skills = []
-    total_hours = 0.0
-
-    for entry in skill_gap_report:
-        skill_name = entry.get("skill", "Unknown")
-        skill_hours = 0.0
-        for step in entry.get("learning_path", []):
-            skill_hours += _parse_est_time_to_hours(step.get("est_time", ""))
-
-        sessions = max(1, math.ceil(skill_hours / (DEFAULT_SESSION_MINUTES / 60)))
-        skills.append({
-            "skill": skill_name,
-            "hours": round(skill_hours, 1),
-            "sessions": sessions,
-        })
-        total_hours += skill_hours
-
-    total_weeks = total_hours / hours_per_week if hours_per_week > 0 else 0
+        note = (
+            f"At {hours_per_week} hrs/week, this plan will take approximately "
+            f"{math.ceil(total_weeks)} weeks (~{round(total_weeks / 4.3, 1)} months). "
+            f"Focus on one skill at a time for the strongest foundation."
+        )
 
     return {
         "total_hours": round(total_hours, 1),
         "hours_per_week": hours_per_week,
         "total_weeks": round(total_weeks, 1),
         "skills": skills,
-        "note": (
-            f"At {hours_per_week} hrs/week, this plan will take approximately "
-            f"{math.ceil(total_weeks)} weeks (~{round(total_weeks / 4.3, 1)} months). "
-            f"Skills are ordered by prerequisite \u2014 complete them in sequence for best results."
-        ),
+        "parallel_tracks": parallel_tracks,
+        "learning_mode": learning_mode,
+        "note": note,
     }
 
 
@@ -136,31 +263,14 @@ def _distribute_sessions(
     Returns a list of (start_dt, end_dt) tuples for each study session.
     Each session is `session_minutes` long, spread across `study_days`.
     """
-    sessions_per_week = hours_per_week / (session_minutes / 60)
-    sessions_per_week = max(1, int(sessions_per_week))
     total_sessions = max(1, math.ceil(total_hours / (session_minutes / 60)))
-
-    # Pick which days of the week to study on
-    if sessions_per_week >= len(study_days):
-        active_days = study_days
-    else:
-        # Spread evenly across the week
-        step = len(study_days) / sessions_per_week
-        active_days = [study_days[int(i * step)] for i in range(sessions_per_week)]
-
-    slots: list[tuple[datetime, datetime]] = []
-    current = start_date
-
-    while len(slots) < total_sessions:
-        if current.weekday() in active_days:
-            start_dt = current.replace(
-                hour=DEFAULT_START_HOUR, minute=0, second=0, microsecond=0
-            )
-            end_dt = start_dt + timedelta(minutes=session_minutes)
-            slots.append((start_dt, end_dt))
-        current += timedelta(days=1)
-
-    return slots
+    return _generate_session_slots(
+        total_sessions=total_sessions,
+        hours_per_week=hours_per_week,
+        start_date=start_date,
+        study_days=study_days,
+        session_minutes=session_minutes,
+    )
 
 
 def build_calendar_events(
@@ -184,80 +294,108 @@ def build_calendar_events(
         # Start tomorrow
         start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
-    qa = questionnaire_answers or {}
+    hours_per_week = _resolve_hours_per_week(questionnaire_answers)
+    parallel_tracks = _determine_parallel_tracks(hours_per_week, len(skill_gap_report))
+    session_hours = DEFAULT_SESSION_MINUTES / 60
 
-    # Hours per week from questionnaire
-    time_keys = qa.get("time_commitment", [])
-    if isinstance(time_keys, list) and time_keys:
-        hours_per_week = TIME_COMMITMENT_HOURS.get(time_keys[0], DEFAULT_HOURS_PER_WEEK)
-    elif isinstance(time_keys, str):
-        hours_per_week = TIME_COMMITMENT_HOURS.get(time_keys, DEFAULT_HOURS_PER_WEEK)
-    else:
-        hours_per_week = DEFAULT_HOURS_PER_WEEK
-
-    events: list[dict] = []
-    cursor_date = start_date
+    skill_queues: list[dict] = []
+    total_sessions = 0
 
     for skill_idx, skill_entry in enumerate(skill_gap_report):
         skill_name = skill_entry.get("skill", f"Skill {skill_idx + 1}")
-
+        queue: list[dict] = []
         for step in skill_entry.get("learning_path", []):
             step_hours = _parse_est_time_to_hours(step.get("est_time", ""))
-            step_label = step.get("label", "Study")
-            step_title = step.get("title", "")
-            step_url = step.get("url", "")
-            step_type = step.get("type", "Resource")
-            step_num = step.get("step", "")
+            step_sessions = max(1, math.ceil(step_hours / session_hours))
+            for sess_idx in range(step_sessions):
+                queue.append({
+                    "skill_name": skill_name,
+                    "skill_idx": skill_idx,
+                    "step": step,
+                    "session_index": sess_idx + 1,
+                    "session_total": step_sessions,
+                })
+        if queue:
+            total_sessions += len(queue)
+            skill_queues.append({"sessions": queue})
 
-            # Distribute this step's hours into sessions
-            sessions = _distribute_sessions(
-                total_hours=step_hours,
-                hours_per_week=hours_per_week,
-                start_date=cursor_date,
-                study_days=DEFAULT_STUDY_DAYS,
-            )
+    session_slots = _generate_session_slots(
+        total_sessions=total_sessions,
+        hours_per_week=hours_per_week,
+        start_date=start_date,
+        study_days=DEFAULT_STUDY_DAYS,
+    )
 
-            for sess_idx, (s_start, s_end) in enumerate(sessions):
-                session_label = (
-                    f"({sess_idx + 1}/{len(sessions)})" if len(sessions) > 1 else ""
-                )
+    active_indices: list[int] = []
+    waiting_index = 0
+    while len(active_indices) < parallel_tracks and waiting_index < len(skill_queues):
+        active_indices.append(waiting_index)
+        waiting_index += 1
 
-                summary = f"📚 {skill_name} — Step {step_num}: {step_label} {session_label}".strip()
+    events: list[dict] = []
+    round_robin_index = 0
 
-                description_lines = [
-                    f"🎯 Career Goal: {target_career}",
-                    f"📖 Resource: {step_title}",
-                    f"📂 Type: {step_type}",
-                ]
-                if step_url:
-                    description_lines.append(f"🔗 Link: {step_url}")
-                description_lines.append(f"⏱ Total step time: {step.get('est_time', 'N/A')}")
-                description_lines.append(f"\nGenerated by CareerLM Study Planner")
+    for slot_start, slot_end in session_slots:
+        if not active_indices:
+            break
 
-                event = {
-                    "summary": summary,
-                    "description": "\n".join(description_lines),
-                    "start": {
-                        "dateTime": s_start.isoformat(),
-                        "timeZone": timezone,
-                    },
-                    "end": {
-                        "dateTime": s_end.isoformat(),
-                        "timeZone": timezone,
-                    },
-                    "reminders": {
-                        "useDefault": False,
-                        "overrides": [
-                            {"method": "popup", "minutes": 15},
-                        ],
-                    },
-                    "colorId": str((skill_idx % 11) + 1),  # Rotate calendar colours
-                }
-                events.append(event)
+        active_position = round_robin_index % len(active_indices)
+        skill_queue_index = active_indices[active_position]
+        session_payload = skill_queues[skill_queue_index]["sessions"].pop(0)
 
-            # Move cursor past this step's sessions
-            if sessions:
-                cursor_date = sessions[-1][1] + timedelta(days=1)
+        step = session_payload["step"]
+        skill_name = session_payload["skill_name"]
+        step_label = step.get("label", "Study")
+        step_title = step.get("title", "")
+        step_url = step.get("url", "")
+        step_type = step.get("type", "Resource")
+        step_num = step.get("step", "")
+        session_label = (
+            f"({session_payload['session_index']}/{session_payload['session_total']})"
+            if session_payload["session_total"] > 1
+            else ""
+        )
+
+        summary = f"📚 {skill_name} — Step {step_num}: {step_label} {session_label}".strip()
+        description_lines = [
+            f"🎯 Career Goal: {target_career}",
+            f"📖 Resource: {step_title}",
+            f"📂 Type: {step_type}",
+        ]
+        if step_url:
+            description_lines.append(f"🔗 Link: {step_url}")
+        description_lines.append(f"⏱ Total step time: {step.get('est_time', 'N/A')}")
+        description_lines.append(f"\nGenerated by CareerLM Study Planner")
+
+        events.append({
+            "summary": summary,
+            "description": "\n".join(description_lines),
+            "start": {
+                "dateTime": slot_start.isoformat(),
+                "timeZone": timezone,
+            },
+            "end": {
+                "dateTime": slot_end.isoformat(),
+                "timeZone": timezone,
+            },
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "popup", "minutes": 15},
+                ],
+            },
+            "colorId": str((session_payload["skill_idx"] % 11) + 1),
+        })
+
+        if not skill_queues[skill_queue_index]["sessions"]:
+            active_indices.pop(active_position)
+            if waiting_index < len(skill_queues):
+                active_indices.insert(active_position, waiting_index)
+                waiting_index += 1
+            if active_indices:
+                round_robin_index = active_position % len(active_indices)
+        else:
+            round_robin_index = (active_position + 1) % len(active_indices)
 
     return events
 

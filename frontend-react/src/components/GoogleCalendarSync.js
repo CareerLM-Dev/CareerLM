@@ -83,6 +83,7 @@ function GoogleCalendarSync({ targetCareer, disabled }) {
 
   /**
    * Get a Google access token via the Google Identity Services popup.
+   * Uses prompt: '' to reuse existing session and skip account picker when possible.
    */
   const getGoogleAccessToken = useCallback(async () => {
     if (!GOOGLE_CLIENT_ID) {
@@ -107,7 +108,8 @@ function GoogleCalendarSync({ targetCareer, disabled }) {
         },
       });
 
-      client.requestAccessToken();
+      // prompt: '' = reuse session if available, only show picker if needed
+      client.requestAccessToken({ prompt: '' });
     });
   }, [waitForGIS]);
 
