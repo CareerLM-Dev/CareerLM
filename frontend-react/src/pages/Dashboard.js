@@ -1,25 +1,67 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
+import { supabase } from "../api/supabaseClient";
 import Sidebar from "../components/layout/Sidebar";
 import ResumeUpload from "../components/ResumeUpload";
-import ResumeOptimizer from "../components/ResumeOptimizer";
+import ResumeResultsView from "../components/ResumeResultsView";
 import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
 import MockInterview from "../components/MockInterview";
 import ColdEmailGenerator from "../components/ColdEmailGenerator";
 import StudyPlanner from "../components/StudyPlanner";
+import JobMatcher from "../components/JobMatcher";
+import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
+import ResumeEditorPage from "./ResumeEditorPage";
 import { formatText } from "../utils/textFormatter";
+import { AlertCircle } from "lucide-react";
 
 
 function Dashboard() {
   const { session, loading: authLoading } = useUser();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const pathToPage = {
+    "/dashboard": "dashboard",
+    "/dashboard/resume-analyzer": "resume_optimizer",
+    "/dashboard/skill-gap": "skill_gap",
+    "/dashboard/mock-interview": "mock_interview",
+    "/dashboard/cold-email": "cold_email",
+    "/dashboard/study-planner": "study_planner",
+    "/dashboard/job-matcher": "job_matcher",
+    "/dashboard/resume-editor": "resume_editor",
+  };
+
+  const pageToRoute = {
+    dashboard: "/dashboard",
+    resume_optimizer: "/dashboard/resume-analyzer",
+    skill_gap: "/dashboard/skill-gap",
+    mock_interview: "/dashboard/mock-interview",
+    cold_email: "/dashboard/cold-email",
+    study_planner: "/dashboard/study-planner",
+    job_matcher: "/dashboard/job-matcher",
+    resume_editor: "/dashboard/resume-editor",
+  };
+
+  const currentPage = pathToPage[location.pathname] ?? "dashboard";
+  const setCurrentPage = (pageId) => navigate(pageToRoute[pageId] ?? "/dashboard");
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [backendDown, setBackendDown] = useState(false);
+
+  const isBackendError = (error) => {
+    if (!error?.response) {
+      return true;
+    }
+
+    return error.response.status >= 500;
+  };
 
   // Fetch most recent resume data from Supabase
   const fetchLatestResumeData = useCallback(async () => {
@@ -39,6 +81,8 @@ function Dashboard() {
           },
         }
       );
+
+      setBackendDown(false);
 
       const history = response.data.data || [];
 
@@ -67,20 +111,30 @@ function Dashboard() {
         // Transform the data to match the expected format
         const transformedData = {
           ats_score: content.ats_score || mostRecent.ats_score || 0,
-          ats_analysis: content.ats_analysis || {
-            component_scores: {
-              structure_score:
-                content.ats_analysis?.component_scores?.structure_score || 0,
-              content_score:
-                content.ats_analysis?.component_scores?.content_score || 0,
-              formatting_score:
-                content.ats_analysis?.component_scores?.formatting_score || 0,
-              keyword_score:
-                content.ats_analysis?.component_scores?.keyword_score || 0,
-            },
-          },
+          score_zone: content.score_zone || "",
+          structure_score: content.structure_score || 0,
+          completeness_score: content.completeness_score || 0,
+          relevance_score: content.relevance_score || 0,
+          impact_score: content.impact_score || 0,
+          strengths: content.strengths || [],
+          weaknesses: content.weaknesses || [],
+          suggestions: content.suggestions || [],
+          ats_analysis: content.ats_analysis || {},
+          analysis: content.analysis || {},
+          // new top-level fields from optimizer
+          structure_suggestions: content.structure_suggestions || content.analysis?.structure_suggestions || [],
+          keyword_gap_table: content.keyword_gap_table || [],
+          skills_analysis: content.skills_analysis || [],
+          honest_improvements: content.honest_improvements || [],
+          learning_roadmap: content.learning_roadmap || [],
+          learning_priorities: content.learning_priorities || [],
+          job_readiness_estimate: content.job_readiness_estimate || null,
+          overall_readiness: content.overall_readiness || "",
+          ready_skills: content.ready_skills || [],
+          critical_gaps: content.critical_gaps || [],
+          has_job_description: content.has_job_description || false,
+          role_type: content.role_type || "",
           // Keep the full careerAnalysis structure from database for SkillGapAnalyzer
-          // This matches the structure from skill_gap_analyzer.py backend service
           careerAnalysis: content.careerAnalysis || {
             user_skills: content.user_skills || [],
             total_skills_found: content.total_skills_found || 0,
@@ -93,18 +147,19 @@ function Dashboard() {
               skills_to_focus: [],
             },
           },
-          // Extract skills for cold email generator
           skills: content.careerAnalysis?.user_skills || [],
           gaps: content.analysis?.gaps || [],
           alignment_suggestions: content.analysis?.alignment_suggestions || [],
-          jobDescription:
-            content.analysis?.prompt || mostRecent.job_description || "",
+          jobDescription: content.analysis?.prompt || mostRecent.job_description || "",
           filename: mostRecent.filename || detailData.raw_file_path || "Resume",
         };
 
         setResumeData(transformedData);
       }
     } catch (error) {
+      if (isBackendError(error)) {
+        setBackendDown(true);
+      }
       console.error("Failed to fetch resume data from Supabase:", error);
     } finally {
       setLoading(false);
@@ -138,6 +193,8 @@ function Dashboard() {
           }
         );
 
+        setBackendDown(false);
+
         const history = response.data.data || [];
 
         // Extract ATS scores and sort by date
@@ -153,6 +210,9 @@ function Dashboard() {
 
         setScoreHistory(scores);
       } catch (err) {
+        if (isBackendError(err)) {
+          setBackendDown(true);
+        }
         console.error("Error fetching score history:", err);
       }
     };
@@ -160,14 +220,32 @@ function Dashboard() {
     fetchScoreHistory();
   }, [session]);
 
+  // Fetch questionnaire answers so Target Position reflects the user's actual choices
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from("user")
+      .select("questionnaire_answers")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => setUserProfile(data));
+  }, [session]);
+
+  // Format snake_case role keys into readable labels (e.g. "data_scientist" → "Data Scientist")
+  const formatRole = (role) =>
+    role
+      ? role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+      : null;
+
   // Handle resume data update (now data is automatically stored in Supabase by backend)
   const handleResumeDataUpdate = async (data) => {
-    // Update local state for immediate UI feedback
+    // Update local state with the fresh analysis (preserves careerAnalysis from upload)
     setResumeData(data);
-
-    // Fetch fresh data from database to ensure we have the latest
-    // This also refreshes the score history for the chart
-    await fetchLatestResumeData();
+    // Show the Resume Analyzer view directly inside Dashboard (no URL change)
+    setCurrentPage("resume_optimizer");
+    // Note: Do NOT call fetchLatestResumeData() here — it would overwrite careerAnalysis
+    // with empty DB data before the career analysis save completes.
+    // History refreshes automatically when user navigates to the history tab.
   };
 
   // Generate SVG path from score history
@@ -204,10 +282,25 @@ function Dashboard() {
 
   const renderPage = () => {
     switch (currentPage) {
-      case "upload":
-        return <ResumeUpload onResult={handleResumeDataUpdate} />;
+      case "resume_results":
+        return (
+          <ResumeResultsView
+            resumeData={resumeData}
+            onUploadAnother={() => setCurrentPage("resume_optimizer")}
+          />
+        );
       case "resume_optimizer":
-        return <ResumeOptimizer resumeData={resumeData} />;
+        return (
+          <div className="space-y-6">
+            <ResumeUpload onResult={handleResumeDataUpdate} />
+            {resumeData && (
+              <ResumeResultsView
+                resumeData={resumeData}
+                onUploadAnother={() => setCurrentPage("resume_optimizer")}
+              />
+            )}
+          </div>
+        );
       case "skill_gap":
         return <SkillGapAnalyzer resumeData={resumeData} />;
       case "mock_interview":
@@ -216,6 +309,10 @@ function Dashboard() {
         return <ColdEmailGenerator resumeData={resumeData} />;
       case "study_planner":
         return <StudyPlanner resumeData={resumeData} />;
+      case "job_matcher":
+        return <JobMatcher resumeData={resumeData} setCurrentPage={setCurrentPage} />;
+      case "resume_editor":
+        return <ResumeEditorPage />;
       default:
         return (
           <div className="w-full">
@@ -226,6 +323,9 @@ function Dashboard() {
               </div>
             ) : (
               <div className="space-y-3 md:space-y-4">
+                {/* Profile Completion Widget */}
+                <ProfileCompletionWidget />
+
                 {/* Top Row - ATS Score Overview + Score Breakdown */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
                   {/* Main ATS Score - 2 cols */}
@@ -263,11 +363,12 @@ function Dashboard() {
                         <p className="font-semibold text-base">
                           {resumeData?.careerAnalysis?.analysis_summary?.best_match ||
                             resumeData?.careerAnalysis?.top_3_careers?.[0]?.career ||
-                            "Software Engineer"}
+                            formatRole(userProfile?.questionnaire_answers?.target_role?.[0]) ||
+                            "Not set"}
                         </p>
                       </div>
                       <button
-                        onClick={() => setCurrentPage("upload")}
+                        onClick={() => setCurrentPage("resume_optimizer")}
                         className="mt-4 w-full bg-white text-primary px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-white/90 transition-all shadow-md"
                       >
                         {resumeData ? "Upload New Resume" : "Upload Resume"}
@@ -326,7 +427,7 @@ function Dashboard() {
                             <div className="flex items-center justify-between py-2 border-t border-primary/10">
                               <span className="text-xs text-muted-foreground">Keyword Match</span>
                               <span className="text-sm font-semibold text-primary">
-                                {resumeData?.ats_analysis?.component_scores?.keyword_score || 0}%
+                                {resumeData?.ats_analysis?.component_scores?.keyword_score ?? resumeData?.relevance_score ?? 0}%
                               </span>
                             </div>
                             <div className="flex items-center justify-between py-2 border-t border-primary/10">
@@ -366,12 +467,12 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.structure_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.structure_score ?? resumeData?.structure_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.structure_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.structure_score ?? resumeData?.structure_score ?? 0}%</span>
                             </div>
                           </div>
                           <p className="text-xs font-medium text-muted-foreground">Structure</p>
@@ -387,15 +488,15 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.content_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.content_score ?? resumeData?.completeness_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.content_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.content_score ?? resumeData?.completeness_score ?? 0}%</span>
                             </div>
                           </div>
-                          <p className="text-xs font-medium text-muted-foreground">Content</p>
+                          <p className="text-xs font-medium text-muted-foreground">Completeness</p>
                         </div>
                         <div className="flex flex-col items-center">
                           <div className="relative w-16 h-16 mb-2">
@@ -408,15 +509,15 @@ function Dashboard() {
                                 fill="transparent"
                                 stroke="hsl(var(--primary))"
                                 strokeWidth="5"
-                                strokeDasharray={`${(resumeData?.ats_analysis?.component_scores?.formatting_score || 0) * 1.63} 163.4`}
+                                strokeDasharray={`${((resumeData?.ats_analysis?.component_scores?.formatting_score ?? resumeData?.impact_score ?? 0)) * 1.63} 163.4`}
                                 strokeLinecap="round"
                               />
                             </svg>
                             <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.formatting_score || 0}%</span>
+                              <span className="text-sm font-bold">{resumeData?.ats_analysis?.component_scores?.formatting_score ?? resumeData?.impact_score ?? 0}%</span>
                             </div>
                           </div>
-                          <p className="text-xs font-medium text-muted-foreground">Formatting</p>
+                          <p className="text-xs font-medium text-muted-foreground">Impact</p>
                         </div>
                       </div>
                       
@@ -425,7 +526,7 @@ function Dashboard() {
                         <div className="flex justify-between items-center">
                           <span className="text-xs text-muted-foreground">Keywords Match</span>
                           <span className="text-lg font-semibold text-primary">
-                            {resumeData?.ats_analysis?.component_scores?.keyword_score || 0}%
+                            {resumeData?.ats_analysis?.component_scores?.keyword_score ?? resumeData?.relevance_score ?? 0}%
                           </span>
                         </div>
                       </div>
@@ -441,7 +542,8 @@ function Dashboard() {
                           Best Match: <span className="font-semibold text-foreground">
                             {resumeData?.careerAnalysis?.analysis_summary?.best_match ||
                               resumeData?.careerAnalysis?.top_3_careers?.[0]?.career ||
-                              "Software Engineer"}
+                              formatRole(userProfile?.questionnaire_answers?.target_role?.[0]) ||
+                              "Not set"}
                           </span>
                         </p>
                       </div>
@@ -454,7 +556,7 @@ function Dashboard() {
                           <h4 className="text-sm font-semibold text-destructive">Skills to Develop</h4>
                           <span className="text-xs bg-destructive/10 text-destructive px-2 py-1 rounded-full">
                             {resumeData?.careerAnalysis?.top_3_careers?.[0]?.missing_skills?.length || 
-                             resumeData?.gaps?.length || 0} missing
+                            resumeData?.gaps?.length || 0} missing
                           </span>
                         </div>
                         <div className="bg-destructive/5 border border-destructive/20 rounded-lg p-2.5">
@@ -491,7 +593,7 @@ function Dashboard() {
                           <h4 className="text-sm font-semibold text-primary">Your Strengths</h4>
                           <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
                             {resumeData?.careerAnalysis?.top_3_careers?.[0]?.matched_skills?.length || 
-                             resumeData?.alignment_suggestions?.length || 0} matched
+                            resumeData?.alignment_suggestions?.length || 0} matched
                           </span>
                         </div>
                         <div className="bg-primary/5 border border-primary/20 rounded-lg p-2.5">
@@ -515,7 +617,7 @@ function Dashboard() {
                                 <svg className="w-8 h-8 text-muted-foreground/30 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                 </svg>
-                                <span className="text-xs text-muted-foreground">Upload resume to analyze</span>
+                                <span className="text-xs text-muted-foreground">Analyze resume</span>
                               </div>
                             )}
                           </div>
@@ -541,13 +643,21 @@ function Dashboard() {
   return (
     <div className="flex h-full bg-background">
       <Sidebar
-        setCurrentPage={setCurrentPage}
-        currentPage={currentPage}
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
       />
       <main className="flex-1 overflow-auto no-scrollbar transition-all duration-300">
-        <div className="max-w-7xl mx-auto p-4">{renderPage()}</div>
+        <div className="max-w-7xl mx-auto p-4">
+          {backendDown && (
+            <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-xl text-sm flex items-center gap-3 mb-4">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <p>
+                <strong>Unable to reach the server.</strong> Please ensure the backend is running.
+              </p>
+            </div>
+          )}
+          {renderPage()}
+        </div>
       </main>
     </div>
   );

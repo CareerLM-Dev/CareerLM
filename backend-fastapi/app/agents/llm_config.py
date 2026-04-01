@@ -30,19 +30,20 @@ GEMINI_CLIENT = genai.Client(api_key=_gemini_key) if _gemini_key else None
 # LangChain-wrapped LLMs (used by LangGraph agents)
 # ──────────────────────────────────────────────
 
-# ===== RESUME MODULE =====
+# ===== RESUME + COLD EMAIL MODULE =====
 RESUME_LLM = ChatGroq(
     api_key=os.getenv("GROQ_API_KEY"),
     model="llama-3.1-8b-instant",
     temperature=0.7
 )
 
-# ===== COLD EMAIL MODULE =====
-EMAIL_LLM = ChatGroq(
-    api_key=os.getenv("OSS_API_KEY"),
-    model="openai/gpt-oss-20b",
-    temperature=0.9
+# ===== INTERVIEW MODULE =====
+INTERVIEW_LLM = ChatGroq(
+    api_key=os.getenv("GROQ_API_KEY"),
+    model="llama-3.1-8b-instant",
+    temperature=0.7
 )
+# model="llama-3.3-70b-versatile",
 
 # ──────────────────────────────────────────────
 # Model name constants (for services that pass
@@ -57,6 +58,7 @@ __all__ = [
     "GROQ_CLIENT",
     "GEMINI_CLIENT",
     "RESUME_LLM",
+    "INTERVIEW_LLM",
     "EMAIL_LLM",
     "GROQ_DEFAULT_MODEL",
     "GROQ_SKILLGAP_MODEL",

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useUser } from "../context/UserContext";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -9,36 +10,49 @@ import {
   CardHeader,
   CardTitle,
 } from "../components/ui/card";
-import { Alert, AlertDescription } from "../components/ui/alert";
-import { AlertCircle, ArrowLeft, ArrowRight, Check, SkipForward } from "lucide-react";
+import { AlertCircle, ArrowLeft, ArrowRight, Check } from "lucide-react";
 
 
 function Onboarding() {
   const navigate = useNavigate();
   const { userId } = useParams();
+  const { session } = useUser();
+  // phase: "loading" | "questionnaire" | "resume-check"
+  const [phase, setPhase] = useState("loading");
   const [currentStep, setCurrentStep] = useState(1);
+  const [stepDirection, setStepDirection] = useState("forward");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Optional: Check if user has already completed questionnaire
   useEffect(() => {
-    // This could be implemented if needed
-    // For now, we'll just load the questionnaire
-  }, [userId, navigate]);
+    if (!session) return;
+    setPhase("questionnaire");
+  }, [session]);
 
   // Question responses - now arrays for multiple selections
   const [answers, setAnswers] = useState({
+    status: "",
     target_role: [],
-    primary_goal: [],
-    learning_preference: [],
-    time_commitment: [],
   });
 
   const questions = [
     {
       step: 1,
+      title: "Where Are You Right Now?",
+      description: "We will tailor your path based on your current stage",
+      field: "status",
+      type: "select",
+      options: [
+        { value: "exploring", label: "Exploring" },
+        { value: "applying", label: "Applying" },
+        { value: "building", label: "Building Skills" },
+        { value: "interview_upcoming", label: "Interview Upcoming" },
+      ],
+    },
+    {
+      step: 2,
       title: "What's Your Target Role?",
-      description: "Select the career path you're most interested in pursuing",
+      description: "Select the role you're aiming for",
       field: "target_role",
       type: "select",
       options: [
@@ -57,116 +71,60 @@ function Onboarding() {
         { value: "undecided", label: "I'm Still Undecided" },
       ],
     },
-    {
-      step: 2,
-      title: "What's Your Primary Goal?",
-      description: "Help us understand what you want to achieve",
-      field: "primary_goal",
-      type: "select",
-      options: [
-        { value: "get_first_job", label: "Get My First Tech Job" },
-        { value: "switch_careers", label: "Switch to a New Career" },
-        { value: "upskill", label: "Upskill in Current Role" },
-        { value: "freelance", label: "Start Freelancing" },
-        { value: "build_projects", label: "Build Own Projects" },
-        { value: "interview_prep", label: "Prepare for Interviews" },
-        { value: "learn_technology", label: "Learn a Specific Technology" },
-      ],
-    },
-    {
-      step: 3,
-      title: "How Do You Prefer to Learn?",
-      description: "Choose your learning style",
-      field: "learning_preference",
-      type: "select",
-      options: [
-        {
-          value: "video_tutorials",
-          label: "Video Tutorials & Courses",
-        },
-        { value: "hands_on", label: "Hands-On Projects & Coding" },
-        { value: "reading", label: "Reading & Documentation" },
-        { value: "interactive", label: "Interactive Platforms" },
-        { value: "mentor", label: "Mentorship & Guidance" },
-        { value: "mixed", label: "Mix of Everything" },
-      ],
-    },
-    {
-      step: 4,
-      title: "How Much Time Can You Dedicate?",
-      description: "Be realistic about your availability",
-      field: "time_commitment",
-      type: "select",
-      options: [
-        { value: "5_hours_week", label: "5 hours/week" },
-        { value: "10_hours_week", label: "10 hours/week" },
-        { value: "20_hours_week", label: "20 hours/week" },
-        { value: "30_hours_week", label: "30+ hours/week (Full-time)" },
-        { value: "flexible", label: "Flexible/As Available" },
-      ],
-    },
   ];
 
-  const currentQuestion = questions.find((q) => q.step === currentStep);
+  const totalSteps = 2;
+  const currentQuestion = questions.find(
+    (q) => q.step === currentStep
+  );
+  const shouldSkipTargetRole = currentStep === 1 && answers.status === "exploring";
+  const progressPercent = shouldSkipTargetRole
+    ? 100
+    : (currentStep / totalSteps) * 100;
 
   const handleAnswerChange = (value) => {
-    const currentValues = answers[currentQuestion.field];
-    const isSelected = currentValues.includes(value);
+    if (currentQuestion.field === "target_role") {
+      const currentValues = answers.target_role;
+      const isSelected = currentValues.includes(value);
+
+      if (value === "undecided") {
+        setAnswers({
+          ...answers,
+          target_role: isSelected ? [] : ["undecided"],
+        });
+        return;
+      }
+
+      const nextValues = currentValues.filter((v) => v !== "undecided");
+
+      setAnswers({
+        ...answers,
+        target_role: isSelected
+          ? nextValues.filter((v) => v !== value)
+          : [...nextValues, value],
+      });
+      return;
+    }
 
     setAnswers({
       ...answers,
-      [currentQuestion.field]: isSelected
-        ? currentValues.filter((v) => v !== value)
-        : [...currentValues, value],
+      [currentQuestion.field]: value,
     });
-  };
-
-  const handleSkip = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Call backend endpoint to skip questionnaire
-      const response = await fetch(
-        `http://localhost:8000/api/v1/onboarding/skip-questionnaire?user_id=${userId}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-        },
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to skip questionnaire");
-      }
-
-      // Redirect to resume upload
-      navigate("/upload-resume");
-    } catch (err) {
-      console.error("Skip error:", err);
-      setError("Failed to skip. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleNext = () => {
-    if (answers[currentQuestion.field].length === 0) {
-      setError("Please select at least one answer before continuing");
-      return;
-    }
-    setError(null);
-    setCurrentStep(currentStep + 1);
   };
 
   const handlePrevious = () => {
     if (currentStep > 1) {
+      setStepDirection("backward");
       setCurrentStep(currentStep - 1);
       setError(null);
     }
   };
 
   const handleComplete = async () => {
+    if (!answers.status) {
+      setError("Please select an answer before continuing");
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -178,12 +136,11 @@ function Onboarding() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
           },
           body: JSON.stringify({
+            status: answers.status,
             target_role: answers.target_role,
-            primary_goal: answers.primary_goal,
-            learning_preference: answers.learning_preference,
-            time_commitment: answers.time_commitment,
           }),
         },
       );
@@ -192,8 +149,7 @@ function Onboarding() {
         throw new Error("Failed to save questionnaire");
       }
 
-      // Redirect to resume upload
-      navigate("/upload-resume");
+      setPhase("resume-check");
     } catch (err) {
       console.error("Save error:", err);
       setError("Failed to save your answers. Please try again.");
@@ -202,37 +158,161 @@ function Onboarding() {
     }
   };
 
+  const handleNext = () => {
+    if (currentQuestion.field === "target_role") {
+      // Target role is optional; allow continue without selection.
+      setError(null);
+      handleComplete();
+      return;
+    }
+
+    if (!answers[currentQuestion.field]) {
+      setError("Please select an answer before continuing");
+      return;
+    }
+
+    setError(null);
+    if (currentStep === 1) {
+      // If user selected "exploring", skip target_role question
+      if (answers.status === "exploring") {
+        handleComplete();
+        return;
+      }
+      // Otherwise, advance to step 2 (target_role question)
+      setStepDirection("forward");
+      setCurrentStep(2);
+      return;
+    }
+    setStepDirection("forward");
+    setCurrentStep(currentStep + 1);
+  };
+
+  const handleSkipQuestionnaire = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Call backend endpoint to skip questionnaire
+      const response = await fetch(
+        `http://localhost:8000/api/v1/onboarding/skip-questionnaire?user_id=${userId}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to skip questionnaire");
+      }
+
+      // Navigate to skip-complete page
+      navigate(`/skip-complete/${userId}`);
+    } catch (err) {
+      console.error("Skip error:", err);
+      setError("Failed to skip. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Phase renders ─────────────────────────────────────────────────────────
+
+  // Spinner while session loads and we determine OAuth vs email
+  if (phase === "loading") {
+    return (
+      <div className="h-full flex items-center justify-center bg-primary">
+        <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+
+  // Resume check after questionnaire
+  if (phase === "resume-check") {
+    return (
+      <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+        <div className="min-h-full flex items-center justify-center py-4 px-5">
+          <div className="w-full max-w-md">
+            <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+              <CardHeader className="text-center space-y-1 pt-5 pb-3">
+                <CardTitle className="text-2xl font-bold text-primary">
+                  Do you have a resume?
+                </CardTitle>
+                <CardDescription className="text-sm text-muted-foreground">
+                  Just a quick yes or no.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button
+                  onClick={() => {
+                    sessionStorage.setItem("fromOnboarding", "true");
+                    navigate("/dashboard/resume-analyzer");
+                  }}
+                  className="w-full"
+                >
+                  Yes
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/home")}
+                  className="w-full"
+                >
+                  Not yet
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Questionnaire (student path — email students and OAuth students both land here)
   return (
-    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
-      <div className="w-full max-w-2xl">
-        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300">
-          {/* Header */}
-          <CardHeader className="text-center space-y-3">
-            <CardTitle className="text-3xl font-bold text-primary">
-              Let's Get to Know You!
-            </CardTitle>
-            <CardDescription className="text-base text-muted-foreground">
-              Just a few quick questions to personalize your learning experience
-            </CardDescription>
+    <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+      <div className="min-h-full flex items-center justify-center py-4 px-5">
+        <div className="w-full max-w-xl">
+          <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+            {/* Header */}
+            <CardHeader className="text-center space-y-1 pt-5 pb-2">
+              <CardTitle className="text-2xl font-bold text-primary">
+                Let's Get to Know You!
+              </CardTitle>
+              <CardDescription className="text-sm text-muted-foreground">
+                Just a few quick questions to personalize your learning
+                experience
+              </CardDescription>
 
             {/* Progress Bar */}
-            <div className="pt-2 space-y-2">
+            <div className="pt-1 space-y-1">
               <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${(currentStep / 4) * 100}%` }}
-                />
-              </div>
+              style={{ width: `${progressPercent}%` }}
+              />
+            </div>
               <p className="text-sm text-muted-foreground">
-                Question {currentStep} of 4
+                {shouldSkipTargetRole
+                  ? "Questionnaire complete"
+                  : `Question ${currentStep} of ${totalSteps}`}
               </p>
             </div>
           </CardHeader>
 
           {/* Question Content */}
-          <CardContent className="space-y-5">
+          <CardContent
+            key={currentStep}
+            className={`space-y-3 animate-in duration-300 ${
+              stepDirection === "backward"
+                ? "fade-in slide-in-from-left-2"
+                : "fade-in slide-in-from-right-2"
+            }`}
+          >
             <div className="space-y-1">
-              <h2 className="text-xl font-semibold text-foreground">
+              <h2 className="text-lg font-semibold text-foreground">
                 {currentQuestion.title}
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -241,22 +321,22 @@ function Onboarding() {
             </div>
 
             {/* Options */}
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               {currentQuestion.options.map((option) => {
-                const isChecked = answers[currentQuestion.field].includes(
-                  option.value,
-                );
+                const isChecked = currentQuestion.field === "target_role"
+                  ? answers.target_role.includes(option.value)
+                  : answers[currentQuestion.field] === option.value;
                 return (
                   <label
                     key={option.value}
-                    className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-all duration-200 hover:shadow-md ${
                       isChecked
                         ? "border-primary bg-primary/10 shadow-sm"
                         : "border-border bg-background hover:border-primary/40 hover:bg-accent"
                     }`}
                   >
                     <input
-                      type="checkbox"
+                      type={currentQuestion.field === "target_role" ? "checkbox" : "radio"}
                       name={currentQuestion.field}
                       value={option.value}
                       checked={isChecked}
@@ -282,36 +362,33 @@ function Onboarding() {
               })}
             </div>
 
-            {/* Error Message */}
-            {error && (
-              <Alert
-                variant="destructive"
-                className="animate-in fade-in slide-in-from-top-2 duration-300"
-              >
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-          </CardContent>
-
-          {/* Navigation Buttons */}
-          <CardFooter className="flex flex-col gap-3 border-t border-border pt-6">
-            <div className="flex w-full items-center justify-between gap-3">
-              {currentStep > 1 ? (
-                <Button
-                  variant="outline"
-                  onClick={handlePrevious}
-                  disabled={loading}
-                  className="gap-2"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Previous
-                </Button>
-              ) : (
-                <div />
+              {/* Error Message */}
+              {error && (
+                <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md animate-in fade-in slide-in-from-top-2 duration-300">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <p>{error}</p>
+                </div>
               )}
+            </CardContent>
 
-              {currentStep < 4 ? (
+            {/* Navigation Buttons */}
+            <CardFooter className="flex flex-col gap-2 border-t border-border pt-4">
+              <div className="flex w-full items-center justify-between gap-3">
+                {currentStep > 1 ? (
+                  <Button
+                    variant="outline"
+                    onClick={handlePrevious}
+                    disabled={loading}
+                    className="gap-2"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                ) : (
+                  <div />
+                )}
+
+              {currentStep < totalSteps ? (
                 <Button
                   onClick={handleNext}
                   disabled={loading}
@@ -340,21 +417,22 @@ function Onboarding() {
                 </Button>
               )}
             </div>
-
             <Button
               variant="ghost"
-              onClick={handleSkip}
+              onClick={handleSkipQuestionnaire}
               disabled={loading}
-              className="w-full text-muted-foreground hover:text-foreground gap-2"
+              className="w-full text-muted-foreground text-xs"
             >
-              <SkipForward className="h-4 w-4" />
-              {currentStep === 4 ? "Skip Questionnaire" : "Skip for Now"}
+              Skip this for now
             </Button>
           </CardFooter>
         </Card>
       </div>
+      </div>
     </div>
   );
+
 }
+
 
 export default Onboarding;

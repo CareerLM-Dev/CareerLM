@@ -166,6 +166,72 @@ async def get_user_resume_data(user_id: str):
         return None
 
 
+async def get_previously_asked_questions(user_id: str, target_role: str) -> List[str]:
+    """Fetch questions from the most recent interview session for this user/role."""
+    try:
+        normalized_target = (target_role or "").strip()
+        if not normalized_target:
+            return []
+
+        result = supabase.table("interview_sessions")\
+            .select("target_role, interview_report")\
+            .eq("user_id", user_id)\
+            .eq("target_role", normalized_target)\
+            .order("created_at", desc=True)\
+            .limit(1)\
+            .execute()
+
+        if not result.data:
+            return []
+
+        row = result.data[0]
+        interview_report = row.get("interview_report") or {}
+        if isinstance(interview_report, str):
+            try:
+                interview_report = json.loads(interview_report)
+            except Exception:
+                interview_report = {}
+
+        if not isinstance(interview_report, dict):
+            return []
+
+        collected_questions: List[str] = []
+        seen = set()
+
+        questions = interview_report.get("questions") or []
+        if isinstance(questions, list):
+            for item in questions:
+                question_text = ""
+                if isinstance(item, dict):
+                    question_text = str(item.get("question") or "").strip()
+                elif isinstance(item, str):
+                    question_text = item.strip()
+
+                if question_text:
+                    normalized = question_text.lower()
+                    if normalized not in seen:
+                        seen.add(normalized)
+                        collected_questions.append(question_text)
+
+        question_breakdown = interview_report.get("analysis", {}).get("question_breakdown", [])
+        if isinstance(question_breakdown, list):
+            for item in question_breakdown:
+                if not isinstance(item, dict):
+                    continue
+                question_text = str(item.get("question") or "").strip()
+                if question_text:
+                    normalized = question_text.lower()
+                    if normalized not in seen:
+                        seen.add(normalized)
+                        collected_questions.append(question_text)
+
+        return collected_questions
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch previous interview questions: {str(e)}")
+        return []
+
+
 # ============ API Endpoints ============
 
 @router.post("/generate-questions")
@@ -198,6 +264,7 @@ async def generate_questions(
             )
         
         logger.info(f"Generating questions for user {request.user_id}, role: {request.target_role}")
+        previous_questions = await get_previously_asked_questions(request.user_id, request.target_role)
         
         # Generate questions using workflow
         input_state: InterviewState = {
@@ -206,15 +273,23 @@ async def generate_questions(
             "target_role": request.target_role,
             "difficulty": request.difficulty,
             "user_skills": [],
+            "previous_questions": previous_questions,
             "mode": "questions"
         }
         
-        workflow_result = question_generation_workflow.invoke(input_state)
+        workflow_result = await question_generation_workflow.ainvoke(input_state)
         questions = workflow_result.get("questions_generated", [])
+        is_valid = bool(workflow_result.get("is_valid", False))
+        validation_error = workflow_result.get("validation_error", "")
+
+        if not is_valid:
+            raise HTTPException(
+                status_code=500,
+                detail=validation_error or "Question generation validation failed"
+            )
         
         # Validate that questions were actually generated
         if not questions:
-            validation_error = workflow_result.get("validation_error", "Question generation failed")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to generate questions: {validation_error}"
@@ -225,6 +300,12 @@ async def generate_questions(
             "user_id": request.user_id,
             "resume_id": resume_data["resume_id"],
             "target_role": request.target_role,
+            "difficulty": request.difficulty,
+            "interview_report": {
+                "questions": questions,
+                "answers": [],
+                "analysis": {}
+            },
             "status": "in_progress",
             "created_at": datetime.utcnow().isoformat()
         }
@@ -309,7 +390,7 @@ async def generate_feedback(
             "mode": "feedback"
         }
         
-        workflow_result = feedback_generation_workflow.invoke(input_state)
+        workflow_result = await feedback_generation_workflow.ainvoke(input_state)
         workflow_error = workflow_result.get("error")
         feedback_json = workflow_result.get("feedback_json")
 

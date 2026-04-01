@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from supabase_client import supabase
+from app.services.resume_parser import get_parser
 import json
 import logging
 
@@ -13,6 +14,10 @@ logger = logging.getLogger(__name__)
 
 class QuestionnaireUpdate(BaseModel):
     questionnaire_answers: Dict[str, Any]
+
+
+class UserProfileUpdate(BaseModel):
+    user_profile: Dict[str, Any]
 
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Extract user from JWT token"""
@@ -57,8 +62,9 @@ async def get_resume_history(
         result = supabase.table("resume_versions")\
             .select("*, resumes!inner(user_id)")\
             .in_("resume_id", resume_ids)\
-            .order("updated_at", desc=True)\
-            .range(offset, offset + limit - 1)\
+            .order("version_number", desc=True)\
+            .offset(offset)\
+            .limit(limit)\
             .execute()
         
         # Parse and format the data
@@ -79,7 +85,7 @@ async def get_resume_history(
                 "version_number": item["version_number"],
                 "filename": item.get("raw_file_path", "Unknown"),
                 "ats_score": item.get("ats_score"),
-                "created_at": item.get("updated_at"),  # Using updated_at for timestamp
+                "created_at": item.get("created_at") or item.get("updated_at"),
                 "notes": item.get("notes", "")
             }
             
@@ -139,10 +145,7 @@ async def get_history_item(
         # Merge back into a single object for frontend compatibility
         merged_content = {**content}
         if resume_analysis:
-            merged_content["ats_score"] = resume_analysis.get("ats_score")
-            merged_content["ats_analysis"] = resume_analysis.get("ats_analysis")
-            merged_content["analysis"] = resume_analysis.get("analysis")
-            merged_content["agentic_metadata"] = resume_analysis.get("agentic_metadata")
+            merged_content.update(resume_analysis)
         if skill_gap:
             merged_content["careerAnalysis"] = skill_gap
         
@@ -186,20 +189,22 @@ async def get_resume_text(
         if item["resumes"]["user_id"] != user.id:
             raise HTTPException(status_code=403, detail="Access denied")
         
+        parser = get_parser()
+
         # Parse content for sections
         content = json.loads(item["content"]) if isinstance(item["content"], str) else item["content"]
-        sections = content.get("sections", {}) if content else {}
+        sections = parser.sanitize_sections_for_storage(content.get("sections", {}) if content else {})
 
-        # Build a text-only view from stored sections
-        resume_text = "\n\n".join([
-            section_text.strip()
-            for section_text in sections.values()
-            if isinstance(section_text, str) and section_text.strip()
-        ])
+        # Prefer sanitized flattened text if available.
+        resume_text = parser.normalize_for_storage(parser.scrub_contact_pii(content.get("resume_text", "") if content else ""))
 
-        # Fallback to old structure if present
-        if not resume_text and content and "resume_text" in content:
-            resume_text = content["resume_text"]
+        # Fallback for legacy rows without content.resume_text
+        if not resume_text:
+            resume_text = parser.normalize_for_storage(" ".join([
+                section_text.strip()
+                for section_text in sections.values()
+                if isinstance(section_text, str) and section_text.strip()
+            ]))
         
         return {
             "success": True,
@@ -268,7 +273,7 @@ async def get_profile_details(user = Depends(get_current_user)):
     """Get current user profile details stored in the user table."""
     try:
         result = supabase.table("user").select(
-            "id, name, email, status, current_company, questionnaire_answered, questionnaire_answers"
+            "id, name, email, status, current_company, questionnaire_answered, questionnaire_answers, user_profile"
         ).eq("id", user.id).single().execute()
 
         if not result.data:
@@ -312,3 +317,32 @@ async def update_profile_questionnaire(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update questionnaire: {str(e)}")
+
+
+@router.patch("/profile-user-profile")
+async def update_user_profile(
+    payload: UserProfileUpdate,
+    user = Depends(get_current_user)
+):
+    """Update the resume-derived profile sections for the current user."""
+    try:
+        if not isinstance(payload.user_profile, dict):
+            raise HTTPException(status_code=400, detail="Invalid user profile payload")
+
+        update_data = {
+            "user_profile": payload.user_profile
+        }
+
+        result = supabase.table("user").update(update_data).eq("id", user.id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=400, detail="Failed to update user profile")
+
+        return {
+            "success": True,
+            "data": update_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update user profile: {str(e)}")

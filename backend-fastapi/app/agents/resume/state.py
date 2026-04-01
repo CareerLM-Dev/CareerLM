@@ -1,52 +1,72 @@
 # app/agents/resume/state.py
 """
-State definitions for Resume Module (3-agent system)
+State definitions for Resume Module.
+
+3-agent framework aligned to career advisor rubric:
+  Dimension 1: Structure & Formatting
+  Dimension 2: Section Completeness
+  Dimension 3: Keyword & Relevance Alignment
+  Dimension 4: Impact & Specificity
 """
-from typing import TypedDict, List, Dict, Optional, Literal
-
-
-class SkillWithEvidence(TypedDict):
-    """Skill with validation evidence and proficiency level"""
-    skill: str
-    status: Literal["confirmed", "transferable", "missing"]
-    evidence: List[str]  # Where it appears in resume
-    confidence: float  # 0.0 to 1.0
-    current_level: int  # 0-3 (assessed proficiency)
-    required_level: int  # 0-3 (what job needs)
-    gap: int  # required_level - current_level
-    learning_time: str  # "2-3 months" or "0 months" if ready
+from typing import TypedDict, List, Dict, Optional, Any
 
 
 class ResumeState(TypedDict):
-    """Simplified state for 3-agent Resume workflow"""
-    
-    # ===== INPUT =====
+    """State for Resume workflow."""
+
+    # ===== INPUTS =====
     resume_text: str
     job_description: str
     resume_sections: Dict[str, str]
-    
-    # ===== ATS ANALYSIS (Agent 1: Resume Analyzer) =====
-    ats_score: int  # 0-100
-    ats_components: Dict[str, int]  # structure, keywords, content, formatting
-    ats_justification: List[str]  # List of issues found
-    structure_suggestions: List[str]  # What to fix (if ATS < 60)
-    needs_template: bool  # Flag to highlight template suggestion
-    
-    # ===== SKILL INTELLIGENCE (Agent 2: Skill Intelligence) =====
-    skills_analysis: List[SkillWithEvidence]  # Unified: validation + gaps + levels
-    overall_readiness: str  # "65% match" 
-    ready_skills: List[str]  # Skills they have (gap=0)
-    critical_gaps: List[str]  # Skills they MUST learn (severity=critical)
-    learning_priorities: List[Dict]  # Ordered by importance with time estimates
-    
-    # ===== OPTIMIZATION (Agent 3: Optimization Advisor) =====
-    honest_improvements: List[str]  # 3-5 evidence-based suggestions
-    learning_roadmap: List[Dict]  # Priority skills → courses → timeline
-    job_readiness_estimate: str  # "65% now → 85% in 3 months"
-    
+    role_type: Optional[str]        # e.g. "software_engineer", "data_scientist"
+
+    # ===== CONTEXT FLAGS ======
+    has_job_description: bool       # True if a real JD was provided
+
+    # ===== DIMENSION SCORES (0-100 each) =====
+    structure_score: Optional[int]      # Dimension 1
+    completeness_score: Optional[int]   # Dimension 2
+    relevance_score: Optional[int]      # Dimension 3
+    impact_score: Optional[int]         # Dimension 4
+
+    # ===== OVERALL SCORE =====
+    ats_score: Optional[int]            # Weighted composite (kept as "ats_score" for UI compat)
+    score_zone: Optional[str]           # "Needs significant work" | "Good foundation, clear gaps" | "Strong, minor refinements needed"
+    ats_components: Dict[str, Any]      # {structure, completeness, relevance, impact}
+    ats_justification: List[str]        # One line per dimension
+
+    # ===== DIMENSION 1 + 2: STRUCTURE & COMPLETENESS =====
+    structure_suggestions: List[Dict[str, Any]]   # Formatting issues from LLM
+    readability_issues: List[Dict[str, Any]]       # Missing section issues (context-aware)
+    needs_template: Optional[bool]
+
+    # ===== DIMENSION 3: RELEVANCE =====
+    keyword_gap_table: List[Dict[str, Any]]  # [{keyword, status, jd_context, resume_evidence}]
+    skills_analysis: List[Dict[str, Any]]    # [{skill, status, explanation, evidence}]
+    overall_readiness: Optional[str]
+    ready_skills: List[str]
+    critical_gaps: List[str]
+    learning_priorities: List[str]
+    ats_issues: List[Dict[str, Any]]         # Missing keywords (for legacy UI)
+
+    # ===== DIMENSION 4: IMPACT & SPECIFICITY =====
+    honest_improvements: List[Dict[str, Any]]
+    bullet_rewrites: List[Dict[str, Any]]
+    bullet_quality_breakdown: Dict[str, Any]  # {action_verbs, metrics, clarity}
+    human_reader_issues: List[Dict[str, Any]]
+    redundancy_issues: List[Dict[str, Any]]
+    learning_roadmap: List[str]
+    job_readiness_estimate: Optional[str]
+
+    # ===== LEGACY / FRONTEND COMPATIBILITY =====
+    gaps: List[str]
+    alignment_suggestions: List[str]
+
     # ===== CONTROL FLOW =====
-    next_action: Literal["analyze_resume", "analyze_skills", "generate_advice", "complete"]
     completed_steps: List[str]
     iteration_count: int
     max_iterations: int
-    messages: List[str]  # Agent execution log
+    messages: List[str]
+
+    # ===== STATUS =====
+    _status: Optional[str]

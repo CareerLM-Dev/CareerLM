@@ -8,11 +8,12 @@ import {
   PlayCircle,
   CheckCircle,
   AlertCircle,
-  FileText,
   Loader2,
   XCircle
 } from "lucide-react";
 import { supabase } from "../api/supabaseClient";
+import StagePerformanceRadar from "./StagePerformanceRadar";
+import TimeManagementChart from "./TimeManagementChart";
 
 const ROLE_LABELS = {
   "software_engineer": "Software Engineer",
@@ -28,35 +29,6 @@ const ROLE_LABELS = {
   "business_analyst": "Business Analyst",
   "mobile_developer": "Mobile Developer",
   "undecided": "Undecided"
-};
-
-// Markdown renderer
-const renderMarkdown = (text) => {
-  if (!text) return "";
-  
-  let html = text
-    // Headers
-    .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold mt-6 mb-4">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>')
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    // Bullet points
-    .replace(/^- (.*$)/gim, '<li class="ml-4">$1</li>')
-    .replace(/^• (.*$)/gim, '<li class="ml-4">$1</li>')
-    // Horizontal rule
-    .replace(/^---$/gim, '<hr class="my-6 border-border" />')
-    // Line breaks
-    .replace(/\n\n/g, '</p><p class="mb-4">')
-    .replace(/\n/g, '<br />');
-  
-  // Wrap in paragraph tags
-  html = '<p class="mb-4">' + html + '</p>';
-  
-  // Wrap consecutive list items in ul tags
-  html = html.replace(/(<li class="ml-4">.*?<\/li>)+/gs, '<ul class="list-disc mb-4">$&</ul>');
-  
-  return html;
 };
 
 function MockInterview({ resumeData }) {
@@ -77,14 +49,197 @@ function MockInterview({ resumeData }) {
   const [feedback, setFeedback] = useState(null);
   const [questionTimes, setQuestionTimes] = useState([]);
   const [currentQuestionElapsed, setCurrentQuestionElapsed] = useState(0);
+  const [animatedAnsweredCount, setAnimatedAnsweredCount] = useState(0);
+  const [animatedAnsweredRatio, setAnimatedAnsweredRatio] = useState(0);
+  const [animatedAvgTimeSeconds, setAnimatedAvgTimeSeconds] = useState(0);
+  const [animatedDonutProgress, setAnimatedDonutProgress] = useState(0);
   const [error, setError] = useState("");
+  const [warnings, setWarnings] = useState(0);
+  const [isInterviewActive, setIsInterviewActive] = useState(false);
+  const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+  const [pendingWarningCount, setPendingWarningCount] = useState(0);
+  const [isContentObscured, setIsContentObscured] = useState(false);
+  const [answerMetadata, setAnswerMetadata] = useState([]);
+  const [showPasteWarning, setShowPasteWarning] = useState(false);
+  const [liveTypingSpeedCPM, setLiveTypingSpeedCPM] = useState(0);
   
   // Speech API refs
   const recognitionRef = useRef(null);
   const synthRef = useRef(window.speechSynthesis);
   const questionStartRef = useRef(null);
   const questionTimesRef = useRef([]);
+  const metricsAnimationFrameRef = useRef(null);
   const listeningBaseAnswerRef = useRef("");
+  const isInterviewActiveRef = useRef(false);
+  const isTerminationInProgressRef = useRef(false);
+  const terminateInterviewRef = useRef(() => {});
+  const questionTypingCharsRef = useRef(0);
+  const questionTypingStartRef = useRef(null);
+  const pasteDetectedRef = useRef(false);
+  const pasteWarningTimeoutRef = useRef(null);
+
+  const setInterviewActivity = (isActive) => {
+    setIsInterviewActive(isActive);
+    isInterviewActiveRef.current = isActive;
+  };
+
+  const requestFullscreenStrict = async () => {
+    if (document.fullscreenElement) return;
+    if (!document.documentElement.requestFullscreen) {
+      throw new Error("Fullscreen is not supported in this browser.");
+    }
+    await document.documentElement.requestFullscreen();
+  };
+
+  const exitFullscreenIfNeeded = async () => {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      try {
+        await document.exitFullscreen();
+      } catch (error) {
+        console.error("Error exiting fullscreen:", error);
+      }
+    }
+  };
+
+  const endInterview = async () => {
+    stopListening();
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    isTerminationInProgressRef.current = false;
+    setInterviewActivity(false);
+    setWarnings(0);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(false);
+    await exitFullscreenIfNeeded();
+    setSessionState("setup");
+    setQuestions([]);
+    setAnswers([]);
+    setCurrentQuestionIndex(0);
+    setCurrentAnswer("");
+    setFeedback(null);
+    setQuestionTimes([]);
+    setAnswerMetadata([]);
+    questionTimesRef.current = [];
+    questionStartRef.current = null;
+    questionTypingCharsRef.current = 0;
+    questionTypingStartRef.current = null;
+    pasteDetectedRef.current = false;
+    setShowPasteWarning(false);
+    setLiveTypingSpeedCPM(0);
+    setCurrentQuestionElapsed(0);
+    setError("");
+  };
+
+  const resetQuestionBehaviorTracking = () => {
+    questionTypingCharsRef.current = 0;
+    questionTypingStartRef.current = null;
+    pasteDetectedRef.current = false;
+    setShowPasteWarning(false);
+    setLiveTypingSpeedCPM(0);
+  };
+
+  const getTypingSpeedCPM = () => {
+    if (!questionTypingStartRef.current) return 0;
+
+    const elapsedMinutes = (Date.now() - questionTypingStartRef.current) / 60000;
+    if (elapsedMinutes <= 0) return 0;
+
+    return Math.round(questionTypingCharsRef.current / elapsedMinutes);
+  };
+
+  const buildAnswerMeta = (timeTakenSeconds) => ({
+    timeTakenSeconds: Math.max(0, Number(timeTakenSeconds) || 0),
+    pasteDetected: Boolean(pasteDetectedRef.current),
+    typingSpeedCPM: getTypingSpeedCPM(),
+  });
+
+  const handleAnswerKeyDown = (event) => {
+    if (!questionTypingStartRef.current) {
+      questionTypingStartRef.current = Date.now();
+    }
+
+    const key = event.key;
+    const countsAsTypedChar = key.length === 1 || key === "Backspace" || key === "Delete";
+    if (countsAsTypedChar) {
+      questionTypingCharsRef.current += 1;
+      setLiveTypingSpeedCPM(getTypingSpeedCPM());
+    }
+  };
+
+  const handleAnswerPaste = () => {
+    pasteDetectedRef.current = true;
+    setShowPasteWarning(true);
+
+    if (pasteWarningTimeoutRef.current) {
+      clearTimeout(pasteWarningTimeoutRef.current);
+    }
+
+    pasteWarningTimeoutRef.current = setTimeout(() => {
+      setShowPasteWarning(false);
+      pasteWarningTimeoutRef.current = null;
+    }, 2500);
+  };
+
+  const handleReturnToFullscreen = async () => {
+    try {
+      await requestFullscreenStrict();
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+    } catch (error) {
+      console.error("Failed to return to full-screen:", error);
+      setError("Unable to re-enter full-screen mode. Please allow full-screen access.");
+    }
+  };
+
+  const handleStayInNormalMode = () => {
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(true);
+  };
+
+  const terminateInterviewAndSubmitProgress = async () => {
+    if (isTerminationInProgressRef.current) return;
+    isTerminationInProgressRef.current = true;
+
+    stopListening();
+    const updatedTimes = captureCurrentQuestionTime();
+
+    const finalAnswers = Array.from({ length: questions.length }, (_, index) => {
+      const existing = answers[index];
+      return typeof existing === "string" ? existing : "";
+    });
+    const finalMetadata = Array.from({ length: questions.length }, (_, index) => {
+      const existing = answerMetadata[index];
+      return existing && typeof existing === "object"
+        ? existing
+        : { timeTakenSeconds: 0, pasteDetected: false, typingSpeedCPM: 0 };
+    });
+
+    if (currentQuestionIndex < finalAnswers.length) {
+      const currentValue = (currentAnswer || "").trim();
+      if (currentValue) {
+        finalAnswers[currentQuestionIndex] = currentValue;
+      } else if (!finalAnswers[currentQuestionIndex]) {
+        finalAnswers[currentQuestionIndex] = "[Skipped]";
+      }
+      finalMetadata[currentQuestionIndex] = buildAnswerMeta(Number(updatedTimes[currentQuestionIndex]) || 0);
+    }
+
+    setAnswers(finalAnswers);
+    setAnswerMetadata(finalMetadata);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(true);
+    setInterviewActivity(false);
+    setError("");
+
+    await generateFeedback(finalAnswers, finalMetadata);
+  };
+
+  terminateInterviewRef.current = terminateInterviewAndSubmitProgress;
   
   // Fetch user's saved roles on mount
   useEffect(() => {
@@ -101,12 +256,25 @@ function MockInterview({ resumeData }) {
         
         if (response.ok) {
           const data = await response.json();
+          console.log("Profile data:", data); // Debug log
           const questionnaire = data.data?.questionnaire_answers;
-          if (questionnaire?.target_role && Array.isArray(questionnaire.target_role)) {
-            setSavedRoles(questionnaire.target_role);
-            // Pre-select first role if available
-            if (questionnaire.target_role.length > 0) {
-              const firstRole = questionnaire.target_role[0];
+          console.log("Questionnaire answers:", questionnaire); // Debug log
+          
+          if (questionnaire?.target_role) {
+            // Handle both array and single value
+            let roles = [];
+            if (Array.isArray(questionnaire.target_role)) {
+              roles = questionnaire.target_role.filter(r => r && r.trim());
+            } else if (typeof questionnaire.target_role === 'string' && questionnaire.target_role.trim()) {
+              roles = [questionnaire.target_role.trim()];
+            }
+            
+            console.log("Processed roles:", roles); // Debug log
+            
+            if (roles.length > 0) {
+              setSavedRoles(roles);
+              // Pre-select first role if available
+              const firstRole = roles[0];
               setSelectedRoleOption(firstRole);
               setTargetRole(ROLE_LABELS[firstRole] || firstRole);
             }
@@ -173,11 +341,58 @@ function MockInterview({ resumeData }) {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pasteWarningTimeoutRef.current) {
+        clearTimeout(pasteWarningTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        setIsContentObscured(false);
+        setIsWarningModalOpen(false);
+        setPendingWarningCount(0);
+        return;
+      }
+
+      if (!document.fullscreenElement && isInterviewActiveRef.current) {
+        setWarnings((prev) => prev + 1);
+      }
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isInterviewActive || warnings <= 0) return;
+
+    if (warnings === 1 || warnings === 2) {
+      setPendingWarningCount(warnings);
+      setIsWarningModalOpen(true);
+      return;
+    }
+
+    if (warnings === 3) {
+      window.alert("Interview Terminated: You exited full-screen mode 3 times.");
+      terminateInterviewRef.current();
+    }
+  }, [warnings, isInterviewActive]);
+
   // Load saved answer when question index changes
   useEffect(() => {
     if (sessionState === "interview" && answers.length > 0) {
       // Load the saved answer for this question
       setCurrentAnswer(answers[currentQuestionIndex] || "");
+    }
+    if (sessionState === "interview") {
+      resetQuestionBehaviorTracking();
     }
   }, [currentQuestionIndex, sessionState, answers]);
 
@@ -195,6 +410,53 @@ function MockInterview({ resumeData }) {
 
     return () => clearInterval(timer);
   }, [sessionState, currentQuestionIndex, questions.length]);
+
+  useEffect(() => {
+    if (metricsAnimationFrameRef.current) {
+      cancelAnimationFrame(metricsAnimationFrameRef.current);
+      metricsAnimationFrameRef.current = null;
+    }
+
+    if (sessionState !== "completed") {
+      setAnimatedAnsweredCount(0);
+      setAnimatedAnsweredRatio(0);
+      setAnimatedAvgTimeSeconds(0);
+      setAnimatedDonutProgress(0);
+      return;
+    }
+
+    const answeredCount = answers?.filter((answer) => answer && answer !== "[Skipped]").length || 0;
+    const totalQuestionsCount = Math.max(questions?.length || 0, 1);
+    const answeredRatioTarget = answeredCount / totalQuestionsCount;
+    const totalTime = (questionTimes || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+    const avgTimeTarget = (questions?.length || 0) > 0 ? Math.round(totalTime / questions.length) : 0;
+
+    const duration = 900;
+    const start = performance.now();
+
+    const animate = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setAnimatedAnsweredCount(Math.round(answeredCount * eased));
+      setAnimatedAnsweredRatio(answeredRatioTarget * eased);
+      setAnimatedAvgTimeSeconds(Math.round(avgTimeTarget * eased));
+      setAnimatedDonutProgress(eased);
+
+      if (progress < 1) {
+        metricsAnimationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    metricsAnimationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (metricsAnimationFrameRef.current) {
+        cancelAnimationFrame(metricsAnimationFrameRef.current);
+        metricsAnimationFrameRef.current = null;
+      }
+    };
+  }, [sessionState, answers, questions.length, questionTimes]);
 
   const formatDuration = (seconds) => {
     const totalSeconds = Math.max(0, Number(seconds) || 0);
@@ -305,6 +567,14 @@ function MockInterview({ resumeData }) {
     setError("");
     
     try {
+      await requestFullscreenStrict();
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(true);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error("Not authenticated");
@@ -344,10 +614,12 @@ function MockInterview({ resumeData }) {
 
       setQuestions(sanitizedQuestions);
       setAnswers(new Array(sanitizedQuestions.length).fill(""));
+      setAnswerMetadata(new Array(sanitizedQuestions.length).fill({ timeTakenSeconds: 0, pasteDetected: false, typingSpeedCPM: 0 }));
       const initialQuestionTimes = new Array(sanitizedQuestions.length).fill(0);
       setQuestionTimes(initialQuestionTimes);
       questionTimesRef.current = initialQuestionTimes;
       questionStartRef.current = Date.now();
+      resetQuestionBehaviorTracking();
       setCurrentQuestionIndex(0);
       setActiveRole(finalRole); // Store the role being used
       setSessionState("interview");
@@ -357,6 +629,13 @@ function MockInterview({ resumeData }) {
       
     } catch (err) {
       console.error("Error generating questions:", err);
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(false);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+      await exitFullscreenIfNeeded();
       setError(err.message);
       setSessionState("setup");
     }
@@ -365,12 +644,16 @@ function MockInterview({ resumeData }) {
   // Submit current answer and move to next question
   const submitAnswer = async () => {
     stopListening();
-    captureCurrentQuestionTime();
+    const updatedTimes = captureCurrentQuestionTime();
+    const currentTimeTaken = Number(updatedTimes[currentQuestionIndex]) || 0;
     
     // Save current answer
     const newAnswers = [...answers];
     newAnswers[currentQuestionIndex] = currentAnswer;
     setAnswers(newAnswers);
+    const newAnswerMetadata = [...answerMetadata];
+    newAnswerMetadata[currentQuestionIndex] = buildAnswerMeta(currentTimeTaken);
+    setAnswerMetadata(newAnswerMetadata);
     
     // Check if more questions remain
     if (currentQuestionIndex < questions.length - 1) {
@@ -385,19 +668,23 @@ function MockInterview({ resumeData }) {
       }
     } else {
       // All questions answered - generate feedback
-      await generateFeedback(newAnswers);
+      await generateFeedback(newAnswers, newAnswerMetadata);
     }
   };
   
   // Skip current question
   const skipQuestion = async () => {
     stopListening();
-    captureCurrentQuestionTime();
+    const updatedTimes = captureCurrentQuestionTime();
+    const currentTimeTaken = Number(updatedTimes[currentQuestionIndex]) || 0;
     
     // Save empty answer
     const newAnswers = [...answers];
     newAnswers[currentQuestionIndex] = currentAnswer || "[Skipped]";
     setAnswers(newAnswers);
+    const newAnswerMetadata = [...answerMetadata];
+    newAnswerMetadata[currentQuestionIndex] = buildAnswerMeta(currentTimeTaken);
+    setAnswerMetadata(newAnswerMetadata);
     
     if (currentQuestionIndex < questions.length - 1) {
       const nextIndex = currentQuestionIndex + 1;
@@ -407,7 +694,7 @@ function MockInterview({ resumeData }) {
         await speakText(questions[nextIndex].question);
       }
     } else {
-      await generateFeedback(newAnswers);
+      await generateFeedback(newAnswers, newAnswerMetadata);
     }
   };
   
@@ -435,26 +722,12 @@ function MockInterview({ resumeData }) {
   // };
   
   // Quit interview and return to setup
-  const quitInterview = () => {
-    stopListening();
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setSessionState("setup");
-    setQuestions([]);
-    setAnswers([]);
-    setCurrentQuestionIndex(0);
-    setCurrentAnswer("");
-    setFeedback(null);
-    setQuestionTimes([]);
-    questionTimesRef.current = [];
-    questionStartRef.current = null;
-    setCurrentQuestionElapsed(0);
-    setError("");
+  const quitInterview = async () => {
+    await endInterview();
   };
   
   // Generate feedback report
-  const generateFeedback = async (finalAnswers) => {
+  const generateFeedback = async (finalAnswers, finalAnswerMetadata = answerMetadata) => {
     setSessionState("loading");
     
     try {
@@ -473,7 +746,8 @@ function MockInterview({ resumeData }) {
           user_id: session.user.id,
           target_role: activeRole, // Use the stored active role
           questions: questions,
-          answers: finalAnswers
+          answers: finalAnswers,
+          answer_metadata: finalAnswerMetadata
         })
       });
       
@@ -489,10 +763,18 @@ function MockInterview({ resumeData }) {
       }
 
       setFeedback(typeof data.feedback === 'string' ? JSON.parse(data.feedback) : data.feedback);
+      isTerminationInProgressRef.current = false;
+      setInterviewActivity(false);
+      setWarnings(0);
+      setIsWarningModalOpen(false);
+      setPendingWarningCount(0);
+      setIsContentObscured(false);
+      await exitFullscreenIfNeeded();
       setSessionState("completed");
       
     } catch (err) {
       console.error("Error generating feedback:", err);
+      isTerminationInProgressRef.current = false;
       setError(err.message);
       setSessionState("interview");
     }
@@ -500,6 +782,13 @@ function MockInterview({ resumeData }) {
   
   // Restart interview
   const restartInterview = () => {
+    isTerminationInProgressRef.current = false;
+    setInterviewActivity(false);
+    setWarnings(0);
+    setIsWarningModalOpen(false);
+    setPendingWarningCount(0);
+    setIsContentObscured(false);
+    exitFullscreenIfNeeded();
     setSessionState("setup");
     setTargetRole("");
     setSelectedRoleOption("");
@@ -508,6 +797,7 @@ function MockInterview({ resumeData }) {
     setDifficulty("medium");
     setQuestions([]);
     setAnswers([]);
+    setAnswerMetadata([]);
     setCurrentQuestionIndex(0);
     setCurrentAnswer("");
     setFeedback(null);
@@ -706,7 +996,22 @@ function MockInterview({ resumeData }) {
     const progress = ((currentQuestionIndex + 1) / questionCount) * 100;
     
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="relative max-w-4xl mx-auto">
+        <div
+          className={`space-y-6 ${isContentObscured ? "pointer-events-none select-none" : ""}`}
+          style={isContentObscured ? { filter: "blur(14px)" } : undefined}
+        >
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <div className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Session Integrity Monitoring Active: time spent, typing speed (CPM), and clipboard activity are tracked.
+          </div>
+          {showPasteWarning && (
+            <div className="mt-2 text-sm font-medium text-destructive">
+              ⚠️ Paste action detected and recorded.
+            </div>
+          )}
+        </div>
+
         {/* Progress bar */}
         <div className="bg-card border border-border rounded-lg p-4">
           <div className="flex justify-between items-center mb-2">
@@ -750,9 +1055,12 @@ function MockInterview({ resumeData }) {
           <textarea
             value={currentAnswer}
             onChange={(e) => setCurrentAnswer(e.target.value)}
+            onKeyDown={handleAnswerKeyDown}
+            onPaste={handleAnswerPaste}
             placeholder="Speak or type your answer here..."
             className="w-full px-4 py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary min-h-[120px]"
           />
+          <div className="mt-2 text-xs text-muted-foreground">Live typing speed: {liveTypingSpeedCPM} CPM</div>
           
           <div className="flex items-center gap-3 mt-4">
             <button
@@ -802,7 +1110,8 @@ function MockInterview({ resumeData }) {
             
             <button
               onClick={skipQuestion}
-              className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+              disabled={currentAnswer.trim().length > 0}
+              className="px-6 py-3 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {currentQuestionIndex < questions.length - 1 ? 'Skip' : 'Skip & Submit'}
             </button>
@@ -823,6 +1132,41 @@ function MockInterview({ resumeData }) {
         {error && (
           <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
             {error}
+          </div>
+        )}
+        </div>
+
+        {isContentObscured && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85">
+            <button
+              onClick={handleReturnToFullscreen}
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary/90 transition-colors"
+            >
+              Return to Full-Screen to Resume
+            </button>
+          </div>
+        )}
+
+        {isWarningModalOpen && (
+          <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-md bg-card border border-border rounded-xl p-6 shadow-xl">
+              <h4 className="text-lg font-semibold mb-2">Warning {pendingWarningCount}/3</h4>
+              <p className="text-sm text-muted-foreground mb-6">Return to full-screen mode?</p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={handleStayInNormalMode}
+                  className="px-4 py-2 bg-muted text-muted-foreground rounded-lg font-medium hover:bg-muted/80 transition-colors"
+                >
+                  No
+                </button>
+                <button
+                  onClick={handleReturnToFullscreen}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors"
+                >
+                  Yes
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -862,29 +1206,59 @@ function MockInterview({ resumeData }) {
     };
     
     const metrics = parseMetrics(feedback);
-    
-    // Helper to get color for readiness level
-    const getReadinessColor = (level) => {
-      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      switch(level.toLowerCase()) {
-        case 'interview ready': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
-        case 'nearly ready': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
-        case 'needs practice': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
-        case 'early stage': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
-        default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      }
+    const timingCount = Math.max(questions.length, questionTimes.length);
+    const calculatedTimingArray = Array.from({ length: timingCount }, (_, index) => ({
+      question: `Q${index + 1}`,
+      timeInSeconds: Number(questionTimes?.[index]) || 0,
+      fullQuestion: questions?.[index]?.question || "",
+    }));
+
+    const getActualAnswerByIndex = (index) => {
+      const answer = String(answers?.[index] || "").trim();
+      return answer || "[No answer provided]";
+    };
+
+    const downloadQuestionBreakdown = () => {
+      const breakdown = feedback?.question_breakdown || [];
+      const lines = [
+        `Question-by-Question Breakdown`,
+        `Role: ${activeRole || "N/A"}`,
+        `Difficulty: ${difficulty || "N/A"}`,
+        `Generated At: ${new Date().toLocaleString()}`,
+        ""
+      ];
+
+      breakdown.forEach((item, idx) => {
+        const rawQuestionText = String(item?.question || "").trim();
+        const normalizedQuestionText = rawQuestionText.replace(/^q\d+\s*[:.)-]?\s*/i, "");
+        const questionText = normalizedQuestionText || `Question ${idx + 1}`;
+        const userAnswer = getActualAnswerByIndex(idx);
+        const improvementNeeded = item?.improvement_needed
+          ? String(item.improvement_needed)
+          : "None";
+        const idealAnswer = String(item?.ideal_golden_answer || "N/A");
+
+        lines.push(`Q${idx + 1}: ${questionText}`);
+        lines.push(`Your Answer: ${userAnswer}`);
+        lines.push(`Improvement Needed: ${improvementNeeded}`);
+        lines.push(`Ideal Answer: ${idealAnswer}`);
+        lines.push("");
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `question-breakdown-${Date.now()}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
     };
     
-    // Helper to get color for stage performance
-    const getStageColor = (level) => {
-      if (!level) return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      switch(level.toLowerCase()) {
-        case 'strong': return 'bg-gradient-to-r from-green-600 to-green-500 text-white';
-        case 'solid': return 'bg-gradient-to-r from-green-500 to-green-400 text-white';
-        case 'growing': return 'bg-gradient-to-r from-yellow-500 to-yellow-400 text-white';
-        case 'needs work': return 'bg-gradient-to-r from-blue-500 to-blue-400 text-white';
-        default: return 'bg-gradient-to-r from-gray-600 to-gray-500 text-white';
-      }
+    // Helper to get color for readiness level
+    const getReadinessColor = (_level) => {
+      return "";
     };
     
     return (
@@ -925,96 +1299,102 @@ function MockInterview({ resumeData }) {
               </h3>
             </div>
             
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Questions Answered Chart */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Questions Completion</h4>
-                <div className="flex items-center justify-center gap-6">
-                  {/* Pie Chart Visual */}
-                  <div className="relative w-36 h-36">
-                    <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
-                      {/* Background circle */}
-                      <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
-                      {/* Answered arc */}
-                      <circle 
-                        cx="50" 
-                        cy="50" 
-                        r="40" 
-                        fill="none" 
-                        strokeWidth="20"
-                        className="text-green-500"
-                        stroke="currentColor"
-                        strokeDasharray={`${(metrics.answered / metrics.totalQuestions) * 251.2} 251.2`}
-                        strokeLinecap="round"
-                      />
-                      {/* Skipped arc (if any) */}
-                      {metrics.skipped > 0 && (
-                        <circle 
-                          cx="50" 
-                          cy="50" 
-                          r="40" 
-                          fill="none" 
+            <div className="p-6 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Questions Completion</h4>
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="relative w-36 h-36 transition-transform duration-300 hover:scale-105">
+                      <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="none"
                           strokeWidth="20"
-                          className="text-red-500"
+                          className="text-green-500"
                           stroke="currentColor"
-                          strokeDasharray={`${(metrics.skipped / metrics.totalQuestions) * 251.2} 251.2`}
-                          strokeDashoffset={`-${(metrics.answered / metrics.totalQuestions) * 251.2}`}
+                          strokeDasharray={`${animatedAnsweredRatio * 251.2} 251.2`}
                           strokeLinecap="round"
                         />
-                      )}
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-3xl font-bold text-foreground">{metrics.answered}</span>
-                      <span className="text-sm text-muted-foreground">of {metrics.totalQuestions}</span>
+                        {metrics.skipped > 0 && (
+                          <circle
+                            cx="50"
+                            cy="50"
+                            r="40"
+                            fill="none"
+                            strokeWidth="20"
+                            className="text-red-500"
+                            stroke="currentColor"
+                            strokeDasharray={`${(metrics.skipped / metrics.totalQuestions) * 251.2 * animatedDonutProgress} 251.2`}
+                            strokeDashoffset={`-${animatedAnsweredRatio * 251.2}`}
+                            strokeLinecap="round"
+                          />
+                        )}
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-bold text-foreground">{animatedAnsweredCount}</span>
+                        <span className="text-sm text-muted-foreground">of {metrics.totalQuestions}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold">Answered</div>
+                      <div className="text-xs text-muted-foreground">{metrics.answered} questions</div>
                     </div>
                   </div>
-                  {/* Legend */}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-5 h-5 bg-green-500 rounded shadow-sm"></div>
-                      <div>
-                        <div className="text-sm font-semibold">Answered</div>
-                        <div className="text-xs text-muted-foreground">{metrics.answered} questions</div>
+                </div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
+                  <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Average Time</h4>
+                  <div className="flex items-center justify-center gap-6">
+                    <div className="relative w-36 h-36 transition-transform duration-300 hover:scale-105">
+                      <svg viewBox="0 0 100 100" className="transform -rotate-90 drop-shadow-md">
+                        <circle cx="50" cy="50" r="40" fill="none" stroke="currentColor" strokeWidth="20" className="text-muted/30"/>
+                        <circle
+                          cx="50"
+                          cy="50"
+                          r="40"
+                          fill="none"
+                          strokeWidth="20"
+                          className="text-blue-500"
+                          stroke="currentColor"
+                          strokeDasharray={`${251.2 * animatedDonutProgress} 251.2`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-xl font-bold text-foreground">{formatDuration(animatedAvgTimeSeconds)}</span>
+                        <span className="text-xs text-muted-foreground">avg</span>
                       </div>
                     </div>
-                    {metrics.skipped > 0 && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-5 h-5 bg-red-500 rounded shadow-sm"></div>
-                        <div>
-                          <div className="text-sm font-semibold">Skipped</div>
-                          <div className="text-xs text-muted-foreground">{metrics.skipped} questions</div>
-                        </div>
-                      </div>
-                    )}
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold">Average Time</div>
+                      <div className="text-xs text-muted-foreground">per question</div>
+                    </div>
                   </div>
                 </div>
               </div>
-              
-              {/* Overall Readiness */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Overall Readiness</h4>
-                <div className="flex items-center justify-center h-24">
-                  <div className={`px-10 py-4 rounded-xl font-bold text-xl shadow-lg transform hover:scale-105 transition-transform ${getReadinessColor(metrics.overallReadiness)}`}>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Overall Readiness</div>
+                  <div className={`px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40 ${getReadinessColor(metrics.overallReadiness)}`}>
                     {metrics.overallReadiness.toUpperCase()}
                   </div>
                 </div>
-              </div>
-              
-              {/* Confidence & Communication */}
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-6 border border-border shadow-sm hover:shadow-md transition-shadow">
-                <h4 className="font-semibold text-sm text-muted-foreground mb-4 uppercase tracking-wide">Confidence & Communication</h4>
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Confidence Tone</div>
-                    <div className="text-lg font-semibold">{metrics.confidenceTone}</div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Confidence Score</div>
+                  <div className="px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40">
+                    {metrics.confidenceTone.toUpperCase()}
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Verbosity</div>
-                    <div className="text-lg font-semibold">{metrics.verbosity}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">Average Time / Question</div>
-                    <div className="text-lg font-semibold">{formatDuration(metrics.averageTimeSeconds)}</div>
+                </div>
+
+                <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border shadow-sm">
+                  <div className="text-xs text-muted-foreground mb-2 uppercase tracking-wide">Verbosity</div>
+                  <div className="px-3 py-2 rounded-lg font-bold text-sm text-center bg-primary text-primary-foreground border border-primary/40">
+                    {metrics.verbosity.toUpperCase()}
                   </div>
                 </div>
               </div>
@@ -1022,122 +1402,83 @@ function MockInterview({ resumeData }) {
           </div>
         )}
 
-        {/* Stage Performance Breakdown */}
-        {feedback?.stage_performance && (
-          <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
-            <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
-              <h3 className="text-xl font-bold flex items-center gap-3">
-                <span className="text-2xl">📊</span>
-                <span>Stage Performance</span>
-              </h3>
-            </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Resume Validation</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.resume_validation)}`}>
-                  {feedback.stage_performance.resume_validation}
+        <StagePerformanceRadar stagePerformance={feedback?.stage_performance} />
+
+        <TimeManagementChart timingData={calculatedTimingArray} />
+
+        {feedback?.action_plan && (
+          <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <h4 className="text-lg font-semibold mb-4 text-primary">Action Plan</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {feedback.action_plan.stop_doing?.length > 0 && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-red-700 dark:text-red-400 mb-2">Stop Doing</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.stop_doing.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Project Deep Dive</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.project_deep_dive)}`}>
-                  {feedback.stage_performance.project_deep_dive}
+              )}
+
+              {feedback.action_plan.start_doing?.length > 0 && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">Start Doing</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.start_doing.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Core Technical</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.core_technical)}`}>
-                  {feedback.stage_performance.core_technical}
+              )}
+
+              {feedback.action_plan.study_focus?.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-amber-700 dark:text-amber-400 mb-2">Study Focus</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.study_focus.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
-              <div className="bg-gradient-to-br from-background to-muted/30 rounded-lg p-4 border border-border">
-                <div className="text-xs text-muted-foreground mb-2">Behavioral</div>
-                <div className={`px-4 py-2 rounded-lg font-bold text-center ${getStageColor(feedback.stage_performance.behavioral)}`}>
-                  {feedback.stage_performance.behavioral}
+              )}
+
+              {feedback.action_plan.next_steps?.length > 0 && (
+                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                  <h5 className="font-semibold text-purple-700 dark:text-purple-400 mb-2">Next Steps</h5>
+                  <ul className="space-y-1">
+                    {feedback.action_plan.next_steps.map((item, idx) => (
+                      <li key={idx} className="text-sm text-foreground">• {item}</li>
+                    ))}
+                  </ul>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         )}
-        
-        {/* Executive Summary & Action Plan */}
-        <div className="bg-card border border-border rounded-xl shadow-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-primary/10 to-blue-500/10 px-6 py-4 border-b border-border">
-            <h3 className="text-xl font-bold flex items-center gap-3">
-              <FileText className="w-6 h-6 text-primary" />
-              <span>Detailed Feedback</span>
-            </h3>
-          </div>
-          <div className="p-8 space-y-6">
-            {/* Executive Summary */}
-            {feedback?.executive_summary && (
-              <div>
-                <h4 className="text-lg font-semibold mb-3 text-primary">Executive Summary</h4>
-                <p className="text-foreground leading-relaxed">{feedback.executive_summary}</p>
-              </div>
-            )}
-            
-            {/* Action Plan */}
-            {feedback?.action_plan && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                {feedback.action_plan.stop_doing?.length > 0 && (
-                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-red-700 dark:text-red-400 mb-2">🛑 Stop Doing</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.stop_doing.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.start_doing?.length > 0 && (
-                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-green-700 dark:text-green-400 mb-2">✅ Start Doing</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.start_doing.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.study_focus?.length > 0 && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-blue-700 dark:text-blue-400 mb-2">📚 Study Focus</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.study_focus.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                
-                {feedback.action_plan.next_steps?.length > 0 && (
-                  <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
-                    <h5 className="font-semibold text-purple-700 dark:text-purple-400 mb-2">🎯 Next Steps</h5>
-                    <ul className="space-y-1">
-                      {feedback.action_plan.next_steps.map((item, idx) => (
-                        <li key={idx} className="text-sm text-foreground">• {item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
             
             {/* Question Breakdown */}
             {feedback?.question_breakdown?.length > 0 && (
               <div className="mt-8">
-                <h4 className="text-lg font-semibold mb-4 text-primary">Question-by-Question Breakdown</h4>
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <h4 className="text-lg font-semibold text-primary">Question-by-Question Breakdown</h4>
+                  <button
+                    onClick={downloadQuestionBreakdown}
+                    className="px-3 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+                  >
+                    Download Breakdown
+                  </button>
+                </div>
                 <div className="space-y-4">
                   {feedback.question_breakdown.map((item, idx) => (
                     <div key={idx} className="bg-muted/50 border border-border rounded-lg p-4">
                       <div className="font-semibold text-sm text-primary mb-2">
-                        Q{idx + 1}: {item.question}
+                        {/^(q\d+\b)/i.test(String(item.question || "").trim())
+                          ? String(item.question || "")
+                          : `Q${idx + 1}: ${item.question}`}
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
-                        <strong>Your Answer:</strong> {item.user_answer_summary}
+                        <strong>Your Answer:</strong> {getActualAnswerByIndex(idx)}
                       </div>
                       {item.improvement_needed && (
                         <div className="text-xs text-yellow-700 dark:text-yellow-400 mb-2">
@@ -1152,8 +1493,6 @@ function MockInterview({ resumeData }) {
                 </div>
               </div>
             )}
-          </div>
-        </div>
       </div>
     );
   }

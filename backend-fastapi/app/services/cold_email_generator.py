@@ -20,7 +20,11 @@ async def generate_cold_email(
     resume_text: Optional[str] = None,
     projects_section: Optional[str] = None,
     template_subject: Optional[str] = None,
-    template_body: Optional[str] = None
+    template_body: Optional[str] = None,
+    outreach_type: Optional[str] = "general",
+    tone: Optional[str] = "professional",
+    format_type: Optional[str] = "email",
+    form_data: Optional[Dict] = None
 ) -> Dict:
     """
     Generate a personalized cold email using actual resume content
@@ -34,6 +38,12 @@ async def generate_cold_email(
         user_experience: Optional brief experience summary
         resume_text: Optional full resume text content
         projects_section: Optional parsed projects section from resume
+        template_subject: Optional template subject for regeneration
+        template_body: Optional template body for regeneration
+        outreach_type: Type of outreach (referral, recruiter, alumni, internship, general)
+        tone: Email tone (professional or casual)
+        format_type: Format type (email or message)
+        form_data: Additional form data specific to outreach type
         
     Returns:
         Dictionary with subject, body, and metadata
@@ -52,6 +62,10 @@ async def generate_cold_email(
             "projects_section": projects_section,
             "template_subject": template_subject,
             "template_body": template_body,
+            "outreach_type": outreach_type,
+            "tone": tone,
+            "format_type": format_type,
+            "form_data": form_data or {},
             "email_subject": None,
             "email_body": None,
             "personalization_notes": None,
@@ -59,8 +73,8 @@ async def generate_cold_email(
         }
         
         # Run workflow
-        logger.info(f"Generating cold email for {target_role} at {target_company}")
-        result = cold_email_workflow.invoke(initial_state)
+        logger.info(f"Generating {outreach_type} cold {format_type} ({tone} tone) for {target_role} at {target_company}")
+        result = await cold_email_workflow.ainvoke(initial_state)
         
         if result.get("error"):
             return {

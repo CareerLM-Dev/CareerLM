@@ -6,7 +6,6 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
-import { Alert, AlertDescription } from "../components/ui/alert";
 import { AlertCircle, Github } from "lucide-react";
 
 function Auth({ onLoginSuccess, onRegisterSuccess }) {
@@ -15,8 +14,6 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [status, setStatus] = useState("student");
-  const [currentCompany, setCurrentCompany] = useState("");
   const [error, setError] = useState(null);
 
   const navigate = useNavigate();
@@ -56,7 +53,21 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
         console.log("Login successful:", data);
         onLoginSuccess && onLoginSuccess(data);
-        navigate("/dashboard");
+
+        // Check whether this user has completed onboarding.
+        // Matches the same logic used in AuthCallback for OAuth logins.
+        const { data: userRow } = await supabase
+          .from("user")
+          .select("questionnaire_answered")
+          .eq("id", data.user.id)
+          .single();
+
+        if (!userRow || !userRow.questionnaire_answered) {
+          // New user or one who never finished the questionnaire
+          navigate(`/onboarding/${data.user.id}`);
+        } else {
+          navigate("/dashboard");
+        }
       } else {
         // REGISTER
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -94,8 +105,8 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             name,
             email,
             password: hashedPassword,
-            status,
-            current_company: status === "professional" ? currentCompany : null,
+            status: "student",
+            current_company: null,
             questionnaire_answered: false,
             questionnaire_answers: null,
           },
@@ -108,11 +119,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
 
         if (authData.session) {
           onRegisterSuccess && onRegisterSuccess(authData);
-          if (status === "student") {
-            navigate(`/onboarding/${authData.user.id}`);
-          } else {
-            navigate("/dashboard");
-          }
+          navigate(`/onboarding/${authData.user.id}`);
         } else {
           setError(
             "Registration successful! Please check your email to confirm your account.",
@@ -141,69 +148,36 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   };
 
   return (
-    <div className="h-full overflow-y-auto flex items-center justify-center p-5 bg-primary">
+    <div className="h-full overflow-y-auto no-scrollbar bg-primary">
+      <div className="min-h-full flex items-center justify-center py-4 px-5">
       <div className="w-full max-w-md">
-        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_25px_50px_rgba(0,0,0,0.15)]">
-          <CardHeader className="text-center space-y-2">
-            <CardTitle className="text-3xl font-bold text-primary">
+        <Card className="bg-card/95 backdrop-blur-xl border-border/20 shadow-2xl">
+          <CardHeader className="text-center space-y-1 pt-5 pb-3">
+            <CardTitle className="text-2xl font-bold text-primary">
               {isLogin ? "Welcome Back" : "Create Account"}
             </CardTitle>
-            <CardDescription className="text-base text-muted-foreground">
+            <CardDescription className="text-sm text-muted-foreground">
               {isLogin ? "Sign in to your account" : "Join us today"}
             </CardDescription>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-3">
               {!isLogin && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="name" className="text-sm font-medium">
-                      Name
-                    </Label>
-                    <Input
-                      id="name"
-                      type="text"
-                      placeholder="Enter your name"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required
-                      className="h-12 transition-all duration-300 focus:scale-[1.01] focus:-translate-y-0.5"
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="status" className="text-sm font-medium">
-                      Status
-                    </Label>
-                    <select
-                      id="status"
-                      value={status}
-                      onChange={(e) => setStatus(e.target.value)}
-                      className="flex h-12 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background transition-all duration-300 focus:scale-[1.01] focus:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      <option value="student">Student</option>
-                      <option value="professional">Professional</option>
-                    </select>
-                  </div>
-                  
-                  {status === "professional" && (
-                    <div className="space-y-2">
-                      <Label htmlFor="company" className="text-sm font-medium">
-                        Company
-                      </Label>
-                      <Input
-                        id="company"
-                        type="text"
-                        placeholder="Enter your company"
-                        value={currentCompany}
-                        onChange={(e) => setCurrentCompany(e.target.value)}
-                        required
-                        className="h-12 transition-all duration-300 focus:scale-[1.01] focus:-translate-y-0.5"
-                      />
-                    </div>
-                  )}
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-sm font-medium">
+                    Name
+                  </Label>
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Enter your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    className="h-9 transition-all duration-300"
+                  />
+                </div>
               )}
 
               <div className="space-y-2">
@@ -217,7 +191,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-12 transition-all duration-300 focus:scale-[1.01] focus:-translate-y-0.5"
+                  className="h-9 transition-all duration-300"
                 />
               </div>
               
@@ -232,27 +206,27 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-12 transition-all duration-300 focus:scale-[1.01] focus:-translate-y-0.5"
+                  className="h-9 transition-all duration-300"
                 />
               </div>
 
               {error && (
-                <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-2 duration-300">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
+                <div className="flex items-center gap-2 p-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md animate-in fade-in slide-in-from-top-2 duration-300">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <p>{error}</p>
+                </div>
               )}
 
               <Button 
                 type="submit" 
-                className="w-full h-12 text-base font-semibold bg-primary hover:opacity-90 hover:-translate-y-0.5 shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 transition-all duration-300"
+                className="w-full h-10 text-sm font-semibold bg-primary hover:opacity-90 shadow-md shadow-primary/30 transition-all duration-300"
               >
                 {isLogin ? "Sign In" : "Create Account"}
               </Button>
             </form>
 
             {/* Divider */}
-            <div className="relative my-5">
+            <div className="relative my-3">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t border-border" />
               </div>
@@ -266,7 +240,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
               <Button
                 type="button"
                 variant="outline"
-                className="h-12 transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 hover:shadow-md"
+                className="h-10 transition-all duration-300 hover:shadow-md"
                 onClick={() => handleOAuthLogin("google")}
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -280,7 +254,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
               <Button
                 type="button"
                 variant="outline"
-                className="h-12 transition-all duration-300 hover:scale-[1.02] hover:-translate-y-0.5 hover:shadow-md"
+                className="h-10 transition-all duration-300 hover:shadow-md"
                 onClick={() => handleOAuthLogin("github")}
               >
                 <Github className="w-5 h-5" />
@@ -289,7 +263,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             </div>
           </CardContent>
 
-          <CardFooter className="flex flex-col items-center pt-5 border-t border-border">
+          <CardFooter className="flex flex-col items-center pt-3 pb-5 border-t border-border">
             <p className="text-sm text-muted-foreground mb-2">
               {isLogin ? "Don't have an account?" : "Already have an account?"}
             </p>
@@ -303,6 +277,7 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
             </Button>
           </CardFooter>
         </Card>
+      </div>
       </div>
     </div>
   );

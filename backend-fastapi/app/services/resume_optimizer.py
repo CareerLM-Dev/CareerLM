@@ -1,132 +1,179 @@
 # app/services/resume_optimizer.py
 """
-Resume optimization service using simplified 3-agent workflow
-Refactored to use centralized ResumeParser for all parsing operations.
+Resume optimization service using the 3-agent resume workflow.
 """
 from app.agents.resume import resume_workflow
 from app.agents.resume.state import ResumeState
-from app.services.resume_parser import get_parser
+from app.services.resume_parser import ResumeParser
+from app.services.rag_suggestions import get_resume_rag_evaluation
 
-
-# ===== BACKWARD COMPATIBILITY WRAPPERS =====
-# These delegate to ResumeParser for centralized parsing logic
 
 def parse_resume_sections(resume_text):
     """
-    Parse resume into common sections.
+    Parse resume into sections using hybrid keyword+LLM approach.
     
-    DEPRECATED: This is a wrapper for backward compatibility.
-    Use ResumeParser.parse_sections() directly for new code.
-    
-    Returns sections with lowercase keys as expected by ats_checker.py.
+    Returns:
+        Dictionary mapping section names to content
     """
-    parser = get_parser()
+    parser = ResumeParser()
     return parser.parse_sections(resume_text)
 
 
 def extract_text_from_pdf(file_bytes):
-    """
-    Extract text from PDF file bytes.
-    
-    DEPRECATED: This is a wrapper for backward compatibility.
-    Use ResumeParser.extract_text_from_pdf() directly for new code.
-    """
-    parser = get_parser()
+    """Extract text from PDF file bytes."""
+    parser = ResumeParser()
     return parser.extract_text_from_pdf(file_bytes)
 
 
-def optimize_resume_logic(resume_content, job_description, filename=None, resume_text=None, sections=None):
+def optimize_resume_logic(
+    resume_content,
+    job_description,
+    filename=None,
+    resume_text=None,
+    sections=None,
+    role_type=None,
+    user_id=None,
+):
     """
-    Simplified 3-Agent Version - Uses LangGraph workflow with linear flow.
-    Uses centralized ResumeParser for all text extraction and parsing.
+    Run the 3-agent career advisor workflow.
+
+    Args:
+        resume_content: Raw resume bytes.
+        job_description: Job description text (empty string if not provided).
+        filename: Optional filename for type detection.
+        resume_text: Optional pre-extracted resume text.
+        sections: Optional pre-parsed sections.
+        role_type: Role archetype key (e.g. 'software_engineer').
     """
-    
-    # ===== EXTRACT TEXT USING RESUMEPARSER (IF NOT PROVIDED) =====
-    parser = get_parser()
+    parser = ResumeParser()
     if resume_text is None:
         resume_text = parser.extract_text(resume_content, filename=filename)
-    
-    # ===== PARSE SECTIONS USING RESUMEPARSER (IF NOT PROVIDED) =====
-    # Keep lowercase keys as expected by ats_checker.py
     if sections is None:
         sections = parser.parse_sections(resume_text)
-    
-    # ===== INITIALIZE STATE (Simplified) =====
-    initial_state: ResumeState = {
-        # Input
-        "resume_text": resume_text,
-        "job_description": job_description,
-        "resume_sections": sections,
 
-        # ATS Analysis (from Agent 1)
-        "ats_score": 0,
+    initial_state: ResumeState = {
+        # Inputs
+        "resume_text": resume_text,
+        "job_description": job_description or "",
+        "resume_sections": sections,
+        "role_type": role_type,
+
+        # Context flags
+        "has_job_description": bool(job_description and len(job_description.strip()) > 50),
+
+        # Dimension scores
+        "structure_score": None,
+        "completeness_score": None,
+        "relevance_score": None,
+        "impact_score": None,
+
+        # Overall score
+        "ats_score": None,
+        "score_zone": None,
         "ats_components": {},
         "ats_justification": [],
+
+        # Structure + completeness outputs
         "structure_suggestions": [],
+        "readability_issues": [],
         "needs_template": False,
 
-        # Skill Intelligence (from Agent 2)
+        # Relevance outputs
+        "keyword_gap_table": [],
         "skills_analysis": [],
-        "overall_readiness": "0%",
+        "overall_readiness": None,
         "ready_skills": [],
         "critical_gaps": [],
         "learning_priorities": [],
+        "ats_issues": [],
 
-        # Optimization (from Agent 3)
+        # Impact outputs
         "honest_improvements": [],
+        "bullet_rewrites": [],
+        "bullet_quality_breakdown": {},
+        "human_reader_issues": [],
+        "redundancy_issues": [],
         "learning_roadmap": [],
-        "job_readiness_estimate": "",
+        "job_readiness_estimate": None,
+
+        # Legacy/UI compatibility
+        "gaps": [],
+        "alignment_suggestions": [],
 
         # Control
-        "next_action": "analyze_resume",
         "completed_steps": [],
         "iteration_count": 0,
-        "max_iterations": 3,  # Only 3 agents, no loops
-        "messages": []
+        "max_iterations": 3,
+        "messages": [],
+
+        # Status
+        "_status": "processing",
     }
 
-    
-    # ===== RUN THE SIMPLIFIED WORKFLOW =====
-    print("\nStarting simplified 3-agent workflow...\n")
-    final_state = resume_workflow.invoke(initial_state)
-    print(f"\nWorkflow complete! Iterations: {final_state['iteration_count']}\n")
-    
-    # ===== RETURN RESULTS =====
+    # Resume workflow is compiled with a checkpointer, so a stable thread_id
+    # is required even when requests are anonymous (e.g., tests/local scripts).
+    thread_id = str(user_id).strip() if user_id else "resume-opt-anon"
+    invoke_config = {"configurable": {"thread_id": thread_id}}
+    final_state = resume_workflow.invoke(initial_state, config=invoke_config)
+
+    rag_eval = get_resume_rag_evaluation(
+        resume_text=resume_text,
+        job_description=job_description or "",
+        category="resume",
+    )
+
     return {
-        # ATS Analysis
-        "ats_score": final_state["ats_score"],
+        # Overall score + zone
+        "ats_score": final_state.get("ats_score"),
+        "score_zone": final_state.get("score_zone"),
+
+        # Dimension scores
+        "structure_score": final_state.get("structure_score"),
+        "completeness_score": final_state.get("completeness_score"),
+        "relevance_score": final_state.get("relevance_score"),
+        "impact_score": final_state.get("impact_score"),
+
+        # ATS analysis wrapper (legacy UI compat)
         "ats_analysis": {
-            "component_scores": final_state["ats_components"],
-            "justification": final_state["ats_justification"],
-            "needs_template": final_state["needs_template"]
+            "component_scores": final_state.get("ats_components", {}),
+            "justification": final_state.get("ats_justification", []),
+            "issues": final_state.get("ats_issues", []),
+            "readability_issues": final_state.get("readability_issues", []),
+            "needs_template": final_state.get("needs_template", False),
         },
-        
-        # Skill Analysis (NEW unified structure)
+
+        # Legacy analysis wrapper
+        "analysis": {
+            "gaps": final_state.get("gaps", []),
+            "alignment_suggestions": final_state.get("alignment_suggestions", []),
+            "structure_suggestions": final_state.get("structure_suggestions", []),
+        },
+
+        # RAG-based evaluation
+        "strengths": rag_eval.get("strengths", []),
+        "weaknesses": rag_eval.get("weaknesses", []),
+        "suggestions": rag_eval.get("suggestions", []),
+
+        # Keyword & relevance
+        "keyword_gap_table": final_state.get("keyword_gap_table", []),
+        "has_job_description": final_state.get("has_job_description", False),
         "skills_analysis": final_state.get("skills_analysis", []),
-        "overall_readiness": final_state.get("overall_readiness", "Unknown"),
+        "overall_readiness": final_state.get("overall_readiness"),
         "ready_skills": final_state.get("ready_skills", []),
         "critical_gaps": final_state.get("critical_gaps", []),
-        
-        # Learning Path
         "learning_priorities": final_state.get("learning_priorities", []),
-        "learning_roadmap": final_state.get("learning_roadmap", []),
-        "job_readiness_estimate": final_state.get("job_readiness_estimate", ""),
-        
-        # Suggestions
-        "structure_suggestions": final_state.get("structure_suggestions", []),
+
+        # Impact & specificity
         "honest_improvements": final_state.get("honest_improvements", []),
-        "alignment_suggestions": final_state.get("honest_improvements", []),  # Legacy compatibility
-        
-        # Legacy fields (for backward compatibility)
-        "gaps": final_state.get("critical_gaps", []),
-        "user_skills": final_state.get("ready_skills", []),
-        "career_matches": [],  # Not used in new version
-        
-        # Debug/Metadata
-        "agent_execution_log": final_state["messages"],
-        "total_iterations": final_state["iteration_count"],
+        "bullet_rewrites": final_state.get("bullet_rewrites", []),
+        "bullet_quality_breakdown": final_state.get("bullet_quality_breakdown", {}),
+        "human_reader_issues": final_state.get("human_reader_issues", []),
+        "redundancy_issues": final_state.get("redundancy_issues", []),
+        "learning_roadmap": final_state.get("learning_roadmap", []),
+        "job_readiness_estimate": final_state.get("job_readiness_estimate"),
+
+        # Metadata
+        "agent_execution_log": final_state.get("messages", []),
         "completed_steps": final_state.get("completed_steps", []),
-        
-        "_agentic": True,
-        "_version": "3.0-simplified"
+        "_status": final_state.get("_status", "completed"),
     }

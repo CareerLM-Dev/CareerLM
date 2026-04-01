@@ -2,29 +2,33 @@
 Centralized Resume Parser Module
 
 This module provides a unified interface for extracting text from resumes
-and parsing them into structured sections. It handles PDF text extraction
-and section segmentation with improved detection logic.
+and parsing them into structured sections. It handles PDF text extraction,
+intelligent chunking, and hybrid keyword+LLM section identification.
+
+Architecture:
+1. Extract text from PDF
+2. Clean unicode artifacts (Wingdings bullets etc.)
+3. Split into logical chunks (potential sections)
+4. First pass: keyword matching against templates (checked BEFORE ALL CAPS)
+5. Second pass: batch LLM call for unidentified chunks
+6. Output: dictionary mapping section names → content
 """
 
 import re
 import pdfplumber
 import io
-from typing import Dict, List, Optional
+import json
+import fitz
+from typing import Dict, List, Optional, Tuple
+
+from app.agents.llm_config import GROQ_CLIENT, GROQ_DEFAULT_MODEL
 
 
 class ResumeParser:
     """
-    A centralized parser for handling resume text extraction and section segmentation.
-    
-    Usage:
-        parser = ResumeParser()
-        text = parser.extract_text_from_pdf(file_bytes)
-        sections = parser.parse_sections(text)
-        # or use the convenience method:
-        text, sections = parser.parse_resume(file_bytes, filename="resume.pdf")
+    Hybrid parser for resume section extraction using keywords + LLM fallback.
     """
-    
-    # Define section header patterns with multiple variations
+
     SECTION_PATTERNS = {
         "contact": [
             r"contact\s*(info|information|details)?",
@@ -53,6 +57,7 @@ class ResumeParser:
         ],
         "skills": [
             r"(technical\s+|core\s+|key\s+)?skills?",
+            r"key\s+skills",
             r"(technical\s+)?competenc(ies|e)",
             r"technologies|tools",
             r"technical\s+proficienc(ies|y)",
@@ -60,8 +65,15 @@ class ResumeParser:
         ],
         "projects": [
             r"(personal\s+|professional\s+|key\s+)?projects?",
+            r"key\s+projects",
             r"portfolio",
             r"notable\s+work"
+        ],
+        "coursework": [
+            r"(relevant\s+|core\s+)?coursework",
+            r"(relevant\s+)?courses",
+            r"academic\s+coursework",
+            r"course\s+highlights"
         ],
         "certifications": [
             r"certifications?",
@@ -71,9 +83,9 @@ class ResumeParser:
         ],
         "publications": [
             r"publications?",
-            r"papers?",
             r"research(\s+papers?)?",
-            r"articles?"
+            r"published\s+(work|articles?|papers?)",
+            r"academic\s+publications?"
         ],
         "awards": [
             r"awards?(\s+&\s+honors)?",
@@ -82,9 +94,8 @@ class ResumeParser:
             r"recognition"
         ]
     }
-    
+
     def __init__(self):
-        """Initialize the parser with compiled regex patterns."""
         self._compiled_patterns = {}
         for section, patterns in self.SECTION_PATTERNS.items():
             combined_pattern = "|".join(f"({p})" for p in patterns)
@@ -92,17 +103,67 @@ class ResumeParser:
                 f"^\\s*({combined_pattern})\\s*:?\\s*$",
                 re.IGNORECASE
             )
-    
+
+    # ── Text cleaning ─────────────────────────────────────────────────────────
+
+    def _clean_text(self, text: str) -> str:
+        """
+        Strip unicode artifacts that come from Wingdings/symbol fonts in PDFs.
+        Normalises bullets to standard characters so line parsing works correctly.
+        """
+        # Wingdings bullet \uf0a8 and full private use area range
+        text = re.sub(r'[\uf000-\uf0ff]', '•', text)
+        # Other common PDF bullet artifacts
+        text = text.replace('\u25a0', '•').replace('\u25cf', '•').replace('\u2022', '•')
+        # Normalise non-breaking spaces
+        text = text.replace('\xa0', ' ')
+        # Collapse multiple spaces on a line but keep newlines
+        text = re.sub(r'[ \t]+', ' ', text)
+        return text
+
+    def normalize_for_storage(self, text: str) -> str:
+        """Flatten text for storage while preserving parser-first workflow."""
+        if not text:
+            return ""
+
+        normalized = text.replace("\\n", " ")
+        normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = re.sub(r'\s*\n+\s*', ' ', normalized)
+        normalized = re.sub(r'\s{2,}', ' ', normalized)
+        return normalized.strip()
+
+    def scrub_contact_pii(self, text: str) -> str:
+        """Redact direct contact identifiers from free text."""
+        if not text:
+            return ""
+
+        cleaned = text
+        cleaned = re.sub(r'\b[\w.%-]+@[\w.-]+\.[A-Za-z]{2,}\b', '[REDACTED_EMAIL]', cleaned)
+        cleaned = re.sub(r'\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b', '[REDACTED_PHONE]', cleaned)
+        cleaned = re.sub(r'https?://(?:www\.)?(?:linkedin\.com|github\.com)/[^\s)]+', '[REDACTED_URL]', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\b(?:linkedin|github)\s*[:|]\s*[^\s]+', '[REDACTED_URL]', cleaned, flags=re.IGNORECASE)
+        return cleaned
+
+    def sanitize_sections_for_storage(self, sections: Optional[Dict[str, str]]) -> Dict[str, str]:
+        """Drop contact section and scrub PII from every stored section."""
+        sanitized: Dict[str, str] = {}
+        for key, value in (sections or {}).items():
+            if key == "contact":
+                continue
+            if isinstance(value, str):
+                # Preserve line breaks so downstream project/experience parsers keep working.
+                cleaned = self.scrub_contact_pii(value)
+                cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+                cleaned = re.sub(r'[^\S\n]+', ' ', cleaned)
+                cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+                sanitized[key] = cleaned.strip()
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    # ── PDF / text extraction ─────────────────────────────────────────────────
+
     def extract_text_from_pdf(self, file_bytes: bytes) -> str:
-        """
-        Extract text content from a PDF file.
-        
-        Args:
-            file_bytes: The raw bytes of the PDF file.
-            
-        Returns:
-            The extracted text as a string.
-        """
         text = ""
         try:
             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -112,169 +173,298 @@ class ResumeParser:
                         text += page_text + "\n"
         except Exception as e:
             raise ValueError(f"Failed to extract text from PDF: {str(e)}")
+
+        text = self._clean_text(text)
+
+        words = text.split()
+        avg_word_len = sum(len(w) for w in words) / max(1, len(words))
+
+        if avg_word_len > 15 and words:
+            print(f"[PARSER] pdfplumber spacing broken (avg word len {avg_word_len:.1f}), falling back to PyMuPDF")
+            text = self._extract_with_pymupdf(file_bytes)
+
         return text
-    
+
+    def _extract_with_pymupdf(self, file_bytes: bytes) -> str:
+        """Fallback extraction using positioned words to recover spacing."""
+        try:
+            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            full_text = []
+
+            for page in doc:
+                words = page.get_text("words")
+                if not words:
+                    continue
+
+                words_sorted = sorted(words, key=lambda w: (round(w[1] / 5) * 5, w[0]))
+
+                lines = []
+                current_line = []
+                current_y = None
+
+                for word in words_sorted:
+                    y = round(word[1] / 5) * 5
+                    if current_y is None or abs(y - current_y) < 8:
+                        current_line.append(word[4])
+                        current_y = y
+                    else:
+                        if current_line:
+                            lines.append(" ".join(current_line))
+                        current_line = [word[4]]
+                        current_y = y
+
+                if current_line:
+                    lines.append(" ".join(current_line))
+
+                full_text.append("\n".join(lines))
+
+            doc.close()
+            return self._clean_text("\n\n".join(full_text))
+
+        except Exception as e:
+            print(f"[PARSER] PyMuPDF fallback failed: {e}")
+            raise ValueError(f"Both extraction methods failed: {str(e)}")
+
     def extract_text(self, file_bytes: bytes, filename: Optional[str] = None) -> str:
-        """
-        Extract text from file bytes, auto-detecting format based on filename.
-        
-        Args:
-            file_bytes: The raw bytes of the file.
-            filename: Optional filename to determine file type.
-            
-        Returns:
-            The extracted text as a string.
-        """
-        # Check if it's a PDF
         if filename and filename.lower().endswith('.pdf'):
             return self.extract_text_from_pdf(file_bytes)
-        
-        # Try to decode as text
         try:
-            return file_bytes.decode("utf-8")
+            return self._clean_text(file_bytes.decode("utf-8"))
         except UnicodeDecodeError:
             try:
-                return file_bytes.decode("latin-1")
+                return self._clean_text(file_bytes.decode("latin-1"))
             except Exception:
                 return str(file_bytes)
-    
+
+    # ── Section identification ────────────────────────────────────────────────
+
     def _identify_section(self, line: str) -> Optional[str]:
         """
         Identify if a line is a section header.
-        
-        Args:
-            line: The text line to check.
-            
-        Returns:
-            The section name if identified, None otherwise.
+        Keyword matching runs FIRST — ALL CAPS detection is only a tiebreaker.
         """
-        cleaned_line = line.strip()
-        
-        # Skip empty lines or very long lines (not headers)
-        if not cleaned_line or len(cleaned_line) > 50:
+        if not line:
             return None
-        
-        # Check against compiled patterns
+        cleaned = line.strip()
+        if not cleaned or len(cleaned) > 60:
+            return None
+
+        # 1. Compiled regex patterns (most precise)
         for section, pattern in self._compiled_patterns.items():
-            if pattern.match(cleaned_line):
+            if pattern.match(cleaned):
                 return section
-        
-        # Fallback: check for common header keywords using startswith
-        line_lower = cleaned_line.lower()
-        
+
+        # 2. Explicit keyword fallback (case-insensitive)
+        line_lower = cleaned.lower().rstrip(':').strip()
         header_keywords = {
-            "experience": ["experience", "work history", "employment", "professional background"],
-            "education": ["education", "academic", "degree", "university", "college"],
-            "skills": ["skills", "technical skills", "core skills", "competencies", "technologies"],
-            "projects": ["projects", "portfolio", "notable work"],
-            "certifications": ["certifications", "licenses", "credentials"],
-            "summary": ["summary", "objective", "profile", "about me", "overview"],
-            "contact": ["contact", "personal info"],
-            "publications": ["publications", "papers", "research"],
-            "awards": ["awards", "honors", "achievements"]
+            "experience": ["work experience", "professional experience", "employment", "work history", "career history"],
+            "education": ["education", "academic", "degree", "university", "college", "training"],
+            "skills": ["skills", "technical skills", "core skills", "key skills", "competencies",
+                       "technologies", "programming", "languages"],
+            "projects": ["projects", "portfolio", "notable work", "key projects"],
+            "coursework": ["coursework", "relevant coursework", "courses", "course highlights"],
+            "certifications": ["certifications", "certificates", "licenses", "credentials", "professional cert"],
+            "summary": ["summary", "objective", "profile", "about", "professional summary", "career summary"],
+            "contact": ["contact", "personal info", "contact info"],
+            "publications": ["publications", "published work", "research papers", "academic publications"],
+            "awards": ["awards", "honors", "recognition", "achievement"],
         }
-        
         for section, keywords in header_keywords.items():
             for keyword in keywords:
-                if line_lower.startswith(keyword):
+                if line_lower == keyword or line_lower.startswith(keyword):
                     return section
-        
+
         return None
-    
-    def parse_sections(self, resume_text: str) -> Dict[str, str]:
+
+    # ── Chunking ──────────────────────────────────────────────────────────────
+
+    def _split_into_chunks(self, resume_text: str) -> List[Tuple[str, str]]:
         """
-        Parse resume text into structured sections.
-        
-        Args:
-            resume_text: The full resume text.
-            
-        Returns:
-            A dictionary mapping section names to their content.
+        Split resume into (header, content) chunks.
+
+        Header detection order (IMPORTANT — do NOT change):
+          1. Keyword matching via _identify_section  ← most reliable
+          2. Known section keywords list             ← explicit safety net
+          3. ALL CAPS pattern                        ← last resort only
+          4. Colon-ending short line                 ← structural hint
         """
-        sections = {
-            "contact": "",
-            "summary": "",
-            "experience": "",
-            "education": "",
-            "skills": "",
-            "projects": "",
-            "certifications": "",
-            "publications": "",
-            "awards": "",
-            "other": ""
-        }
-        
-        current_section = "other"
         lines = resume_text.splitlines()
-        
+        chunks = []
+        current_header = ""
+        current_content = []
+
+        # ALL CAPS pattern used only as last resort
+        all_caps_pattern = re.compile(r'^[A-Z][A-Z\s&]{2,}[A-Z]$|^[A-Z][A-Z\s&]+:$')
+
+        known_keywords = [
+            'EDUCATION', 'EXPERIENCE', 'SKILLS', 'PROJECTS',
+            'COURSEWORK', 'RELEVANT COURSEWORK', 'COURSES',
+            'CERTIFICATIONS', 'LANGUAGES', 'TECHNICAL', 'AWARDS',
+            'PUBLICATIONS', 'SUMMARY', 'OBJECTIVE', 'CONTACT',
+            'TRAINING', 'RELEVANT', 'KEY SKILLS', 'KEY PROJECTS',
+        ]
+
         for line in lines:
-            # Try to identify if this line is a section header
-            identified_section = self._identify_section(line)
-            
-            if identified_section:
-                current_section = identified_section
-                # Don't add the header line itself to content
+            stripped = line.strip()
+            if not stripped:
                 continue
-            
-            # Add non-empty lines to the current section
-            if line.strip():
-                sections[current_section] += line.strip() + "\n"
-        
-        # Clean up sections - strip trailing whitespace
-        for section in sections:
-            sections[section] = sections[section].strip()
-        
+
+            # Gate: must be short enough to be a header
+            if len(stripped) >= 60:
+                current_content.append(line)
+                continue
+
+            # Check order: keyword first, ALL CAPS last
+            is_header = (
+                self._identify_section(stripped) is not None
+                or any(
+                    re.match(r'^' + re.escape(kw) + r'(\s|$|:)', stripped, re.IGNORECASE)
+                    for kw in known_keywords
+                )
+                or bool(all_caps_pattern.match(stripped))
+                or (stripped.endswith(':') and len(stripped.split()) <= 5)
+            )
+
+            if is_header:
+                if current_content or current_header:
+                    chunks.append((current_header, "\n".join(current_content).strip()))
+                current_header = stripped
+                current_content = []
+            else:
+                current_content.append(line)
+
+        if current_content or current_header:
+            chunks.append((current_header, "\n".join(current_content).strip()))
+
+        return chunks
+
+    # ── LLM fallback ──────────────────────────────────────────────────────────
+
+    def _identify_sections_with_llm(self, chunks: List[Tuple[int, str, str]]) -> Dict[int, str]:
+        if not chunks:
+            return {}
+
+        chunks_text = ""
+        for idx, header, content in chunks:
+            preview = (content[:200] if content else f"Header: {header}").replace('\n', ' | ')
+            chunks_text += f"\nChunk {idx}:\nHeader: '{header}'\nContent Preview: {preview}\n---"
+
+        prompt = f"""You are an expert resume parser. Classify EACH chunk into a resume section.
+
+Instructions:
+- Return ONLY valid JSON with no other text
+- Map each chunk index to the most appropriate section
+- "KEY SKILLS" → skills, "KEY PROJECTS" → projects
+
+Valid sections: contact, summary, experience, education, skills, projects, coursework, certifications, publications, awards, other
+
+Resume chunks:
+{chunks_text}
+
+Return format (JSON only):
+{{"0": "experience", "1": "education", "2": "skills", ...}}
+"""
+        try:
+            response = GROQ_CLIENT.chat.completions.create(
+                model=GROQ_DEFAULT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=1000
+            )
+            response_text = response.choices[0].message.content.strip()
+            json_match = re.search(r'\{[^{}]*\}|\{(?:[^{}]|(?:\{[^{}]*\}))*\}', response_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                return {
+                    int(k) if isinstance(k, str) and k.lstrip('-').isdigit() else k: v
+                    for k, v in result.items()
+                }
+        except Exception as e:
+            print(f"Warning: LLM section identification failed: {e}")
+        return {}
+
+    # ── Main parse ────────────────────────────────────────────────────────────
+
+    def parse_sections(self, resume_text: str) -> Dict[str, str]:
+        sections = {
+            "contact": "", "summary": "", "experience": "", "education": "",
+            "skills": "", "projects": "", "coursework": "", "certifications": "",
+            "publications": "", "awards": "", "other": ""
+        }
+        valid_sections = set(sections.keys())
+
+        chunks = self._split_into_chunks(resume_text)
+        section_to_chunks: Dict[str, List[str]] = {sec: [] for sec in sections}
+        unidentified_chunks = []
+
+        for idx, (header, content) in enumerate(chunks):
+            full_content = f"{header}\n{content}".strip() if header and content else (header or content)
+
+            # Try header first, then first line of content
+            section = self._identify_section(header) if header else None
+            if not section:
+                first_line = content.split('\n')[0] if content else ""
+                section = self._identify_section(first_line) if first_line else None
+
+            if section:
+                section_to_chunks[section].append(full_content)
+            else:
+                unidentified_chunks.append((idx, header, content))
+
+        # Decide whether to use LLM
+        unidentified_ratio = len(unidentified_chunks) / max(1, len(chunks))
+        use_llm_for_all = unidentified_ratio > 0.3
+
+        if use_llm_for_all:
+            print(f"Resume structure unclear — using LLM for all {len(chunks)} chunks")
+            llm_results = self._identify_sections_with_llm(
+                [(i, h, c) for i, (h, c) in enumerate(chunks)]
+            )
+            section_to_chunks = {sec: [] for sec in sections}
+            for idx, (header, content) in enumerate(chunks):
+                sec = llm_results.get(idx, "other")
+                if sec not in valid_sections:
+                    sec = "other"
+                full_content = f"{header}\n{content}".strip() if header and content else (header or content)
+                section_to_chunks[sec].append(full_content)
+
+        elif unidentified_chunks:
+            print(f"Using LLM for {len(unidentified_chunks)} ambiguous chunks")
+            llm_results = self._identify_sections_with_llm(unidentified_chunks)
+            for idx, header, content in unidentified_chunks:
+                sec = llm_results.get(idx, "other")
+                if sec not in valid_sections:
+                    sec = "other"
+                full_content = f"{header}\n{content}".strip() if header and content else (header or content)
+                section_to_chunks[sec].append(full_content)
+
+        for section, chunks_list in section_to_chunks.items():
+            if chunks_list:
+                sections[section] = "\n\n".join(chunks_list).strip()
+
         return sections
-    
+
     def parse_skills_list(self, skills_text: str) -> List[str]:
-        """
-        Parse skills section text into a list of individual skills.
-        
-        Args:
-            skills_text: The raw skills section text.
-            
-        Returns:
-            A list of individual skill strings.
-        """
         if not skills_text:
             return []
-        
-        # Split on common delimiters
         skills_list = re.split(r'[,\n;•|·]+', skills_text)
-        
-        # Clean up each skill
-        cleaned_skills = []
+        cleaned = []
         for skill in skills_list:
-            skill = skill.strip()
-            # Remove bullet points, dashes at start
-            skill = re.sub(r'^[-*✓►▪→]\s*', '', skill).strip()
+            skill = re.sub(r'^[-*•✓►▪→]\s*', '', skill.strip()).strip()
             if skill and len(skill) > 1:
-                cleaned_skills.append(skill)
-        
-        return cleaned_skills
-    
+                cleaned.append(skill)
+        return cleaned
+
     def parse_resume(self, file_bytes: bytes, filename: Optional[str] = None) -> tuple:
-        """
-        Convenience method to extract text and parse sections in one call.
-        
-        Args:
-            file_bytes: The raw bytes of the resume file.
-            filename: Optional filename to determine file type.
-            
-        Returns:
-            A tuple of (resume_text, sections_dict).
-        """
         resume_text = self.extract_text(file_bytes, filename)
         sections = self.parse_sections(resume_text)
         return resume_text, sections
 
 
-# Singleton instance for convenience
+# Singleton
 _parser_instance = None
 
-
 def get_parser() -> ResumeParser:
-    """Get or create a singleton ResumeParser instance."""
     global _parser_instance
     if _parser_instance is None:
         _parser_instance = ResumeParser()

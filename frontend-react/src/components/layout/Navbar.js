@@ -10,8 +10,10 @@ import {
   Clock, 
   LogOut,
   ChevronDown,
+  ChevronUp,
   Sun,
-  Moon
+  Moon,
+  BarChart
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 
@@ -21,6 +23,7 @@ function Navbar() {
   const { user, signOut, isAuthenticated, loading } = useUser();
   const { theme, toggleTheme } = useTheme();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const dropdownRef = useRef(null);
 
   // Function to navigate to home and scroll to section
@@ -72,7 +75,8 @@ function Navbar() {
   }, []);
 
   return (
-    <nav className="flex-shrink-0 z-50 flex items-center justify-between px-10 py-5 bg-background/95 backdrop-blur-md border-b border-border/40 transition-all duration-300">
+    <div className="flex-shrink-0 relative z-50">
+    <nav className={`flex items-center justify-between px-10 bg-background/95 backdrop-blur-md border-b border-border/40 transition-all duration-300 ${collapsed ? "h-0 py-0 border-0 overflow-hidden" : "py-3"}`}>
       <div className="flex items-center">
         <Link 
           to="/" 
@@ -173,11 +177,20 @@ function Navbar() {
                   
                   <Button
                     variant="ghost"
-                    onClick={() => handleNavigate("/dashboard")}
+                    onClick={() => handleNavigate("/home")}
                     className="w-full justify-start gap-3 font-semibold hover:bg-accent hover:text-accent-foreground"
                   >
                     <LayoutDashboard className="h-4 w-4" />
-                    Dashboard
+                    Home
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleNavigate("/dashboard")}
+                    className="w-full justify-start gap-3 font-semibold hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <BarChart className="h-4 w-4" />
+                    Analytics
                   </Button>
                   
                   <Button
@@ -226,6 +239,18 @@ function Navbar() {
         )}
       </div>
     </nav>
+    {/* Collapse / expand toggle tab — only on public pages */}
+    {!isAuthenticated && (
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="absolute right-8 bottom-0 translate-y-full flex items-center justify-center w-8 h-4 bg-background/95 border border-t-0 border-border/40 rounded-b-md text-muted-foreground hover:text-primary transition-colors duration-200 shadow-sm"
+        title={collapsed ? "Show navigation" : "Hide navigation"}
+        aria-label={collapsed ? "Expand navbar" : "Collapse navbar"}
+      >
+        {collapsed ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+      </button>
+    )}
+    </div>
   );
 }
 

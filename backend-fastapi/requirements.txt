@@ -3,6 +3,7 @@ uvicorn
 requests
 groq
 pdfplumber
+pymupdf
 multipart
 python-dotenv
 pydantic
@@ -16,4 +17,7 @@ langchain_groq
 sentence-transformers
 beautifulsoup4
 google-genai
+google-api-python-client
+google-auth
+httpx
 
