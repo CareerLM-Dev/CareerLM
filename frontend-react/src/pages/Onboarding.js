@@ -249,7 +249,7 @@ function Onboarding() {
                 <Button
                   onClick={() => {
                     sessionStorage.setItem("fromOnboarding", "true");
-                    navigate("/upload-resume");
+                    navigate("/dashboard/resume-analyzer");
                   }}
                   className="w-full"
                 >

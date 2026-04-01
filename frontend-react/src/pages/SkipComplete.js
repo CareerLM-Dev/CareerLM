@@ -47,7 +47,7 @@ function SkipComplete() {
                 <div
                   onClick={() => {
                     sessionStorage.setItem("fromOnboarding", "true");
-                    navigate("/upload-resume");
+                    navigate("/dashboard/resume-analyzer");
                   }}
                   className="flex items-start gap-3 p-3 border border-border rounded-lg hover:bg-accent/50 cursor-pointer transition-colors group"
                 >

@@ -5,8 +5,8 @@ Main entry point for the supervisor-driven system.
 Frontend calls these to trigger analysis flows.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException
-from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, Body, Query, Response
+from typing import Optional, Dict, Any
 import json
 import logging
 from datetime import datetime
@@ -19,6 +19,8 @@ from app.agents.orchestrator import (
 )
 from app.agents.orchestrator.graph import orchestrator_graph
 from app.services.resume_parser import get_parser
+from app.services.latex_generator import generate_latex
+from app.services.pdf_compiler import compile_latex_with_fallback, PDFCompilationError
 from supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -480,4 +482,237 @@ async def get_user_state(user_id: str):
         }
     except Exception as e:
         logger.error(f"[GET_STATE] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/user/{user_id}/latest-version")
+async def get_latest_resume_version(user_id: str):
+    """Return latest resume version id for a user (used by resume editor)."""
+    try:
+        resumes = (
+            supabase.table("resumes")
+            .select("resume_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if not resumes.data:
+            return {"success": True, "version_id": None}
+
+        resume_ids = [row["resume_id"] for row in resumes.data]
+        versions = (
+            supabase.table("resume_versions")
+            .select("version_id")
+            .in_("resume_id", resume_ids)
+            .order("version_number", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        latest = versions.data[0]["version_id"] if versions.data else None
+        return {"success": True, "version_id": latest}
+    except Exception as e:
+        logger.error(f"[LATEST_VERSION] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/editor/{version_id}")
+async def get_editor_data(version_id: int):
+    """Load sections + suggestions for resume editor page."""
+    try:
+        row = (
+            supabase.table("resume_versions")
+            .select("version_id, content, resume_analysis, ats_score")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if not row.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+
+        record = row.data[0]
+        parser = get_parser()
+        content = record.get("content") or {}
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        sections = parser.sanitize_sections_for_storage(content.get("sections") or {})
+
+        analysis = record.get("resume_analysis") or {}
+        if isinstance(analysis, str):
+            analysis = json.loads(analysis)
+
+        raw_suggestions = analysis.get("suggestions") or []
+        suggestions = {"bullet_rewrites": [], "improvements": []}
+        if isinstance(raw_suggestions, dict):
+            suggestions["bullet_rewrites"] = raw_suggestions.get("bullet_rewrites") or []
+            suggestions["improvements"] = raw_suggestions.get("improvements") or []
+        elif isinstance(raw_suggestions, list):
+            suggestions["improvements"] = [
+                {"text": s} if isinstance(s, str) else s for s in raw_suggestions
+            ]
+
+        return {
+            "success": True,
+            "version_id": version_id,
+            "sections": sections,
+            "suggestions": suggestions,
+            "ats_score": record.get("ats_score"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EDITOR_GET] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/editor/{version_id}/sections")
+async def update_editor_sections(version_id: int, sections_payload: Dict[str, Any] = Body(...)):
+    """Persist edited sections for a resume version."""
+    try:
+        parser = get_parser()
+        sections = parser.sanitize_sections_for_storage(sections_payload)
+
+        row = (
+            supabase.table("resume_versions")
+            .select("content")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if not row.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+
+        content = row.data[0].get("content") or {}
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        content["sections"] = sections
+        flattened = " ".join(
+            value.strip()
+            for value in sections.values()
+            if isinstance(value, str) and value.strip()
+        )
+        content["resume_text"] = parser.normalize_for_storage(flattened)
+
+        supabase.table("resume_versions").update({
+            "content": content,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("version_id", version_id).execute()
+
+        return {"success": True, "sections": sections}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EDITOR_PATCH] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/apply-suggestion")
+async def apply_suggestion(
+    version_id: int = Query(...),
+    suggestion_type: str = Query("bullet_rewrite"),
+    section_key: str = Query(...),
+    original_text: str = Query(""),
+    replacement_text: str = Query(""),
+):
+    """Apply a text replacement suggestion and persist updated sections."""
+    try:
+        parser = get_parser()
+        row = (
+            supabase.table("resume_versions")
+            .select("content")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if not row.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+
+        content = row.data[0].get("content") or {}
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        sections = parser.sanitize_sections_for_storage(content.get("sections") or {})
+        updated = False
+
+        if section_key in sections and isinstance(sections.get(section_key), str):
+            source = sections[section_key]
+            if original_text and original_text in source:
+                sections[section_key] = source.replace(original_text, replacement_text, 1)
+                updated = True
+            elif replacement_text:
+                sections[section_key] = replacement_text
+                updated = True
+        else:
+            for key, value in sections.items():
+                if isinstance(value, str) and original_text and original_text in value:
+                    sections[key] = value.replace(original_text, replacement_text, 1)
+                    updated = True
+                    break
+
+        if not updated:
+            return {"success": False, "error": "No matching text found to replace"}
+
+        content["sections"] = parser.sanitize_sections_for_storage(sections)
+        flattened = " ".join(
+            value.strip()
+            for value in content["sections"].values()
+            if isinstance(value, str) and value.strip()
+        )
+        content["resume_text"] = parser.normalize_for_storage(flattened)
+
+        supabase.table("resume_versions").update({
+            "content": content,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("version_id", version_id).execute()
+
+        return {
+            "success": True,
+            "suggestion_type": suggestion_type,
+            "updated_sections": content["sections"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[APPLY_SUGGESTION] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-latex")
+async def generate_resume_latex(sections: Dict[str, Any] = Body(...)):
+    """Generate LaTeX source from resume sections."""
+    try:
+        parser = get_parser()
+        sanitized_sections = parser.sanitize_sections_for_storage(sections)
+        latex_code = generate_latex(sanitized_sections)
+        return {"success": True, "latex_code": latex_code}
+    except Exception as e:
+        logger.error(f"[GENERATE_LATEX] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-pdf")
+async def generate_resume_pdf(sections: Dict[str, Any] = Body(...)):
+    """Generate PDF from resume sections, returning PDF bytes on success."""
+    try:
+        parser = get_parser()
+        sanitized_sections = parser.sanitize_sections_for_storage(sections)
+        latex_code = generate_latex(sanitized_sections)
+        pdf_bytes = await compile_latex_with_fallback(latex_code)
+        return Response(content=pdf_bytes, media_type="application/pdf")
+    except PDFCompilationError as e:
+        # Frontend expects JSON fallback with latex_code when PDF compilation fails.
+        try:
+            parser = get_parser()
+            latex_code = generate_latex(parser.sanitize_sections_for_storage(sections))
+        except Exception:
+            latex_code = None
+        return {
+            "success": False,
+            "error": str(e),
+            "latex_code": latex_code,
+            "log_output": getattr(e, "log_output", ""),
+        }
+    except Exception as e:
+        logger.error(f"[GENERATE_PDF] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

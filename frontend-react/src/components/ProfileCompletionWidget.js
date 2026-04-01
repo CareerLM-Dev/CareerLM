@@ -50,7 +50,7 @@ function ProfileCompletionWidget() {
         icon: FileText,
         action: () => {
           sessionStorage.setItem("fromDashboard", "true");
-          navigate("/upload-resume");
+          navigate("/dashboard/resume-analyzer");
         },
       });
     }

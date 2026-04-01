@@ -134,7 +134,7 @@ function ResumeResultsPage() {
           <div className="flex flex-col items-center gap-4 text-center p-6">
             <p className="text-muted-foreground">No analysis data found. Please upload a resume first.</p>
             <button
-              onClick={() => navigate("/upload-resume")}
+              onClick={() => navigate("/dashboard/resume-analyzer")}
               className="flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
             >
               <Upload className="w-4 h-4" />
@@ -182,7 +182,7 @@ function ResumeResultsPage() {
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
-                onClick={() => navigate("/upload-resume")}
+                onClick={() => navigate("/dashboard/resume-analyzer")}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition-colors"
               >
                 <Upload className="w-4 h-4" />

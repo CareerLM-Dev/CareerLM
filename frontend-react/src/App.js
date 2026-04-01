@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { UserProvider } from "./context/UserContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import Navbar from "./components/layout/Navbar";
@@ -9,7 +9,6 @@ import Home from "./pages/Home";
 import HomePage from "./pages/HomePage";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import ResumeUploadPage from "./pages/ResumeUploadPage";
 import ResumeResultsPage from "./pages/ResumeResultsPage";
 import History from "./components/History";
 import Onboarding from "./pages/Onboarding";
@@ -39,7 +38,10 @@ function App() {
             <Route path="/home" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
             <Route path="/onboarding/:userId" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
             <Route path="/skip-complete/:userId" element={<ProtectedRoute><SkipComplete /></ProtectedRoute>} />
-            <Route path="/upload-resume" element={<ProtectedRoute><ResumeUploadPage /></ProtectedRoute>} />
+            <Route
+              path="/upload-resume"
+              element={<ProtectedRoute><Navigate to="/dashboard/resume-analyzer" replace /></ProtectedRoute>}
+            />
             <Route path="/resume-results" element={<ProtectedRoute><ResumeResultsPage /></ProtectedRoute>} />
             <Route path="/dashboard/*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
