@@ -12,6 +12,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Plus,
 } from "lucide-react";
 import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
 import {
@@ -122,6 +123,19 @@ const parseSkillsValue = (rawSkills) => {
     .filter(Boolean);
 
   const cleaned = [];
+  const labelTokens = new Set([
+    "skills",
+    "technical skills",
+    "core skills",
+    "languages",
+    "backend",
+    "frontend",
+    "databases",
+    "tools",
+    "ml/ai",
+    "ml",
+    "ai",
+  ]);
 
   for (let token of parts) {
     token = token.replace(/^[-*–—]\s*/, "").trim();
@@ -137,7 +151,7 @@ const parseSkillsValue = (rawSkills) => {
     // Remove trailing punctuation-only leftovers.
     token = token.replace(/^[:;,.\-\s]+|[:;,.\-\s]+$/g, "").trim();
 
-    if (!token) continue;
+    if (!token || labelTokens.has(token.toLowerCase())) continue;
     cleaned.push(token);
   }
 
@@ -166,6 +180,7 @@ function Profile() {
   const [editingProfileSection, setEditingProfileSection] = useState(null);
   const [draftProfileText, setDraftProfileText] = useState("");
   const [draftSkills, setDraftSkills] = useState([]);
+  const [draftEducationLines, setDraftEducationLines] = useState([]);
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
   const [activeTab, setActiveTab] = useState("basic");
@@ -334,12 +349,28 @@ function Profile() {
       setDraftSkills(skills);
       setSkillInput("");
       setDraftProfileText("");
+      setDraftEducationLines([]);
+      return;
+    }
+    if (key === "education") {
+      const section = profileSections.find((item) => item.key === key);
+      const rawValue = userProfileSections?.[key] || "";
+      const normalized = stripSectionHeader(rawValue, key, section?.title);
+      const lines = normalized
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      setDraftEducationLines(lines.length ? lines : [""]);
+      setDraftProfileText("");
+      setDraftSkills([]);
+      setSkillInput("");
       return;
     }
     const section = profileSections.find((item) => item.key === key);
     const rawValue = userProfileSections?.[key] || "";
     setDraftProfileText(stripSectionHeader(rawValue, key, section?.title));
     setDraftSkills([]);
+    setDraftEducationLines([]);
     setSkillInput("");
   };
 
@@ -347,6 +378,7 @@ function Profile() {
     setEditingProfileSection(null);
     setDraftProfileText("");
     setDraftSkills([]);
+    setDraftEducationLines([]);
     setSkillInput("");
   };
 
@@ -368,9 +400,21 @@ function Profile() {
   const saveProfileSection = async (key) => {
     try {
       setSavingProfileSection(key);
+      const educationText =
+        key === "education"
+          ? draftEducationLines
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .join("\n")
+          : null;
       const updated = {
         ...userProfileSections,
-        [key]: key === "skills" ? draftSkills : draftProfileText.trim(),
+        [key]:
+          key === "skills"
+            ? draftSkills
+            : key === "education"
+              ? educationText
+              : draftProfileText.trim(),
       };
 
       await axios.patch(
@@ -532,6 +576,25 @@ function Profile() {
     if (!value || typeof value !== "string" || !value.trim()) return null;
     const section = profileSections.find((item) => item.key === key);
     return stripSectionHeader(value, key, section?.title);
+  };
+
+  const formatEducationCards = () => {
+    const value = userProfileSections?.education;
+    if (!value || typeof value !== "string" || !value.trim()) return [];
+    const normalized = stripSectionHeader(value, "education", "Education");
+    const lines = normalized
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const cards = [];
+    for (let i = 0; i < lines.length; i += 2) {
+      cards.push({
+        title: lines[i],
+        subtitle: lines[i + 1] || "",
+      });
+    }
+    return cards;
   };
 
   const statusLabel = (() => {
@@ -950,6 +1013,44 @@ function Profile() {
                                             </button>
                                         </div>
                                         </div>
+                                    ) : section.key === "education" ? (
+                                        <div className="space-y-3">
+                                          <div className="space-y-2">
+                                            {draftEducationLines.map((line, index) => (
+                                              <div key={index} className="flex items-center gap-2">
+                                                <input
+                                                  type="text"
+                                                  value={line}
+                                                  onChange={(e) => {
+                                                    const updated = [...draftEducationLines];
+                                                    updated[index] = e.target.value;
+                                                    setDraftEducationLines(updated);
+                                                  }}
+                                                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                                  placeholder="Add an education line"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const updated = draftEducationLines.filter((_, i) => i !== index);
+                                                    setDraftEducationLines(updated.length ? updated : [""]);
+                                                  }}
+                                                  className="p-2 rounded-lg border border-border text-muted-foreground hover:bg-muted"
+                                                >
+                                                  <X className="h-4 w-4" />
+                                                </button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setDraftEducationLines([...draftEducationLines, ""])}
+                                            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted"
+                                          >
+                                            <Plus className="h-3.5 w-3.5" />
+                                            Add line
+                                          </button>
+                                        </div>
                                     ) : (
                                         <textarea
                                         value={draftProfileText}
@@ -1025,7 +1126,6 @@ function Profile() {
                                             title: "",
                                             description: "",
                                             techStack: "",
-                                            links: "",
                                             date: "",
                                             bullets: [],
                                             }
@@ -1085,6 +1185,34 @@ function Profile() {
                                         )}
                                         </div>
                                     );
+                                    })()
+                                ) : section.key === "education" ? (
+                                    (() => {
+                                      const cards = formatEducationCards();
+                                      if (!cards.length) {
+                                        return (
+                                          <p className="text-sm text-muted-foreground">Not set</p>
+                                        );
+                                      }
+                                      return (
+                                        <div className="space-y-3 mt-3">
+                                          {cards.map((card, index) => (
+                                            <div
+                                              key={`${card.title}-${index}`}
+                                              className="bg-card border border-border rounded-lg p-4"
+                                            >
+                                              <h4 className="text-sm font-semibold text-foreground">
+                                                {card.title}
+                                              </h4>
+                                              {card.subtitle && (
+                                                <p className="text-sm text-muted-foreground mt-1">
+                                                  {card.subtitle}
+                                                </p>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      );
                                     })()
                                 ) : displayValue ? (
                                     <p className="text-sm text-muted-foreground whitespace-pre-line">

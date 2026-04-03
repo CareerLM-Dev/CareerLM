@@ -113,19 +113,7 @@ export const ProfileItemCard = ({
               </div>
             </div>
 
-            {/* Links */}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Links (optional)
-              </label>
-              <input
-                type="text"
-                value={editedItem.links}
-                onChange={(e) => updateField("links", e.target.value)}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                placeholder="GitHub, Live"
-              />
-            </div>
+            {/* Links removed (not captured reliably from resumes) */}
           </>
         ) : (
           <>
@@ -286,11 +274,6 @@ export const ProfileItemCard = ({
                 <span className="text-xs text-primary font-medium">
                   {item.techStack}
                 </span>
-                {item.links && (
-                  <span className="text-xs text-muted-foreground">
-                    [{item.links}]
-                  </span>
-                )}
                 <span className="text-xs text-muted-foreground">
                   {item.date}
                 </span>

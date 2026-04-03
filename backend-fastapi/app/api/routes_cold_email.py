@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from app.api.routes_user import get_current_user
 from app.services.cold_email_generator import generate_cold_email
+from app.services.resume_parser import get_parser
 from supabase_client import supabase
 import logging
 import json
@@ -167,89 +168,86 @@ async def create_cold_email(
             target_role = request.target_role
             form_data = {}
         
-        # Fetch user's latest resume from database
-        logger.info(f"Fetching latest resume for user: {user.id}")
-        
-        # Get user's resumes
-        user_resumes = supabase.table("resumes")\
-            .select("resume_id")\
-            .eq("user_id", user.id)\
-            .execute()
-        
-        if not user_resumes.data:
-            raise HTTPException(
-                status_code=404,
-                detail="No resume found. Please upload a resume first."
-            )
-        
-        resume_ids = [r["resume_id"] for r in user_resumes.data]
-        
-        # Get the most recent version
-        latest_version = supabase.table("resume_versions")\
-            .select("content, skill_gap, raw_file_path")\
-            .in_("resume_id", resume_ids)\
-            .order("updated_at", desc=True)\
-            .limit(1)\
-            .execute()
-        
-        if not latest_version.data:
-            raise HTTPException(
-                status_code=404,
-                detail="No resume version found. Please upload a resume first."
-            )
-        
-        version_data = latest_version.data[0]
-        
-        # Parse content for analysis data
-        content = json.loads(version_data["content"]) if isinstance(version_data["content"], str) else version_data["content"]
+        logger.info(f"Fetching resume profile for user: {user.id}")
 
-        sections = content.get("sections", {}) if content else {}
-
-        resume_text = "\n\n".join([
-            section_text.strip()
-            for section_text in sections.values()
-            if isinstance(section_text, str) and section_text.strip()
-        ])
-
-        # Fallback to old structure if present
-        if not resume_text and content and "resume_text" in content:
-            resume_text = content["resume_text"]
-        
-        # Extract data from stored resume
+        parser = get_parser()
         user_name = ""
+        user_profile = {}
+
         try:
             profile_result = (
                 supabase.table("user")
-                .select("name")
+                .select("name, user_profile")
                 .eq("id", user.id)
                 .single()
                 .execute()
             )
             if profile_result.data:
                 user_name = (profile_result.data.get("name") or "").strip()
+                user_profile = profile_result.data.get("user_profile") or {}
+                if isinstance(user_profile, str):
+                    try:
+                        user_profile = json.loads(user_profile)
+                    except Exception:
+                        user_profile = {}
         except Exception:
             user_name = ""
+            user_profile = {}
 
         if not user_name:
             user_name = user.email.split("@")[0].replace(".", " ").title()
-        projects_section = sections.get("projects", "")
-        experience_section = sections.get("experience", "")
-        
-        # Extract skills from career analysis (prefer skill_gap column)
-        skill_gap = version_data.get("skill_gap")
-        if isinstance(skill_gap, str):
-            skill_gap = json.loads(skill_gap)
-        career_analysis = skill_gap or (content.get("careerAnalysis", {}) if content else {})
-        user_skills = career_analysis.get("user_skills", [])
-        
-        if not user_skills:
-            # Fallback to extracting from sections
+
+        sections = user_profile.get("resume_parsed_sections") or {}
+        resume_text = user_profile.get("resume_text") or parser.build_resume_text_from_sections(sections)
+        projects_section = sections.get("projects", "") if isinstance(sections, dict) else ""
+        experience_section = sections.get("experience", "") if isinstance(sections, dict) else ""
+
+        skills_text = ""
+        if isinstance(user_profile, dict):
+            skills_text = user_profile.get("skills") or ""
+        if not skills_text and isinstance(sections, dict):
             skills_text = sections.get("skills", "")
-            if skills_text:
-                from app.services.resume_parser import get_parser
-                parser = get_parser()
-                user_skills = parser.parse_skills_list(skills_text)
-        
+
+        user_skills = parser.parse_skills_list(skills_text) if skills_text else []
+
+        if not resume_text and not sections and not user_skills:
+            # Legacy fallback to resume_versions when profile data is missing.
+            user_resumes = supabase.table("resumes")\
+                .select("resume_id")\
+                .eq("user_id", user.id)\
+                .execute()
+
+            if not user_resumes.data:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No resume found. Please upload a resume first."
+                )
+
+            resume_ids = [r["resume_id"] for r in user_resumes.data]
+
+            latest_version = supabase.table("resume_versions")\
+                .select("content")\
+                .in_("resume_id", resume_ids)\
+                .order("updated_at", desc=True)\
+                .limit(1)\
+                .execute()
+
+            if not latest_version.data:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No resume version found. Please upload a resume first."
+                )
+
+            version_data = latest_version.data[0]
+            content = json.loads(version_data["content"]) if isinstance(version_data["content"], str) else version_data["content"]
+            sections = content.get("sections", {}) if content else {}
+            resume_text = content.get("resume_text") or parser.build_resume_text_from_sections(sections)
+            projects_section = sections.get("projects", "") if isinstance(sections, dict) else ""
+            experience_section = sections.get("experience", "") if isinstance(sections, dict) else ""
+
+            skills_text = sections.get("skills", "") if isinstance(sections, dict) else ""
+            user_skills = parser.parse_skills_list(skills_text) if skills_text else []
+
         logger.info(f"Found resume with {len(user_skills)} skills and {len(projects_section)} chars of projects")
         
         # Generate cold email using actual resume data

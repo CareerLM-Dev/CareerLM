@@ -19,7 +19,7 @@ import pdfplumber
 import io
 import json
 import fitz
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.agents.llm_config import GROQ_CLIENT, GROQ_DEFAULT_MODEL
 
@@ -95,6 +95,17 @@ class ResumeParser:
         ]
     }
 
+    SECTION_HEADER_ALIASES = {
+        "summary": ["summary", "professional summary", "profile", "objective"],
+        "skills": ["skills", "technical skills", "core skills"],
+        "education": ["education", "academic"],
+        "projects": ["projects", "key projects"],
+        "experience": ["experience", "work experience", "employment"],
+        "certifications": ["certifications", "licenses"],
+        "coursework": ["coursework", "relevant coursework", "courses"],
+        "awards": ["awards", "achievements", "honors", "leadership", "co-curricular achievements"],
+    }
+
     def __init__(self):
         self._compiled_patterns = {}
         for section, patterns in self.SECTION_PATTERNS.items():
@@ -156,10 +167,30 @@ class ResumeParser:
                 cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
                 cleaned = re.sub(r'[^\S\n]+', ' ', cleaned)
                 cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+                cleaned = self._strip_section_header(key, cleaned)
                 sanitized[key] = cleaned.strip()
             else:
                 sanitized[key] = value
         return sanitized
+
+    def _strip_section_header(self, section_key: str, text: str) -> str:
+        if not text:
+            return text
+
+        lines = [line.strip() for line in text.splitlines()]
+        while lines and not lines[0]:
+            lines.pop(0)
+
+        if not lines:
+            return ""
+
+        first = lines[0].lower().replace(":", "").strip()
+        aliases = self.SECTION_HEADER_ALIASES.get(section_key, [])
+
+        if first in aliases:
+            return "\n".join(lines[1:]).strip()
+
+        return text
 
     # ── PDF / text extraction ─────────────────────────────────────────────────
 
@@ -449,11 +480,69 @@ Return format (JSON only):
             return []
         skills_list = re.split(r'[,\n;•|·]+', skills_text)
         cleaned = []
+        label_tokens = {
+            "skills", "technical skills", "core skills", "languages", "backend",
+            "frontend", "databases", "tools", "ml/ai", "ml", "ai",
+        }
         for skill in skills_list:
             skill = re.sub(r'^[-*•✓►▪→]\s*', '', skill.strip()).strip()
+            if not skill:
+                continue
+
+            # Remove label fragments ending with ':' and keep the right-most content.
+            skill = re.sub(r'(^|[.])\s*[^:]{1,70}:\s*', r"\1", skill).strip()
+            if ":" in skill:
+                skill = skill.split(":")[-1].strip()
+
+            if skill.lower() in label_tokens:
+                continue
             if skill and len(skill) > 1:
                 cleaned.append(skill)
         return cleaned
+
+    def build_resume_text_from_sections(self, sections: Dict[str, Any]) -> str:
+        if not sections:
+            return ""
+
+        parts: List[str] = []
+
+        for _, value in sections.items():
+            if value is None:
+                continue
+            if isinstance(value, str):
+                if value.strip():
+                    parts.append(value.strip())
+                continue
+            if isinstance(value, dict):
+                content = value.get("content")
+                if isinstance(content, str) and content.strip():
+                    parts.append(content.strip())
+                else:
+                    stringified = str(value).strip()
+                    if stringified:
+                        parts.append(stringified)
+                continue
+            if isinstance(value, list):
+                for item in value:
+                    if item is None:
+                        continue
+                    if isinstance(item, str):
+                        if item.strip():
+                            parts.append(item.strip())
+                    else:
+                        stringified = str(item).strip()
+                        if stringified:
+                            parts.append(stringified)
+                continue
+
+            stringified = str(value).strip()
+            if stringified:
+                parts.append(stringified)
+
+        if not parts:
+            return ""
+
+        return self.normalize_for_storage("\n\n".join(parts))
 
     def parse_resume(self, file_bytes: bytes, filename: Optional[str] = None) -> tuple:
         resume_text = self.extract_text(file_bytes, filename)

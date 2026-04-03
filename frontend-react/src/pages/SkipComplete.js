@@ -117,7 +117,7 @@ function SkipComplete() {
 
             <CardFooter className="border-t border-border pt-4">
               <Button
-                onClick={() => navigate("/")}
+                onClick={() => navigate("/home")}
                 className="w-full shadow-md shadow-primary/30"
               >
                 Go to Dashboard

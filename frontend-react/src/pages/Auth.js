@@ -16,6 +16,12 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
 
+  const passwordRequirements = [
+    "At least 8 characters",
+    "One uppercase letter",
+    "One number",
+  ];
+
   const navigate = useNavigate();
 
   // Sync form mode when URL query param changes (e.g. back/forward navigation)
@@ -29,6 +35,18 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
     setError(null);
 
     try {
+      if (!isLogin) {
+        const hasMinLength = password.length >= 8;
+        const hasUppercase = /[A-Z]/.test(password);
+        const hasNumber = /\d/.test(password);
+
+        if (!hasMinLength || !hasUppercase || !hasNumber) {
+          throw new Error(
+            `Password must have: ${passwordRequirements.join(", ")}.`,
+          );
+        }
+      }
+
       if (isLogin) {
         // LOGIN
         const { data, error } = await supabase.auth.signInWithPassword({
@@ -208,6 +226,11 @@ function Auth({ onLoginSuccess, onRegisterSuccess }) {
                   required
                   className="h-9 transition-all duration-300"
                 />
+                {!isLogin && (
+                  <p className="text-xs text-muted-foreground">
+                    {passwordRequirements.join(" - ")}
+                  </p>
+                )}
               </div>
 
               {error && (

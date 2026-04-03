@@ -3,7 +3,7 @@ import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
-import { Upload, Zap, ChevronDown } from "lucide-react";
+import { AlertCircle, Upload, Zap, ChevronDown } from "lucide-react";
 
 // Role labels matching questionnaire values
 const ROLE_OPTIONS = [
@@ -21,6 +21,8 @@ const ROLE_OPTIONS = [
   { value: "ux_ui_designer", label: "UI/UX Designer" },
 ];
 
+const MAX_RESUME_BYTES = 5 * 1024 * 1024;
+
 
 function ResumeUpload({ onResult, hideIfResults = false }) {
   const [resumeFile, setResumeFile] = useState(null);
@@ -33,6 +35,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
   const [abortController, setAbortController] = useState(null);
   const [hasExistingResults, setHasExistingResults] = useState(false);
   const fileInputRef = useRef(null);
+  const isSizeError = error.toLowerCase().includes("5mb") || error.toLowerCase().includes("file");
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -83,7 +86,25 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
 
   const hasJD = jobDescription.trim().length > 50;
 
-  const handleResumeChange = (e) => setResumeFile(e.target.files[0]);
+  const handleResumeChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) {
+      setResumeFile(null);
+      return;
+    }
+
+    if (file.size > MAX_RESUME_BYTES) {
+      setError("Resume file must be 5MB or smaller.");
+      setResumeFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
+    setError("");
+    setResumeFile(file);
+  };
   const handleJDChange = (e) => setJobDescription(e.target.value);
 
   const buildResumeDataFromOrchestrator = (payload, file, jd, role) => {
@@ -121,6 +142,10 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
       setError("Please upload a resume to continue.");
       return;
     }
+    // if (resumeFile.size > MAX_RESUME_BYTES) {
+    //   setError("Resume file must be 5MB or smaller.");
+    //   return;
+    // }
     setLoading(true);
 
     // Create abort controller for cancellation
@@ -226,6 +251,12 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* File Upload - Drag & Drop Box */}
           <div className="space-y-2">
+            {error && isSizeError && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
             <div className="relative">
               <input
                 type="file"
@@ -237,7 +268,9 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
               />
               <label
                 htmlFor="resume-file"
-                className="flex flex-col items-center justify-center w-full h-40 px-4 transition bg-background hover:bg-muted/30 border-2 border-dashed border-border rounded-lg cursor-pointer group"
+                className={`flex flex-col items-center justify-center w-full h-40 px-4 transition bg-background hover:bg-muted/30 border-2 border-dashed rounded-lg cursor-pointer group ${
+                  error && isSizeError ? "border-destructive/60 bg-destructive/5" : "border-border"
+                }`}
               >
                 <div className="flex flex-col items-center justify-center space-y-3">
                   <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -246,7 +279,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
                       {resumeFile ? resumeFile.name : "Drag and drop your resume here, or browse"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Supported formats: PDF, DOCX
+                      Supported formats: PDF, DOCX (max 5MB)
                     </p>
                   </div>
                   {!resumeFile && (
@@ -363,7 +396,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
         </form>
 
         {/* Error */}
-        {error && (
+        {error && !isSizeError && (
           <div className="px-5 pb-5">
             <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
               {error}

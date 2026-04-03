@@ -101,18 +101,9 @@ function parseProjectHeaderLine(line) {
   }
 
   let techStack = '';
-  let links = '';
   let date = '';
 
   if (restPart) {
-    const linkMatches = restPart.match(/\[([^\]]+)\]/g);
-    if (linkMatches) {
-      links = linkMatches
-        .map((l) => l.replace(/[\]\[]/g, '').trim())
-        .filter(Boolean)
-        .join(', ');
-    }
-
     let remaining = restPart.replace(/\[([^\]]+)\]/g, '').trim();
 
     // Strict date-at-end first, then loose first date span fallback.
@@ -140,7 +131,7 @@ function parseProjectHeaderLine(line) {
     description = '';
   }
 
-  return { title, description, techStack, links, date, bullets: [] };
+  return { title, description, techStack, date, bullets: [] };
 }
 
 function parseProjectsFlattened(text) {
@@ -247,7 +238,6 @@ export function parseProjects(projectsText) {
           currentProject = {
             ...currentProject,
             techStack: reparsed.techStack || currentProject.techStack,
-            links: reparsed.links || currentProject.links,
             date: reparsed.date || currentProject.date,
           };
         }
@@ -430,21 +420,11 @@ export function serializeProjects(projects) {
         titleLine += ` – ${p.description}`;
       }
 
-      if (p.techStack || p.links || p.date) {
+      if (p.techStack || p.date) {
         titleLine += ' |';
 
         if (p.techStack) {
           titleLine += ` ${p.techStack}`;
-        }
-
-        if (p.links) {
-          const linkParts = p.links
-            .split(',')
-            .map((l) => l.trim())
-            .filter(Boolean);
-          linkParts.forEach((link) => {
-            titleLine += ` [${link}]`;
-          });
         }
 
         if (p.date) {

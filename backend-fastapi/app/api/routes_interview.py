@@ -90,75 +90,84 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 async def get_user_resume_data(user_id: str):
     """Retrieve latest resume data for a user"""
     try:
-        # Get user's most recent resume
+        parser = get_parser()
+
         result = supabase.table("resumes")\
             .select("resume_id, user_id")\
             .eq("user_id", user_id)\
             .order("latest_update", desc=True)\
             .limit(1)\
             .execute()
-        
+
         if not result.data:
             logger.warning(f"No resume found for user {user_id}")
             return None
-        
+
         resume_record = result.data[0]
-        
-        # Get latest version of this resume
-        version_result = supabase.table("resume_versions")\
-            .select("content, raw_file_path")\
-            .eq("resume_id", resume_record["resume_id"])\
-            .order("version_number", desc=True)\
-            .limit(1)\
+
+        profile_result = (
+            supabase.table("user")
+            .select("user_profile")
+            .eq("id", user_id)
+            .limit(1)
             .execute()
-        
-        if not version_result.data:
-            logger.warning(f"No versions found for resume {resume_record['resume_id']}")
-            return None
-        
-        version_data = version_result.data[0]
-        
-        # Parse content
-        content = version_data.get("content")
-        if isinstance(content, str):
-            content = json.loads(content)
-        
-        # Extract resume text and sections
-        sections = content.get("sections", {}) if content else {}
-        resume_text = "\n\n".join([
-            section_text.strip()
-            for section_text in sections.values()
-            if isinstance(section_text, str) and section_text.strip()
-        ])
-        filename = version_data.get("raw_file_path", "resume.pdf")
-        
-        # Reconstruct resume_text from sections
-        resume_text = ""
-        if sections:
-            for section_name, section_content in sections.items():
-                if isinstance(section_content, dict):
-                    resume_text += f"\n{section_name.upper()}\n"
-                    if "content" in section_content:
-                        resume_text += section_content["content"] + "\n"
-                    else:
-                        resume_text += str(section_content) + "\n"
-                elif isinstance(section_content, list):
-                    resume_text += f"\n{section_name.upper()}\n"
-                    for item in section_content:
-                        if isinstance(item, dict):
-                            resume_text += str(item) + "\n"
-                        else:
-                            resume_text += str(item) + "\n"
-                else:
-                    resume_text += f"\n{section_name.upper()}\n{section_content}\n"
-        
-        logger.info(f"Retrieved resume data: {filename}, text length: {len(resume_text)}, sections: {list(sections.keys())}")
-        
+        )
+        profile_data = profile_result.data[0].get("user_profile") if profile_result.data else {}
+        if isinstance(profile_data, str):
+            try:
+                profile_data = json.loads(profile_data)
+            except Exception:
+                profile_data = {}
+
+        sections = profile_data.get("resume_parsed_sections") if isinstance(profile_data, dict) else {}
+        resume_text = profile_data.get("resume_text") if isinstance(profile_data, dict) else ""
+
+        if not resume_text and sections:
+            resume_text = parser.build_resume_text_from_sections(sections)
+
+        filename = "resume.pdf"
+
+        if not resume_text and not sections:
+            version_result = supabase.table("resume_versions")\
+                .select("content, raw_file_path")\
+                .eq("resume_id", resume_record["resume_id"])\
+                .order("version_number", desc=True)\
+                .limit(1)\
+                .execute()
+
+            if not version_result.data:
+                logger.warning(f"No versions found for resume {resume_record['resume_id']}")
+                return None
+
+            version_data = version_result.data[0]
+            content = version_data.get("content")
+            if isinstance(content, str):
+                content = json.loads(content)
+
+            sections = content.get("sections", {}) if content else {}
+            resume_text = content.get("resume_text") or parser.build_resume_text_from_sections(sections)
+            filename = version_data.get("raw_file_path", "resume.pdf")
+        else:
+            latest_file = (
+                supabase.table("resume_versions")
+                .select("raw_file_path")
+                .eq("resume_id", resume_record["resume_id"])
+                .order("version_number", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if latest_file.data:
+                filename = latest_file.data[0].get("raw_file_path", "resume.pdf")
+
+        logger.info(
+            f"Retrieved resume data: {filename}, text length: {len(resume_text)}, sections: {list(sections.keys()) if isinstance(sections, dict) else []}"
+        )
+
         return {
             "resume_id": resume_record["resume_id"],
-            "resume_text": resume_text.strip(),
-            "sections": sections,
-            "filename": filename
+            "resume_text": (resume_text or "").strip(),
+            "sections": sections or {},
+            "filename": filename,
         }
         
     except Exception as e:

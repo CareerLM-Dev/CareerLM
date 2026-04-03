@@ -32,6 +32,41 @@ def _dump_compact_json(payload: dict) -> str:
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
 
+def _load_user_profile(user_id: str) -> dict:
+    profile_row = (
+        supabase.table("user")
+        .select("user_profile")
+        .eq("id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not profile_row.data:
+        return {}
+    profile_data = profile_row.data[0].get("user_profile") or {}
+    if isinstance(profile_data, str):
+        try:
+            profile_data = json.loads(profile_data)
+        except Exception:
+            profile_data = {}
+    return profile_data if isinstance(profile_data, dict) else {}
+
+
+def _update_user_profile_from_sections(
+    user_id: str,
+    sections: Dict[str, Any],
+    resume_text: Optional[str] = None,
+) -> None:
+    parser = get_parser()
+    normalized_text = resume_text or parser.build_resume_text_from_sections(sections)
+    existing_profile = _load_user_profile(user_id)
+    updated_profile = {
+        **existing_profile,
+        "resume_parsed_sections": sections,
+        "resume_text": normalized_text,
+    }
+    supabase.table("user").update({"user_profile": updated_profile}).eq("id", user_id).execute()
+
+
 def ensure_user_row(user_id: str):
     """Make sure a row exists in the `user` table for this auth user.
     Avoids FK violations when inserting into `resumes` or other tables."""
@@ -207,6 +242,12 @@ async def analyze_resume(
         # ===== PARSE RESUME =====
         parser = get_parser()
         resume_bytes = await resume.read()
+        max_bytes = 5 * 1024 * 1024
+        if len(resume_bytes) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="Resume file must be 5MB or smaller.",
+            )
         raw_resume_text = parser.extract_text(resume_bytes, filename=resume.filename)
         parsed_sections = parser.parse_sections(raw_resume_text)
 
@@ -327,6 +368,8 @@ async def analyze_resume(
                 "sections": cleaned_sections,
                 "resume_text": resume_text,
             }
+
+            _update_user_profile_from_sections(user_id, cleaned_sections, resume_text)
 
             insert_result = supabase.table("resume_versions").insert({
                 "resume_id": resume_id,
@@ -535,7 +578,37 @@ async def get_editor_data(version_id: int):
         if isinstance(content, str):
             content = json.loads(content)
 
-        sections = parser.sanitize_sections_for_storage(content.get("sections") or {})
+        sections = {}
+        owner_row = (
+            supabase.table("resume_versions")
+            .select("resumes!inner(user_id)")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if owner_row.data:
+            owner_id = owner_row.data[0]["resumes"]["user_id"]
+            profile_row = (
+                supabase.table("user")
+                .select("user_profile")
+                .eq("id", owner_id)
+                .limit(1)
+                .execute()
+            )
+            if profile_row.data:
+                profile_data = profile_row.data[0].get("user_profile") or {}
+                if isinstance(profile_data, str):
+                    try:
+                        profile_data = json.loads(profile_data)
+                    except Exception:
+                        profile_data = {}
+                if isinstance(profile_data, dict):
+                    sections = profile_data.get("resume_parsed_sections") or {}
+
+        if not sections:
+            sections = content.get("sections") or {}
+
+        sections = parser.sanitize_sections_for_storage(sections)
 
         analysis = record.get("resume_analysis") or {}
         if isinstance(analysis, str):
@@ -587,17 +660,23 @@ async def update_editor_sections(version_id: int, sections_payload: Dict[str, An
             content = json.loads(content)
 
         content["sections"] = sections
-        flattened = " ".join(
-            value.strip()
-            for value in sections.values()
-            if isinstance(value, str) and value.strip()
-        )
-        content["resume_text"] = parser.normalize_for_storage(flattened)
+        content["resume_text"] = parser.build_resume_text_from_sections(sections)
 
         supabase.table("resume_versions").update({
             "content": content,
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("version_id", version_id).execute()
+
+        owner_row = (
+            supabase.table("resume_versions")
+            .select("resumes!inner(user_id)")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if owner_row.data:
+            owner_id = owner_row.data[0]["resumes"]["user_id"]
+            _update_user_profile_from_sections(owner_id, sections)
 
         return {"success": True, "sections": sections}
     except HTTPException:
@@ -654,17 +733,23 @@ async def apply_suggestion(
             return {"success": False, "error": "No matching text found to replace"}
 
         content["sections"] = parser.sanitize_sections_for_storage(sections)
-        flattened = " ".join(
-            value.strip()
-            for value in content["sections"].values()
-            if isinstance(value, str) and value.strip()
-        )
-        content["resume_text"] = parser.normalize_for_storage(flattened)
+        content["resume_text"] = parser.build_resume_text_from_sections(content["sections"])
 
         supabase.table("resume_versions").update({
             "content": content,
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("version_id", version_id).execute()
+
+        owner_row = (
+            supabase.table("resume_versions")
+            .select("resumes!inner(user_id)")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if owner_row.data:
+            owner_id = owner_row.data[0]["resumes"]["user_id"]
+            _update_user_profile_from_sections(owner_id, content.get("sections") or {})
 
         return {
             "success": True,
