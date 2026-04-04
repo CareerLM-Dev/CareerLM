@@ -1,7 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Upload, Lightbulb, Edit, CheckSquare, CheckCircle, AlertCircle, Edit3,
+  Upload, Lightbulb, Edit, CheckSquare, CheckCircle, AlertCircle,
 } from "lucide-react";
 
 // ── Circular Progress for Overall Score ────────────────────────────────────
@@ -104,13 +104,44 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
   } = resumeData;
 
   // Default text for empty strengths/weaknesses
+  const normalizeFeedback = (items) =>
+    (items || []).map((item) => {
+      if (typeof item === "string") {
+        return { title: item };
+      }
+
+      return {
+        title: item.title || item.suggestion || item.summary || "Untitled insight",
+        detail: item.explanation || item.detail || item.reason || item.why,
+        tip: item.tip || item.example,
+      };
+    });
+
   const strengthsList = strengths.length > 0
-    ? strengths.map(s => s.title || s.suggestion)
-    : ["Your resume effectively highlights your key skills and experiences relevant to the target roles.", "The structure is clear and easy to follow, making it simple for recruiters to quickly grasp your qualifications."];
+    ? normalizeFeedback(strengths)
+    : [
+        {
+          title: "Clear positioning",
+          detail: "Your resume highlights key skills relevant to your target roles.",
+        },
+        {
+          title: "Readable structure",
+          detail: "The layout is easy to scan, making your experience accessible to recruiters.",
+        },
+      ];
 
   const weaknessesList = weaknesses.length > 0
-    ? weaknesses.map(w => w.title || w.suggestion)
-    : ["The resume lacks specific quantifiable achievements to demonstrate the impact of your contributions.", "Some sections could benefit from more detailed descriptions to provide a clearer picture of your responsibilities and accomplishments."];
+    ? normalizeFeedback(weaknesses)
+    : [
+        {
+          title: "Limited measurable impact",
+          detail: "Add numbers that show the effect of your work (speed, scale, revenue, users).",
+        },
+        {
+          title: "Thin project detail",
+          detail: "Expand 1–2 bullets to show scope, tools, and outcomes.",
+        },
+      ];
 
   return (
     <div className="space-y-5">
@@ -135,38 +166,58 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
       {/* ── AI Feedback Section ──────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-lg p-5">
         <h3 className="text-base font-bold mb-4">AI Feedback</h3>
-        
-        <div className="space-y-4">
-          {/* Strengths */}
+
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-4">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-500 flex-shrink-0" />
               <h4 className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">Strengths</h4>
             </div>
-            <ul className="text-sm text-emerald-800 dark:text-emerald-200 leading-relaxed pl-6 space-y-1.5">
+            <div className="space-y-3">
               {strengthsList.map((strength, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-emerald-500 mt-1">•</span>
-                  <span>{strength}</span>
-                </li>
+                <div key={i} className="rounded-md bg-white/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/60 p-3">
+                  <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                    {strength.title}
+                  </p>
+                  {strength.detail && (
+                    <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-1">
+                      {strength.detail}
+                    </p>
+                  )}
+                  {strength.tip && (
+                    <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80 mt-1">
+                      {strength.tip}
+                    </p>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
 
-          {/* Weaknesses */}
           <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 p-4">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 flex-shrink-0" />
-              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Weaknesses</h4>
+              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Needs Work</h4>
             </div>
-            <ul className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed pl-6 space-y-1.5">
+            <div className="space-y-3">
               {weaknessesList.map((weakness, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span className="text-amber-500 mt-1">•</span>
-                  <span>{weakness}</span>
-                </li>
+                <div key={i} className="rounded-md bg-white/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/60 p-3">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    {weakness.title}
+                  </p>
+                  {weakness.detail && (
+                    <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">
+                      {weakness.detail}
+                    </p>
+                  )}
+                  {weakness.tip && (
+                    <p className="text-xs text-amber-700/80 dark:text-amber-300/80 mt-1">
+                      {weakness.tip}
+                    </p>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -187,11 +238,13 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold mb-1">
-                    {item.title || item.suggestion}
+                    {typeof item === "string" ? item : item.title || item.suggestion}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.explanation}
-                  </p>
+                  {item.explanation && (
+                    <p className="text-xs text-muted-foreground">
+                      {item.explanation}
+                    </p>
+                  )}
                   {item.bullet_rewrite && (
                     <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded">
                       <p className="text-xs text-blue-800 dark:text-blue-200">
@@ -211,13 +264,13 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
       </div>
 
       {/* ── Download Resume Button ──────────────────────────────────── */}
-      <div className="flex justify-end">
+      {/* <div className="flex justify-end">
         <button
           className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
         >
           Download Resume
         </button>
-      </div>
+      </div> */}
     </div>
   );
 }

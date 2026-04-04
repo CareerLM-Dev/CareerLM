@@ -54,6 +54,7 @@ function Dashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [backendDown, setBackendDown] = useState(false);
+  const [showResumeUploader, setShowResumeUploader] = useState(false);
 
   const isBackendError = (error) => {
     if (!error?.response) {
@@ -292,7 +293,33 @@ function Dashboard() {
       case "resume_optimizer":
         return (
           <div className="space-y-6">
-            <ResumeUpload onResult={handleResumeDataUpdate} />
+            <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold">
+                  {resumeData ? "Resume analysis ready" : "Start a new resume analysis"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {resumeData
+                    ? "Keep your last results visible while you run a new analysis."
+                    : "Upload your resume to get scores and suggestions."}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowResumeUploader((prev) => !prev)}
+                className="px-3 py-1.5 border border-border rounded-md text-sm font-medium hover:bg-muted"
+              >
+                {showResumeUploader ? "Hide Uploader" : "Analyze Another"}
+              </button>
+            </div>
+
+            {showResumeUploader && (
+              <ResumeUpload
+                onResult={(data) => {
+                  handleResumeDataUpdate(data);
+                  setShowResumeUploader(false);
+                }}
+              />
+            )}
             {resumeData && (
               <ResumeResultsView
                 resumeData={resumeData}

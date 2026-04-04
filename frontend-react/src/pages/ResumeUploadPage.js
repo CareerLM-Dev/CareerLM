@@ -91,7 +91,7 @@ function ResumeUploadPage() {
           </div>
 
           {/* Show existing results if available */}
-          {currentResults && (
+          {currentResults ? (
             <div className="bg-card border border-primary/20 rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -116,12 +116,12 @@ function ResumeUploadPage() {
                 </div>
               </div>
             </div>
+          ) : (
+            <ResumeUpload
+              onResult={handleResumeAnalysisComplete}
+              hideIfResults={true}
+            />
           )}
-
-          <ResumeUpload 
-            onResult={handleResumeAnalysisComplete} 
-            hideIfResults={false}
-          />
         </div>
       </main>
     </div>

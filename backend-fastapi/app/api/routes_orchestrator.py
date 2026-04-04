@@ -6,6 +6,7 @@ Frontend calls these to trigger analysis flows.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, Header, HTTPException, Body, Query, Response
+from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 import json
 import logging
@@ -278,144 +279,190 @@ async def analyze_resume(
             f"[API] Resume uploaded: {resume.filename}, {len(resume_text)} chars"
         )
         
-        # ===== INVOKE ORCHESTRATOR GRAPH =====
-        logger.info(f"[ANALYZE_RESUME] Invoking orchestrator graph")
-        
-        from app.agents.orchestrator.graph import orchestrator_graph
-        
-        result = orchestrator_graph.invoke(
-            state,
-            config={
-                "configurable": {"thread_id": user_id},
-                "recursion_limit": 25,  # Prevent infinite loops
-            },
-        )
-        
-        logger.info(f"[ANALYZE_RESUME] Graph completed. Phase: {result.get('current_phase')}")
-        
-        # ===== SKILL GAP ANALYSIS =====
-        from app.agents.skill_gap import analyze_skill_gap
+        # ===== EVENT GENERATOR (STREAM) =====
+        async def event_generator():
+            try:
+                # Tell frontend we started
+                yield f"data: {json.dumps({'event': 'started', 'phase': 'Parsing Resume'})}\n\n"
 
-        questionnaire_answers = None
-        try:
-            user_pref = (
-                supabase.table("user")
-                .select("questionnaire_answers, user_profile")
-                .eq("id", user_id)
-                .limit(1)
-                .execute()
-            )
-            if user_pref.data:
-                row = user_pref.data[0]
-                questionnaire_answers = row.get("questionnaire_answers") or {}
-                if isinstance(questionnaire_answers, dict) and row.get("user_profile"):
-                    questionnaire_answers["user_profile"] = row.get("user_profile")
-        except Exception as pref_err:
-            logger.warning(f"[ANALYZE_RESUME] Could not load user preferences for skill-gap: {pref_err}")
+                def _phase_label(phase_value: str, message: str) -> str:
+                    phase = (phase_value or "").strip()
+                    phase_map = {
+                        "resume_analysis": "Analyzing resume structure...",
+                        "fix_resume": "Drafting improvements...",
+                        "skill_gap_analysis": "Analyzing skill gaps...",
+                        "role_suggestion": "Finding career matches...",
+                        "study_plan": "Building learning plan...",
+                        "interview_prep": "Preparing interview practice...",
+                        "cold_email": "Drafting outreach email...",
+                        "idle": "Finalizing results...",
+                    }
 
-        skill_gap_result = analyze_skill_gap(resume_text,
-            filename=resume.filename,
-            sections=sections,
-            questionnaire_answers=questionnaire_answers,)
+                    if phase in phase_map:
+                        return phase_map[phase]
 
-        # ===== STORE RESUME VERSION (LEAN) =====
-        try:
-            # Ensure user row exists first to prevent FK constraint failures
-            ensure_user_row(user_id)
-            
-            logger.info("[ANALYZE_RESUME] Persisting resume_versions entry")
-            existing_resume = (
-                supabase.table("resumes")
-                .select("*")
-                .eq("user_id", user_id)
-                .execute()
-            )
+                    if message:
+                        lower_msg = message.lower()
+                        if "structure" in lower_msg:
+                            return "Analyzing resume structure..."
+                        if "relevance" in lower_msg:
+                            return "Checking role relevance..."
+                        if "impact" in lower_msg:
+                            return "Scoring resume impact..."
+                        if "suggestion" in lower_msg or "improve" in lower_msg:
+                            return "Generating improvements..."
 
-            if existing_resume.data:
-                resume_id = existing_resume.data[0]["resume_id"]
-                new_version_number = existing_resume.data[0]["current_version"] + 1
-                supabase.table("resumes").update({
-                    "current_version": new_version_number,
-                    "latest_update": datetime.utcnow().isoformat(),
-                }).eq("resume_id", resume_id).execute()
-            else:
-                resp = supabase.table("resumes").insert({
+                    return "Analyzing resume..."
+
+                result_state = None
+                
+                # Stream updates from the orchestrator graph
+                async for current_state in orchestrator_graph.astream(
+                    state,
+                    config={
+                        "configurable": {"thread_id": user_id},
+                        "recursion_limit": 25,
+                    },
+                    stream_mode="values"
+                ):
+                    phase = current_state.get('current_phase') or "Analyzing..."
+                    msg = current_state.get('messages', [])
+                    last_msg = msg[-1] if msg else ""
+                    phase_label = _phase_label(phase, last_msg)
+                    yield f"data: {json.dumps({'event': 'update', 'phase': phase, 'phase_label': phase_label, 'message': last_msg})}\n\n"
+                    result_state = current_state
+
+                # Graph completed
+                result = result_state
+                logger.info(f"[ANALYZE_RESUME] Graph completed. Phase: {result.get('current_phase')}")
+                
+                # ===== SKILL GAP ANALYSIS =====
+                from app.agents.skill_gap import analyze_skill_gap
+        
+                questionnaire_answers = None
+                try:
+                    user_pref = (
+                        supabase.table("user")
+                        .select("questionnaire_answers, user_profile")
+                        .eq("id", user_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if user_pref.data:
+                        row = user_pref.data[0]
+                        questionnaire_answers = row.get("questionnaire_answers") or {}
+                        if isinstance(questionnaire_answers, dict) and row.get("user_profile"):
+                            questionnaire_answers["user_profile"] = row.get("user_profile")
+                except Exception as pref_err:
+                    logger.warning(f"[ANALYZE_RESUME] Could not load user preferences for skill-gap: {pref_err}")
+        
+                skill_gap_result = analyze_skill_gap(resume_text,
+                    filename=resume.filename,
+                    sections=sections,
+                    questionnaire_answers=questionnaire_answers,)
+        
+                # ===== STORE RESUME VERSION (LEAN) =====
+                try:
+                    ensure_user_row(user_id)
+                    
+                    logger.info("[ANALYZE_RESUME] Persisting resume_versions entry")
+                    existing_resume = (
+                        supabase.table("resumes")
+                        .select("*")
+                        .eq("user_id", user_id)
+                        .execute()
+                    )
+        
+                    if existing_resume.data:
+                        resume_id = existing_resume.data[0]["resume_id"]
+                        new_version_number = existing_resume.data[0]["current_version"] + 1
+                        supabase.table("resumes").update({
+                            "current_version": new_version_number,
+                            "latest_update": datetime.utcnow().isoformat(),
+                        }).eq("resume_id", resume_id).execute()
+                    else:
+                        resp = supabase.table("resumes").insert({
+                            "user_id": user_id,
+                            "template_type": "default",
+                            "current_version": 1,
+                            "latest_update": datetime.utcnow().isoformat(),
+                        }).execute()
+                        resume_id = resp.data[0]["resume_id"]
+                        new_version_number = 1
+        
+                    resume_analysis = result.get("resume_analysis", {}) or {}
+                    analysis_payload = {
+                        "strengths": resume_analysis.get("strengths", []),
+                        "weaknesses": resume_analysis.get("weaknesses", []),
+                        "suggestions": resume_analysis.get("suggestions", []),
+                        "analysis_timestamp": resume_analysis.get("analysis_timestamp"),
+                        "ats_score": resume_analysis.get("overall_score"),
+                        "score_zone": resume_analysis.get("score_zone"),
+                        "structure_score": resume_analysis.get("structure_score"),
+                        "completeness_score": resume_analysis.get("completeness_score"),
+                        "relevance_score": resume_analysis.get("relevance_score"),
+                        "impact_score": resume_analysis.get("impact_score"),
+                    }
+        
+                    cleaned_sections = parser.sanitize_sections_for_storage(sections)
+                    content_data = {
+                        "sections": cleaned_sections,
+                        "resume_text": resume_text,
+                    }
+        
+                    _update_user_profile_from_sections(user_id, cleaned_sections, resume_text)
+        
+                    insert_result = supabase.table("resume_versions").insert({
+                        "resume_id": resume_id,
+                        "version_number": new_version_number,
+                        "job_description": job_description or "",
+                        "content": content_data,
+                        "resume_analysis": _dump_compact_json(analysis_payload),
+                        "skill_gap": _dump_compact_json(skill_gap_result),
+                        "ats_score": resume_analysis.get("overall_score"),
+                        "raw_file_path": resume.filename,
+                        "notes": f"Orchestrator resume analysis | has_jd: {bool(job_description)}",
+                    }).execute()
+                    logger.info(
+                        "[ANALYZE_RESUME] resume_versions insert done | resume_id=%s | version=%s | rows=%s",
+                        resume_id,
+                        new_version_number,
+                        len(insert_result.data) if insert_result and insert_result.data else 0,
+                    )
+                except Exception as db_err:
+                    logger.error(f"Failed to store resume version: {db_err}")
+                    error_msg = f"Resume analysis completed but failed to save: {str(db_err)}"
+                    yield f"data: {json.dumps({'event': 'error', 'error': error_msg})}\n\n"
+                    return
+        
+                # ===== RETURN STATE FOR FRONTEND =====
+                score_history = (result.get("profile") or {}).get("score_history", [])
+                score_delta = score_history[-1].get("delta") if score_history else None
+        
+                final_payload = {
+                    "success": True,
                     "user_id": user_id,
-                    "template_type": "default",
-                    "current_version": 1,
-                    "latest_update": datetime.utcnow().isoformat(),
-                }).execute()
-                resume_id = resp.data[0]["resume_id"]
-                new_version_number = 1
+                    "current_phase": result.get("current_phase"),
+                    "supervisor_decision": result.get("supervisor_decision"),
+                    "resume_score": result.get("resume_analysis", {}).get("overall_score"),
+                    "score_delta": score_delta,
+                    "filename": resume.filename,
+                    "resume_analysis": result.get("resume_analysis"),
+                    "active_job": result.get("active_job"),
+                    "profile": result.get("profile"),
+                    "messages": result.get("messages", []),
+                    "waiting_for_user": result.get("waiting_for_user", False),
+                    "waiting_for_input_type": result.get("waiting_for_input_type"),
+                }
 
-            resume_analysis = result.get("resume_analysis", {}) or {}
-            analysis_payload = {
-                "strengths": resume_analysis.get("strengths", []),
-                "weaknesses": resume_analysis.get("weaknesses", []),
-                "suggestions": resume_analysis.get("suggestions", []),
-                "analysis_timestamp": resume_analysis.get("analysis_timestamp"),
-                "ats_score": resume_analysis.get("overall_score"),
-                "score_zone": resume_analysis.get("score_zone"),
-                "structure_score": resume_analysis.get("structure_score"),
-                "completeness_score": resume_analysis.get("completeness_score"),
-                "relevance_score": resume_analysis.get("relevance_score"),
-                "impact_score": resume_analysis.get("impact_score"),
-            }
+                yield f"data: {json.dumps({'event': 'complete', 'result': final_payload})}\n\n"
 
-            # Store only sanitized sections and sanitized flattened text.
-            cleaned_sections = parser.sanitize_sections_for_storage(sections)
-            content_data = {
-                "sections": cleaned_sections,
-                "resume_text": resume_text,
-            }
+            except Exception as e:
+                logger.error(f"[ANALYZE_RESUME] STREAM Error: {e}", exc_info=True)
+                yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
 
-            _update_user_profile_from_sections(user_id, cleaned_sections, resume_text)
-
-            insert_result = supabase.table("resume_versions").insert({
-                "resume_id": resume_id,
-                "version_number": new_version_number,
-                "job_description": job_description or "",
-                # content is jsonb: store native object for faster reads/filters.
-                "content": content_data,
-                # resume_analysis/skill_gap are text columns: store compact JSON strings.
-                "resume_analysis": _dump_compact_json(analysis_payload),
-                "skill_gap": _dump_compact_json(skill_gap_result),
-                "ats_score": resume_analysis.get("overall_score"),
-                "raw_file_path": resume.filename,
-                "notes": f"Orchestrator resume analysis | has_jd: {bool(job_description)}",
-            }).execute()
-            logger.info(
-                "[ANALYZE_RESUME] resume_versions insert done | resume_id=%s | version=%s | rows=%s",
-                resume_id,
-                new_version_number,
-                len(insert_result.data) if insert_result and insert_result.data else 0,
-            )
-        except Exception as db_err:
-            logger.error(f"Failed to store resume version: {db_err}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Resume analysis completed but failed to save: {str(db_err)}"
-            )
-
-        # ===== RETURN STATE FOR FRONTEND =====
-        score_history = (result.get("profile") or {}).get("score_history", [])
-        score_delta = score_history[-1].get("delta") if score_history else None
-
-        return {
-            "success": True,
-            "user_id": user_id,
-            "current_phase": result.get("current_phase"),
-            "supervisor_decision": result.get("supervisor_decision"),
-            "resume_score": result.get("resume_analysis", {}).get("overall_score"),
-            "score_delta": score_delta,
-            "filename": resume.filename,
-            "resume_analysis": result.get("resume_analysis"),
-            "active_job": result.get("active_job"),
-            "profile": result.get("profile"),
-            "messages": result.get("messages", []),
-            "waiting_for_user": result.get("waiting_for_user", False),
-            "waiting_for_input_type": result.get("waiting_for_input_type"),
-        }
+        # Return the stream response immediately
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
     
     except Exception as e:
         logger.error(f"[ANALYZE_RESUME] Error: {e}", exc_info=True)

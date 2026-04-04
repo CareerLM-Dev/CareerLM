@@ -42,14 +42,14 @@ def supervisor_node(state: CareerLMState) -> CareerLMState:
     if user_id:
         try:
             from supabase_client import supabase
-            result = supabase.table("graph_cancellations").select("*").eq("thread_id", user_id).eq("cancelled", True).execute()
-            if result.data:
+            result = supabase.table("user").select("analysis_cancelled").eq("id", user_id).execute()
+            if result.data and result.data[0].get("analysis_cancelled"):
                 print(f"[SUPERVISOR] Cancellation detected for user {user_id}")
                 state["current_phase"] = "idle"
                 state["supervisor_decision"] = "Analysis cancelled by user."
                 state["messages"].append("[SUPERVISOR] Analysis cancelled by user request.")
                 # Clear the cancellation flag
-                supabase.table("graph_cancellations").update({"cancelled": False}).eq("thread_id", user_id).execute()
+                supabase.table("user").update({"analysis_cancelled": False}).eq("id", user_id).execute()
                 return state
         except Exception as e:
             print(f"[SUPERVISOR] Error checking cancellation: {e}")

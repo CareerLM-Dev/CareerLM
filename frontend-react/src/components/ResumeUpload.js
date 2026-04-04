@@ -31,6 +31,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
   const [roleType, setRoleType] = useState("");
   const [profileRoles, setProfileRoles] = useState([]);   // roles from questionnaire
   const [loading, setLoading] = useState(false);
+  const [statusText, setStatusText] = useState("Analyzing...");
   const [error, setError] = useState("");
   const [abortController, setAbortController] = useState(null);
   const [hasExistingResults, setHasExistingResults] = useState(false);
@@ -135,6 +136,23 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
     };
   };
 
+  const parseSsePayloads = (rawChunk) => {
+    const events = rawChunk.split("\n\n");
+    const remainder = events.pop() || "";
+    const payloads = [];
+
+    for (const event of events) {
+      const lines = event.split("\n");
+      const dataLines = lines
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.replace(/^data:\s?/, ""));
+      if (dataLines.length === 0) continue;
+      payloads.push(dataLines.join("\n").trim());
+    }
+
+    return { payloads, remainder };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -163,51 +181,125 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
         "http://localhost:8000/api/v1/orchestrator/analyze-resume",
         { method: "POST", body: formData, signal: controller.signal },
       );
-      const orchestratorData = await orchestratorResponse.json();
 
-      let latestPayload = orchestratorData;
-      if (orchestratorData?.user_id) {
+      if (!orchestratorResponse.ok) {
+        let errorDetail = "";
         try {
-          const stateResponse = await fetch(
-            `http://localhost:8000/api/v1/orchestrator/state/${orchestratorData.user_id}`,
-            { signal: controller.signal }
-          );
-          const stateData = await stateResponse.json();
-          const polledState = stateData?.state;
-          const hasAnalysis = Boolean(polledState?.resume_analysis?.overall_score);
-          const hasPhase = Boolean(polledState?.current_phase);
-          if (polledState && (hasAnalysis || hasPhase)) {
-            latestPayload = { ...orchestratorData, state: polledState };
-          }
+          errorDetail = await orchestratorResponse.text();
         } catch (_) {
-          // State polling is optional; use initial response if unavailable
+          // ignore body parsing failures
+        }
+        throw new Error(errorDetail || "Analysis request failed.");
+      }
+
+      if (!orchestratorResponse.body) {
+        throw new Error("Streaming response not available.");
+      }
+
+      const reader = orchestratorResponse.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      
+      let _completeResult = null;
+      let buffer = "";
+      let streamError = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const { payloads, remainder } = parseSsePayloads(buffer);
+        buffer = remainder;
+
+        for (const payload of payloads) {
+          try {
+            if (!payload) continue;
+            const data = JSON.parse(payload);
+
+            if (data.event === "update" && data.phase) {
+              // Update UI loader text dynamically
+              if (data.phase_label) {
+                setStatusText(data.phase_label);
+              } else {
+                const humanReadablePhase = data.phase
+                  .split("_")
+                  .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                  .join(" ");
+                setStatusText(humanReadablePhase + "...");
+              }
+            } else if (data.event === "started") {
+              setStatusText("Parsing Resume...");
+            } else if (data.event === "error") {
+              streamError = data.error || "Analysis failed";
+              break;
+            } else if (data.event === "complete") {
+              _completeResult = buildResumeDataFromOrchestrator(
+                data.result,
+                resumeFile,
+                jobDescription,
+                roleType,
+              );
+            }
+          } catch (err) {
+            console.error("Error parsing SSE chunk:", err);
+          }
+        }
+
+        if (streamError) {
+          break;
         }
       }
 
-      const completeResult = buildResumeDataFromOrchestrator(
-        latestPayload,
-        resumeFile,
-        jobDescription,
-        roleType,
-      );
+      if (!streamError && buffer.includes("data:")) {
+        const { payloads } = parseSsePayloads(buffer + "\n\n");
+        for (const payload of payloads) {
+          try {
+            if (!payload) continue;
+            const data = JSON.parse(payload);
+            if (data.event === "complete") {
+              _completeResult = buildResumeDataFromOrchestrator(
+                data.result,
+                resumeFile,
+                jobDescription,
+                roleType,
+              );
+            } else if (data.event === "error") {
+              streamError = data.error || "Analysis failed";
+              break;
+            }
+          } catch (err) {
+            console.error("Error parsing final SSE chunk:", err);
+          }
+        }
+      }
+
+      if (streamError) {
+        throw new Error(streamError);
+      }
+
+      if (!_completeResult) {
+        throw new Error("Stream closed before completion.");
+      }
 
       // Persist to localStorage
-      if (userId && completeResult) {
-        localStorage.setItem(`resume_analysis_${userId}`, JSON.stringify(completeResult));
+      if (userId && _completeResult) {
+        localStorage.setItem(`resume_analysis_${userId}`, JSON.stringify(_completeResult));
         setHasExistingResults(true);
       }
 
-      if (onResult) onResult(completeResult);
+      if (onResult) onResult(_completeResult);
     } catch (err) {
       if (err.name === 'AbortError') {
         console.log('Analysis cancelled by user');
         setError('');
       } else {
         console.error("Error during analysis:", err);
-        setError("Failed to complete analysis. Please try again.");
+        setError(err?.message || "Failed to complete analysis. Please try again.");
       }
     } finally {
       setLoading(false);
+      setStatusText("Analyzing...");
       setAbortController(null);
     }
   };
@@ -242,6 +334,31 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
 
   return (
     <div>
+      {loading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[90%] max-w-sm rounded-lg border border-border bg-card p-5 text-center shadow-lg">
+            <div className="relative mx-auto mb-4 h-16 w-16">
+              <div className="loader">
+                <div className="jimu-primary-loading">Loading</div>
+              </div>
+            </div>
+            <p className="text-sm font-medium">{statusText}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This can take a minute or two.
+            </p>
+            <div className="mt-4 flex justify-center">
+              <Button
+                type="button"
+                onClick={handleCancelAnalysis}
+                variant="destructive"
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
         {/* Header */}
         <div className="p-4 border-b border-border">
@@ -375,7 +492,7 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
             <div className="flex gap-2">
               <Button type="button" disabled className="flex-1" size="lg">
                 <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
-                <span>Analyzing...</span>
+                <span>{statusText}</span>
               </Button>
               <Button 
                 type="button" 

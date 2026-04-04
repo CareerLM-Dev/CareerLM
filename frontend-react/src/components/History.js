@@ -164,14 +164,6 @@ function History() {
 
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2 text-sm">
-                    <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-muted-foreground">Version:</span>
-                    <Badge variant="secondary" className="text-xs">
-                      v{item.version_number}
-                    </Badge>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm">
                     <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-muted-foreground">Date:</span>
                     <span className="text-foreground font-medium">
@@ -205,55 +197,6 @@ function History() {
                       <span className="text-foreground font-medium truncate">
                         {item.best_career_match}
                       </span>
-                    </div>
-                  )}
-
-                  {item.match_probability !== null &&
-                    item.match_probability !== undefined && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">Match:</span>
-                        <Badge variant="outline" className="text-xs">
-                          {item.match_probability}%
-                        </Badge>
-                      </div>
-                    )}
-
-                  {item.total_skills_found !== null &&
-                    item.total_skills_found !== undefined && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <BarChart3 className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          Skills Found:
-                        </span>
-                        <span className="text-foreground font-medium">
-                          {item.total_skills_found}
-                        </span>
-                      </div>
-                    )}
-
-                  {item.job_description && (
-                    <div className="space-y-1 pt-1">
-                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <FileText className="h-3.5 w-3.5" />
-                        <span>Job Description:</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed bg-muted/50 rounded-md p-2">
-                        {item.job_description.substring(0, 150)}
-                        {item.job_description.length > 150 ? "..." : ""}
-                      </p>
-                    </div>
-                  )}
-
-                  {item.notes && (
-                    <div className="space-y-1 pt-1">
-                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                        <StickyNote className="h-3.5 w-3.5" />
-                        <span>Notes:</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed bg-muted/50 rounded-md p-2">
-                        {item.notes}
-                      </p>
                     </div>
                   )}
                 </CardContent>
