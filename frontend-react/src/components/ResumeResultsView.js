@@ -2,183 +2,171 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
-  Lightbulb,
-  Edit,
   CheckSquare,
   CheckCircle,
   AlertCircle,
   ArrowRight,
   TrendingUp,
-  Shield,
   Target,
   Sparkles,
-  Edit3,
-  ArrowUpRight,
-  Zap,
+  Copy,
+  Code2,
 } from "lucide-react";
 
 // ── Circular Score ─────────────────────────────────────────────────────────
-function CircularScore({ score, size = 156 }) {
+function CircularScore({ score, size = 140 }) {
   const r = (size - 16) / 2;
   const circ = 2 * Math.PI * r;
   const pct = Math.min(Math.max(score || 0, 0), 100);
   const offset = circ - (pct / 100) * circ;
 
-  const { stroke, label, ring } =
+  const { stroke, label } =
     pct >= 75
-      ? { stroke: "#10b981", label: "text-emerald-500", ring: "shadow-emerald-500/20" }
+      ? { stroke: "#10b981", label: "text-emerald-600" }
       : pct >= 50
-      ? { stroke: "#f59e0b", label: "text-amber-500", ring: "shadow-amber-500/20" }
-      : { stroke: "#f43f5e", label: "text-rose-500", ring: "shadow-rose-500/20" };
-
-  const zone =
-    pct >= 75 ? "Strong" : pct >= 50 ? "Average" : "Needs Work";
-  const zoneBg =
-    pct >= 75
-      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-      : pct >= 50
-      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-      : "bg-rose-500/10 text-rose-600 dark:text-rose-400";
+      ? { stroke: "#f59e0b", label: "text-amber-600" }
+      : { stroke: "#ef4444", label: "text-rose-600" };
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className={`relative rounded-full shadow-xl ${ring}`} style={{ width: size, height: size }}>
+    <div className="flex flex-col items-center gap-2">
+      <div className="relative" style={{ width: size, height: size }}>
         <svg className="-rotate-90" width={size} height={size}>
-          {/* Track */}
-          <circle cx={size / 2} cy={size / 2} r={r} stroke="currentColor" strokeWidth={10} fill="none" className="text-muted opacity-20" />
-          {/* Fill */}
+          <circle cx={size / 2} cy={size / 2} r={r} stroke="currentColor" strokeWidth={8} fill="none" className="text-slate-200" />
           <circle
             cx={size / 2} cy={size / 2} r={r}
-            stroke={stroke} strokeWidth={10} fill="none"
+            stroke={stroke} strokeWidth={8} fill="none"
             strokeDasharray={circ} strokeDashoffset={offset}
             strokeLinecap="round"
             className="transition-all duration-1000 ease-out"
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-4xl font-extrabold tracking-tight font-mono ${label}`}>{pct}</span>
-          <span className="text-xs text-muted-foreground font-medium">/100</span>
+          <span className={`text-3xl font-black tracking-tight ${label}`}>{pct}</span>
+          <span className="text-xs text-slate-500 font-medium">/ 100</span>
         </div>
       </div>
-      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${zoneBg}`}>{zone}</span>
     </div>
   );
 }
 
-// ── Metric Bar ─────────────────────────────────────────────────────────────
+// ── Metric Row (Sleek Light Theme) ────────────────────────────────────────
 function MetricRow({ label, score, icon: Icon, color }) {
   const pct = Math.min(Math.max(score || 0, 0), 100);
-  const cfg = {
-    indigo:  { bar: "bg-indigo-500",  text: "text-indigo-600 dark:text-indigo-400",  bg: "bg-indigo-500/10" },
-    violet:  { bar: "bg-violet-500",  text: "text-violet-600 dark:text-violet-400",  bg: "bg-violet-500/10" },
-    sky:     { bar: "bg-sky-500",     text: "text-sky-600 dark:text-sky-400",         bg: "bg-sky-500/10" },
-    fuchsia: { bar: "bg-fuchsia-500", text: "text-fuchsia-600 dark:text-fuchsia-400", bg: "bg-fuchsia-500/10" },
-  }[color] || cfg?.indigo;
+  const colorConfig = {
+    indigo:  { bar: "bg-indigo-600",  text: "text-indigo-600" },
+    violet:  { bar: "bg-violet-600",  text: "text-violet-600" },
+    sky:     { bar: "bg-sky-600",     text: "text-sky-600" },
+    fuchsia: { bar: "bg-fuchsia-600", text: "text-fuchsia-600" },
+  };
+  const cfg = colorConfig[color] || colorConfig.indigo;
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-card/60 backdrop-blur-xs p-3.5 hover:border-indigo-400/30 hover:bg-card hover:shadow-md hover:shadow-indigo-500/10 hover:-translate-y-1 transition-all duration-200 active:translate-y-0">
-      <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${cfg.bg}`}>
-        <Icon className={`h-4 w-4 ${cfg.text}`} />
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon className={`h-4 w-4 ${cfg.text}`} />
+          <span className="text-sm font-medium text-slate-900">{label}</span>
+        </div>
+        <span className={`text-sm font-bold ${cfg.text}`}>{pct}%</span>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs font-medium text-muted-foreground">{label}</span>
-          <span className={`text-sm font-bold font-mono ${cfg.text}`}>{pct}</span>
-        </div>
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className={`h-full rounded-full ${cfg.bar} transition-all duration-700 ease-out`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+        <div
+          className={`h-full rounded-full ${cfg.bar} transition-all duration-700 ease-out`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </div>
   );
 }
 
-// ── Section Header ─────────────────────────────────────────────────────────
-function SectionHeader({ icon: Icon, title, subtitle, iconClass, iconBg }) {
-  return (
-    <div className="flex items-start gap-3 px-5 pt-5 pb-3">
-      <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
-        <Icon className={`h-4 w-4 ${iconClass}`} />
-      </div>
-      <div>
-        <h3 className="text-sm font-bold text-foreground">{title}</h3>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-// ── Feedback Card ──────────────────────────────────────────────────────────
+// ── Feedback Card (Light Theme) ────────────────────────────────────────────
 function FeedbackCard({ item, variant }) {
   const styles = {
     strength: {
-      wrapper: "rounded-xl border border-emerald-200/50 dark:border-emerald-800/40 bg-gradient-to-br from-emerald-50/60 to-emerald-50/20 dark:from-emerald-950/30 dark:to-transparent p-3.5 hover:border-emerald-300/70 dark:hover:border-emerald-700/60 transition-all",
-      title: "text-sm font-semibold text-emerald-900 dark:text-emerald-100",
-      detail: "text-xs text-emerald-800/70 dark:text-emerald-200/60 leading-relaxed mt-0.5",
-      tip: "text-xs text-emerald-700/50 dark:text-emerald-300/40 italic mt-1",
-      dot: "mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-emerald-500",
+      wrapper: "rounded-lg border border-emerald-200 bg-emerald-50/50 p-3",
+      icon: "text-emerald-600",
+      title: "text-sm font-semibold text-slate-900",
+      detail: "text-xs text-slate-600 leading-relaxed mt-1",
     },
     weakness: {
-      wrapper: "rounded-xl border border-amber-200/50 dark:border-amber-800/40 bg-gradient-to-br from-amber-50/60 to-amber-50/20 dark:from-amber-950/30 dark:to-transparent p-3.5 hover:border-amber-300/70 dark:hover:border-amber-700/60 transition-all",
-      title: "text-sm font-semibold text-amber-900 dark:text-amber-100",
-      detail: "text-xs text-amber-800/70 dark:text-amber-200/60 leading-relaxed mt-0.5",
-      tip: "text-xs text-amber-700/50 dark:text-amber-300/40 italic mt-1",
-      dot: "mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500",
+      wrapper: "rounded-lg border border-rose-200 bg-rose-50/50 p-3",
+      icon: "text-rose-600",
+      title: "text-sm font-semibold text-slate-900",
+      detail: "text-xs text-slate-600 leading-relaxed mt-1",
     },
   }[variant];
 
   return (
-    <div className={`${styles.wrapper} hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200`}>
-      <div className="flex gap-2.5">
-        <div className={styles.dot} />
-        <div>
+    <div className={styles.wrapper}>
+      <div className="flex gap-2">
+        {variant === "strength" ? (
+          <CheckCircle className={`h-4 w-4 flex-shrink-0 mt-0.5 ${styles.icon}`} />
+        ) : (
+          <AlertCircle className={`h-4 w-4 flex-shrink-0 mt-0.5 ${styles.icon}`} />
+        )}
+        <div className="flex-1">
           <p className={styles.title}>{item.title}</p>
           {item.detail && <p className={styles.detail}>{item.detail}</p>}
-          {item.tip && <p className={styles.tip}>{item.tip}</p>}
         </div>
       </div>
     </div>
   );
 }
 
-// ── Suggestion Card ────────────────────────────────────────────────────────
-function SuggestionCard({ item, index }) {
-  const icons = [Lightbulb, Edit, CheckSquare, Sparkles, Target];
-  const Icon = icons[index % icons.length];
+// ── Suggestion Card (AI-Powered Rewrite) ──────────────────────────────────
+function RewriteCard({ item, index }) {
+  const [copied, setCopied] = React.useState(false);
+  const priorities = ["IMPACT", "FILTERING", "KEYWORD MATCH", "STRUCTURE"];
+  const priority = priorities[index % priorities.length];
+
+  const handleCopy = () => {
+    if (item.bullet_rewrite) {
+      navigator.clipboard.writeText(item.bullet_rewrite);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
-    <div className="group rounded-xl border border-border/60 bg-card/60 backdrop-blur-xs p-4 transition-all duration-200 hover:border-indigo-400/40 hover:bg-card hover:shadow-lg hover:shadow-indigo-500/10 hover:-translate-y-1 active:translate-y-0">
-      <div className="flex gap-3">
-        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 group-hover:bg-indigo-500/15 transition-colors">
-          <Icon className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-foreground">
-            {typeof item === "string" ? item : item.title || item.suggestion}
-          </p>
-          {item.explanation && (
-            <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-              {item.explanation}
-            </p>
-          )}
-          {item.bullet_rewrite && (
-            <div className="mt-3 space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Suggested rewrite
-              </p>
-              <div className="relative overflow-hidden rounded-lg border border-indigo-200/60 dark:border-indigo-800/40 bg-indigo-50/80 dark:bg-indigo-950/30 px-3.5 py-2.5">
-                <div className="absolute left-0 top-0 bottom-0 w-0.5 rounded-full bg-indigo-500" />
-                <p className="pl-1 text-xs text-indigo-900 dark:text-indigo-200 font-mono leading-relaxed">
-                  {item.bullet_rewrite}
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
+    <div className="border-b border-slate-200 pb-6 last:border-b-0 last:pb-0">
+      {/* Context Header */}
+      <div className="mb-4">
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-1">Issue #{index + 1}: {priority}</p>
+        <h4 className="text-lg font-bold text-slate-900">{item.title || "Issue"}</h4>
+        <p className="text-sm text-slate-600 mt-2">{item.detail || item.explanation || "See the suggested improvement below."}</p>
       </div>
+
+      {/* Before/After Blocks */}
+      {item.bullet_rewrite && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Original Content */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Current Bullet</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-sm text-slate-600 italic">"{item.original || item.summary || "Your current text..."}"</p>
+            </div>
+          </div>
+
+          {/* Suggested Rewrite */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Suggested Rewrite</p>
+              <button
+                onClick={handleCopy}
+                className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-700 transition-colors"
+              >
+                <Copy className="h-3 w-3" />
+                {copied ? "Copied!" : "Copy"}
+              </button>
+            </div>
+            <div className="bg-indigo-50/60 border border-indigo-200 rounded-lg p-3 font-mono text-sm leading-relaxed">
+              <code className="text-indigo-900">
+                {item.bullet_rewrite}
+              </code>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -189,19 +177,19 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
 
   if (!resumeData) {
     return (
-      <div className="flex flex-col items-center gap-5 rounded-2xl border border-dashed border-border/60 bg-card/50 backdrop-blur-sm p-16 text-center hover:border-indigo-400/30 hover:bg-card/70 transition-all duration-200">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/30">
+      <div className="flex flex-col items-center gap-5 rounded-2xl border border-slate-200 bg-slate-50 p-16 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-600 shadow-lg shadow-indigo-600/30">
           <Upload className="h-7 w-7 text-white" />
         </div>
         <div>
-          <p className="text-base font-semibold">No analysis yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="text-base font-semibold text-slate-900">No analysis yet</p>
+          <p className="mt-1 text-sm text-slate-600">
             Upload a resume to get your ATS score and improvement suggestions.
           </p>
         </div>
         <button
           onClick={onUploadAnother}
-          className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 hover:opacity-90 hover:-translate-y-1 transition-all duration-200 active:translate-y-0"
+          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 hover:-translate-y-1 transition-all duration-200 active:translate-y-0"
         >
           <Upload className="h-4 w-4" /> Upload Resume
         </button>
@@ -226,7 +214,6 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
       return {
         title: item.title || item.suggestion || item.summary || "Untitled insight",
         detail: item.explanation || item.detail || item.reason || item.why,
-        tip: item.tip || item.example,
       };
     });
 
@@ -246,69 +233,130 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
           { title: "Thin project detail", detail: "Expand 1–2 bullets to show scope, tools, and outcomes." },
         ];
 
+  // Generate expert verdict based on scores
+  const getExpertVerdict = () => {
+    const avg = (structure_score + completeness_score + relevance_score + impact_score) / 4;
+    if (avg >= 80) return "Your resume is technically sound and well-optimized for ATS systems. Consider adding quantified metrics to stand out further.";
+    if (avg >= 60) return "Your resume has solid foundations but lacks the executive polish for top-tier positions. Focus on impact keywords and specific achievements.";
+    return "Your resume needs structural improvements and stronger keyword density to pass modern ATS filters. Prioritize the critical fixes below.";
+  };
+
+  const getStatusBadge = () => {
+    if (ats_score >= 75) return { text: "READY FOR SUBMISSION", color: "text-emerald-600 bg-emerald-50", dot: "bg-emerald-500" };
+    if (ats_score >= 50) return { text: "NEEDS REVISION", color: "text-amber-600 bg-amber-50", dot: "bg-amber-500" };
+    return { text: "CRITICAL FIXES NEEDED", color: "text-rose-600 bg-rose-50", dot: "bg-rose-500" };
+  };
+
+  const status = getStatusBadge();
+
   return (
-    <div className="space-y-5">
-      {/* ── Score Hero ─────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-lg shadow-black/5">
-        {/* Top bar */}
-        <div className="h-0.5 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500" />
-
-        <div className="p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Shield className="h-4 w-4 text-indigo-500" />
-            <h3 className="text-sm font-bold uppercase tracking-wide text-foreground">
-              ATS Score Overview
-            </h3>
-            <span className="ml-auto text-xs text-muted-foreground">
-              Applicant Tracking System
-            </span>
+    <div className="space-y-8">
+      {/* ── Header Section ── */}
+      <div>
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">ANALYSIS COMPLETE</p>
+        <div className="flex items-start justify-between gap-6">
+          <div className="flex-1">
+            <h1 className="text-4xl font-black tracking-tight text-slate-900 mb-2">
+              Resume Analyzer
+            </h1>
+            <p className="text-slate-600 max-w-2xl">
+              Your profile has been benchmarked against high-growth tech standards. Precision optimizations suggested below.
+            </p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[auto_1fr] gap-6 items-center">
-            {/* Circular score */}
-            <div className="flex justify-center md:justify-start">
-              <CircularScore score={ats_score} size={156} />
-            </div>
-
-            {/* Sub-metrics */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <MetricRow label="Structure"    score={structure_score}    icon={Target}     color="indigo"  />
-              <MetricRow label="Completeness" score={completeness_score} icon={CheckSquare} color="violet"  />
-              <MetricRow label="Relevance"    score={relevance_score}    icon={TrendingUp}  color="sky"     />
-              <MetricRow label="Impact"       score={impact_score}       icon={Sparkles}    color="fuchsia" />
+          {/* AI Expert Badge */}
+          <div className="flex-shrink-0">
+            <div className="flex items-center gap-3 rounded-full bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 px-4 py-3 shadow-sm">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600">
+                <Sparkles className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-900">AI Guide</p>
+                <p className="text-xs text-slate-600">You're in the top 15%!</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── Strengths & Weaknesses ─────────────────────────────────── */}
-      <div className="grid gap-5 md:grid-cols-2">
-        {/* Strengths */}
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-black/8 transition-all duration-200">
-          <SectionHeader
-            icon={CheckCircle}
-            title="Strengths"
-            subtitle="What's working well"
-            iconClass="text-emerald-600 dark:text-emerald-400"
-            iconBg="bg-emerald-500/10"
-          />
-          <div className="px-5 pb-5 space-y-2">
+      {/* ── Top Bento Grid (2 Col) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Score & Metrics (Left - 2 cols) */}
+        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <div className="grid grid-cols-1 md:grid-cols-[140px_1fr] gap-8 items-start">
+            {/* Circular Score */}
+            <div className="flex justify-center md:justify-start">
+              <div className="text-center">
+                <CircularScore score={ats_score} size={140} />
+                <p className="text-xs text-slate-500 font-medium mt-3 uppercase tracking-wide">ATS Match Probability</p>
+              </div>
+            </div>
+
+            {/* Sub-Metrics Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <MetricRow label="Structure" score={structure_score} icon={Target} color="indigo" />
+              <MetricRow label="Completeness" score={completeness_score} icon={CheckSquare} color="violet" />
+              <MetricRow label="Relevance" score={relevance_score} icon={TrendingUp} color="sky" />
+              <MetricRow label="Impact" score={impact_score} icon={Sparkles} color="fuchsia" />
+            </div>
+          </div>
+        </div>
+
+        {/* Expert Verdict (Right - 1 col) */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col">
+          <h3 className="text-lg font-bold text-slate-900 mb-4">Expert Verdict</h3>
+          <p className="text-sm text-slate-700 leading-relaxed flex-1 mb-4">
+            {getExpertVerdict()}
+          </p>
+
+          {/* Tags */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            {ats_score >= 75 && (
+              <span className="rounded-full bg-emerald-50 text-emerald-700 px-3 py-1 text-xs font-semibold">
+                STRONG QUANTIFIER USE
+              </span>
+            )}
+            {completeness_score < 70 && (
+              <span className="rounded-full bg-rose-50 text-rose-700 px-3 py-1 text-xs font-semibold">
+                KEYWORD GAP
+              </span>
+            )}
+            {relevance_score >= 70 && (
+              <span className="rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 text-xs font-semibold">
+                WELL-ALIGNED
+              </span>
+            )}
+          </div>
+
+          {/* Status Footer */}
+          <div className={`flex items-center gap-2 rounded-lg ${status.color} px-3 py-2 text-sm font-semibold`}>
+            <span className={`h-2 w-2 rounded-full ${status.dot} animate-pulse`} />
+            {status.text}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Strengths & Fixes (2 Col) ── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Top Strengths */}
+        <div className="bg-white border border-emerald-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <div className="flex items-center gap-2 mb-6">
+            <CheckCircle className="h-5 w-5 text-emerald-600" />
+            <h3 className="text-lg font-bold text-slate-900">Top Strengths</h3>
+          </div>
+          <div className="space-y-3">
             {strengthsList.map((s, i) => (
               <FeedbackCard key={i} item={s} variant="strength" />
             ))}
           </div>
         </div>
 
-        {/* Weaknesses */}
-        <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-black/8 transition-all duration-200">
-          <SectionHeader
-            icon={AlertCircle}
-            title="Needs Work"
-            subtitle="Areas for improvement"
-            iconClass="text-amber-600 dark:text-amber-400"
-            iconBg="bg-amber-500/10"
-          />
-          <div className="px-5 pb-5 space-y-2">
+        {/* Critical Fixes */}
+        <div className="bg-white border border-rose-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <div className="flex items-center gap-2 mb-6">
+            <AlertCircle className="h-5 w-5 text-rose-600" />
+            <h3 className="text-lg font-bold text-slate-900">Critical Fixes</h3>
+          </div>
+          <div className="space-y-3">
             {weaknessesList.map((w, i) => (
               <FeedbackCard key={i} item={w} variant="weakness" />
             ))}
@@ -316,59 +364,37 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
         </div>
       </div>
 
-      {/* ── Suggestions + CTA ──────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border border-border/60 bg-card/60 backdrop-blur-sm shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-black/8 transition-all duration-200">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-indigo-500/10">
-              <Lightbulb className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+      {/* ── AI-Powered Rewrites ── */}
+      {suggestions.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Code2 className="h-5 w-5 text-indigo-600" />
+              <h3 className="text-lg font-bold text-slate-900">AI-Powered Rewrites</h3>
             </div>
-            <div>
-              <h3 className="text-sm font-bold text-foreground">Edit Suggestions</h3>
-              <p className="text-xs text-muted-foreground">
-                Actionable improvements prioritized by impact
-              </p>
-            </div>
-          </div>
-          {suggestions.length > 0 && (
-            <span className="rounded-full bg-indigo-500/10 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-              {suggestions.length} items
+            <span className="rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 text-xs font-semibold">
+              {suggestions.length} HIGH PRIORITY ISSUES
             </span>
-          )}
-        </div>
+          </div>
+          <p className="text-sm text-slate-600 mb-6">Click to copy changes directly to your resume.</p>
 
-        <div className="px-5 pb-4">
-          {suggestions.length > 0 ? (
-            <div className="space-y-2.5">
-              {suggestions.map((item, i) => (
-                <SuggestionCard key={i} item={item} index={i} />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center py-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 mb-3">
-                <CheckCircle className="h-6 w-6 text-emerald-500" />
-              </div>
-              <p className="text-sm font-semibold">Looking great — no suggestions!</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Your resume is well-optimized</p>
-            </div>
-          )}
+          <div className="space-y-0">
+            {suggestions.map((item, i) => (
+              <RewriteCard key={i} item={item} index={i} />
+            ))}
+          </div>
         </div>
+      )}
 
-        {/* CTA */}
-        <div className="px-5 pb-5">
-          <div className="h-px w-full bg-border mb-4" />
-          <button
-            onClick={() => navigate("/dashboard/resume-editor")}
-            className="group relative flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-indigo-500/40 hover:-translate-y-1 active:translate-y-0"
-          >
-            {/* Shimmer sweep */}
-            <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
-            <Edit3 className="h-4 w-4" />
-            Open Resume Editor
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </div>
+      {/* ── CTA Button (Centered) ── */}
+      <div className="flex justify-center pt-4">
+        <button
+          onClick={() => navigate("/dashboard/resume-editor")}
+          className="group relative flex items-center gap-2 px-8 py-3.5 rounded-full bg-slate-900 text-white font-semibold shadow-lg shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-1 transition-all duration-200 active:translate-y-0"
+        >
+          Open Resume Editor
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+        </button>
       </div>
     </div>
   );
