@@ -3,9 +3,17 @@ import { supabase } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 import { Label } from "./ui/label";
-import { AlertCircle, Upload, Zap, ChevronDown } from "lucide-react";
+import {
+  AlertCircle,
+  Upload,
+  Zap,
+  ChevronDown,
+  FileText,
+  X,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
 
-// Role labels matching questionnaire values
 const ROLE_OPTIONS = [
   { value: "software_engineer", label: "Software Engineer" },
   { value: "data_scientist", label: "Data Scientist" },
@@ -23,26 +31,35 @@ const ROLE_OPTIONS = [
 
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 
+const LOADING_STEPS = [
+  "Parsing Resume...",
+  "Extracting Skills...",
+  "Scoring Structure...",
+  "Running ATS Check...",
+  "Generating Insights...",
+];
 
 function ResumeUpload({ onResult, hideIfResults = false }) {
   const [resumeFile, setResumeFile] = useState(null);
   const [userId, setUserId] = useState(null);
   const [jobDescription, setJobDescription] = useState("");
   const [roleType, setRoleType] = useState("");
-  const [profileRoles, setProfileRoles] = useState([]);   // roles from questionnaire
+  const [profileRoles, setProfileRoles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("Analyzing...");
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState("");
   const [abortController, setAbortController] = useState(null);
   const [hasExistingResults, setHasExistingResults] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
-  const isSizeError = error.toLowerCase().includes("5mb") || error.toLowerCase().includes("file");
+  const isSizeError =
+    error.toLowerCase().includes("5mb") || error.toLowerCase().includes("file");
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       if (data?.user) {
         setUserId(data.user.id);
-        // Fetch questionnaire answers to pre-populate role & year
         try {
           const { data: profile } = await supabase
             .from("user")
@@ -59,16 +76,14 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
             setProfileRoles(roles);
             if (roles.length > 0) setRoleType(roles[0]);
           }
-        } catch (_) {
-          // Profile fetch failing is fine -- user can still use the form
-        }
+        } catch (_) {}
 
-        // Check for existing results in localStorage or backend
-        const cachedResults = localStorage.getItem(`resume_analysis_${data.user.id}`);
+        const cachedResults = localStorage.getItem(
+          `resume_analysis_${data.user.id}`
+        );
         if (cachedResults) {
           setHasExistingResults(true);
         } else {
-          // Check backend for previous analysis
           try {
             const stateResponse = await fetch(
               `http://localhost:8000/api/v1/orchestrator/state/${data.user.id}`
@@ -77,47 +92,58 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
             if (stateData?.state?.resume_analysis?.overall_score) {
               setHasExistingResults(true);
             }
-          } catch (_) {
-            // No previous results
-          }
+          } catch (_) {}
         }
       }
     });
   }, []);
 
+  // Animate through loading steps
+  useEffect(() => {
+    if (!loading) return;
+    const interval = setInterval(() => {
+      setLoadingStep((s) => (s + 1) % LOADING_STEPS.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [loading]);
+
   const hasJD = jobDescription.trim().length > 50;
 
   const handleResumeChange = (e) => {
     const file = e.target.files[0];
-    if (!file) {
-      setResumeFile(null);
-      return;
-    }
-
+    if (!file) { setResumeFile(null); return; }
     if (file.size > MAX_RESUME_BYTES) {
       setError("Resume file must be 5MB or smaller.");
       setResumeFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-
     setError("");
     setResumeFile(file);
   };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    if (file.size > MAX_RESUME_BYTES) {
+      setError("Resume file must be 5MB or smaller.");
+      return;
+    }
+    setError("");
+    setResumeFile(file);
+  };
+
   const handleJDChange = (e) => setJobDescription(e.target.value);
 
   const buildResumeDataFromOrchestrator = (payload, file, jd, role) => {
     const state = payload?.state || {};
     const resumeAnalysis = payload?.resume_analysis || state.resume_analysis || {};
     const profile = payload?.profile || state.profile || {};
-
     return {
       filename: payload?.filename || file?.name,
-      file,
-      jobDescription: jd,
-      roleType: role,
+      file, jobDescription: jd, roleType: role,
       current_phase: payload?.current_phase || state.current_phase,
       supervisor_decision: payload?.supervisor_decision || state.supervisor_decision,
       waiting_for_user: payload?.waiting_for_user || state.waiting_for_user,
@@ -140,7 +166,6 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
     const events = rawChunk.split("\n\n");
     const remainder = events.pop() || "";
     const payloads = [];
-
     for (const event of events) {
       const lines = event.split("\n");
       const dataLines = lines
@@ -149,27 +174,17 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
       if (dataLines.length === 0) continue;
       payloads.push(dataLines.join("\n").trim());
     }
-
     return { payloads, remainder };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    if (!resumeFile) {
-      setError("Please upload a resume to continue.");
-      return;
-    }
-    // if (resumeFile.size > MAX_RESUME_BYTES) {
-    //   setError("Resume file must be 5MB or smaller.");
-    //   return;
-    // }
+    if (!resumeFile) { setError("Please upload a resume to continue."); return; }
     setLoading(true);
-
-    // Create abort controller for cancellation
+    setLoadingStep(0);
     const controller = new AbortController();
     setAbortController(controller);
-
     const formData = new FormData();
     formData.append("user_id", userId);
     formData.append("resume", resumeFile);
@@ -179,26 +194,17 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
     try {
       const orchestratorResponse = await fetch(
         "http://localhost:8000/api/v1/orchestrator/analyze-resume",
-        { method: "POST", body: formData, signal: controller.signal },
+        { method: "POST", body: formData, signal: controller.signal }
       );
-
       if (!orchestratorResponse.ok) {
         let errorDetail = "";
-        try {
-          errorDetail = await orchestratorResponse.text();
-        } catch (_) {
-          // ignore body parsing failures
-        }
+        try { errorDetail = await orchestratorResponse.text(); } catch (_) {}
         throw new Error(errorDetail || "Analysis request failed.");
       }
-
-      if (!orchestratorResponse.body) {
-        throw new Error("Streaming response not available.");
-      }
+      if (!orchestratorResponse.body) throw new Error("Streaming response not available.");
 
       const reader = orchestratorResponse.body.getReader();
       const decoder = new TextDecoder("utf-8");
-      
       let _completeResult = null;
       let buffer = "";
       let streamError = null;
@@ -206,49 +212,29 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
-
         const { payloads, remainder } = parseSsePayloads(buffer);
         buffer = remainder;
-
         for (const payload of payloads) {
           try {
             if (!payload) continue;
             const data = JSON.parse(payload);
-
             if (data.event === "update" && data.phase) {
-              // Update UI loader text dynamically
-              if (data.phase_label) {
-                setStatusText(data.phase_label);
-              } else {
-                const humanReadablePhase = data.phase
-                  .split("_")
-                  .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                  .join(" ");
+              if (data.phase_label) setStatusText(data.phase_label);
+              else {
+                const humanReadablePhase = data.phase.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
                 setStatusText(humanReadablePhase + "...");
               }
             } else if (data.event === "started") {
               setStatusText("Parsing Resume...");
             } else if (data.event === "error") {
-              streamError = data.error || "Analysis failed";
-              break;
+              streamError = data.error || "Analysis failed"; break;
             } else if (data.event === "complete") {
-              _completeResult = buildResumeDataFromOrchestrator(
-                data.result,
-                resumeFile,
-                jobDescription,
-                roleType,
-              );
+              _completeResult = buildResumeDataFromOrchestrator(data.result, resumeFile, jobDescription, roleType);
             }
-          } catch (err) {
-            console.error("Error parsing SSE chunk:", err);
-          }
+          } catch (err) { console.error("Error parsing SSE chunk:", err); }
         }
-
-        if (streamError) {
-          break;
-        }
+        if (streamError) break;
       }
 
       if (!streamError && buffer.includes("data:")) {
@@ -258,45 +244,23 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
             if (!payload) continue;
             const data = JSON.parse(payload);
             if (data.event === "complete") {
-              _completeResult = buildResumeDataFromOrchestrator(
-                data.result,
-                resumeFile,
-                jobDescription,
-                roleType,
-              );
-            } else if (data.event === "error") {
-              streamError = data.error || "Analysis failed";
-              break;
-            }
-          } catch (err) {
-            console.error("Error parsing final SSE chunk:", err);
-          }
+              _completeResult = buildResumeDataFromOrchestrator(data.result, resumeFile, jobDescription, roleType);
+            } else if (data.event === "error") { streamError = data.error || "Analysis failed"; break; }
+          } catch (err) { console.error("Error parsing final SSE chunk:", err); }
         }
       }
 
-      if (streamError) {
-        throw new Error(streamError);
-      }
+      if (streamError) throw new Error(streamError);
+      if (!_completeResult) throw new Error("Stream closed before completion.");
 
-      if (!_completeResult) {
-        throw new Error("Stream closed before completion.");
-      }
-
-      // Persist to localStorage
       if (userId && _completeResult) {
         localStorage.setItem(`resume_analysis_${userId}`, JSON.stringify(_completeResult));
         setHasExistingResults(true);
       }
-
       if (onResult) onResult(_completeResult);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log('Analysis cancelled by user');
-        setError('');
-      } else {
-        console.error("Error during analysis:", err);
-        setError(err?.message || "Failed to complete analysis. Please try again.");
-      }
+      if (err.name === "AbortError") { setError(""); }
+      else { setError(err?.message || "Failed to complete analysis. Please try again."); }
     } finally {
       setLoading(false);
       setStatusText("Analyzing...");
@@ -308,73 +272,89 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
     if (abortController) {
       abortController.abort();
       setAbortController(null);
-      
-      // Also notify backend to stop processing
       if (userId) {
         try {
-          await fetch(
-            `http://localhost:8000/api/v1/orchestrator/cancel/${userId}`,
-            { method: "POST" }
-          );
-          console.log("Backend cancellation requested");
-        } catch (err) {
-          console.error("Failed to cancel backend:", err);
-        }
+          await fetch(`http://localhost:8000/api/v1/orchestrator/cancel/${userId}`, { method: "POST" });
+        } catch (err) { console.error("Failed to cancel backend:", err); }
       }
-      
       setLoading(false);
-      setError('');
+      setError("");
     }
   };
 
-  // Hide upload box if results exist and hideIfResults is enabled
-  if (hideIfResults && hasExistingResults) {
-    return null;
-  }
+  if (hideIfResults && hasExistingResults) return null;
 
   return (
-    <div>
+    <div className="relative">
+      {/* ── Loading Overlay ── */}
       {loading && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-[90%] max-w-sm rounded-lg border border-border bg-card p-5 text-center shadow-lg">
-            <div className="relative mx-auto mb-4 h-16 w-16">
-              <div className="loader">
-                <div className="jimu-primary-loading">Loading</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative w-[90%] max-w-sm">
+            {/* Glow ring */}
+            <div className="absolute inset-0 rounded-2xl bg-indigo-500/20 blur-2xl scale-110" />
+            <div className="relative rounded-2xl border border-white/10 bg-slate-900/95 p-7 text-center shadow-2xl">
+              {/* Animated icon */}
+              <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/40">
+                <Sparkles className="h-7 w-7 animate-pulse text-white" />
               </div>
-            </div>
-            <p className="text-sm font-medium">{statusText}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              This can take a minute or two.
-            </p>
-            <div className="mt-4 flex justify-center">
-              <Button
+              {/* Step dots */}
+              <div className="mb-3 flex justify-center gap-1.5">
+                {LOADING_STEPS.map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 rounded-full transition-all duration-500 ${
+                      i === loadingStep
+                        ? "w-5 bg-indigo-400"
+                        : i < loadingStep
+                        ? "w-1.5 bg-indigo-600/50"
+                        : "w-1.5 bg-slate-600"
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="text-sm font-semibold text-white">{statusText}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                This may take a minute or two
+              </p>
+              <button
                 type="button"
                 onClick={handleCancelAnalysis}
-                variant="destructive"
-                size="sm"
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-400 transition hover:bg-rose-500/20"
               >
-                Cancel
-              </Button>
+                <X className="h-3.5 w-3.5" /> Cancel Analysis
+              </button>
             </div>
           </div>
         </div>
       )}
-      <div className="bg-card border border-border rounded-lg shadow-sm overflow-hidden">
-        {/* Header */}
-        <div className="p-4 border-b border-border">
-          <h2 className="text-xl font-bold">Resume Evaluation Tool</h2>
-        </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* File Upload - Drag & Drop Box */}
-          <div className="space-y-2">
-            {error && isSizeError && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
-            <div className="relative">
+      {/* ── Main Card ── */}
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-lg shadow-black/5">
+        {/* Header gradient bar */}
+        <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
+
+        <div className="p-6">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-indigo-500/30">
+              <Zap className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold tracking-tight">Resume Analyzer</h2>
+              <p className="text-xs text-muted-foreground">
+                AI-powered ATS scoring &amp; tailored feedback
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* ── Left: Drop Zone (spans 2 cols on desktop) ── */}
+            <div className="lg:col-span-2">
+              {error && isSizeError && (
+                <div className="mb-2 flex items-start gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-500">
+                  <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
               <input
                 type="file"
                 accept=".pdf,.doc,.docx"
@@ -385,142 +365,224 @@ function ResumeUpload({ onResult, hideIfResults = false }) {
               />
               <label
                 htmlFor="resume-file"
-                className={`flex flex-col items-center justify-center w-full h-40 px-4 transition bg-background hover:bg-muted/30 border-2 border-dashed rounded-lg cursor-pointer group ${
-                  error && isSizeError ? "border-destructive/60 bg-destructive/5" : "border-border"
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`group relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-8 transition-all duration-300 ${
+                  resumeFile
+                    ? "border-indigo-500/50 bg-indigo-500/5"
+                    : isDragging
+                    ? "border-violet-500 bg-violet-500/10 shadow-inner shadow-violet-500/10"
+                    : "border-border bg-muted/20 hover:border-indigo-400/60 hover:bg-indigo-500/5"
                 }`}
               >
-                <div className="flex flex-col items-center justify-center space-y-3">
-                  <Upload className="w-8 h-8 text-muted-foreground group-hover:text-primary transition-colors" />
-                  <div className="text-center">
-                    <p className="text-sm font-medium">
-                      {resumeFile ? resumeFile.name : "Drag and drop your resume here, or browse"}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Supported formats: PDF, DOCX (max 5MB)
-                    </p>
+                {/* Glow on drag */}
+                {isDragging && (
+                  <div className="pointer-events-none absolute inset-0 rounded-xl bg-violet-500/5 ring-2 ring-violet-400/40 ring-inset" />
+                )}
+
+                {resumeFile ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-500/15 ring-1 ring-indigo-500/30">
+                      <FileText className="h-5 w-5 text-indigo-500" />
+                    </div>
+                    <div className="text-center">
+                      <p className="max-w-[220px] truncate text-sm font-semibold text-foreground">
+                        {resumeFile.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {(resumeFile.size / 1024).toFixed(0)} KB ·{" "}
+                        <span
+                          className="cursor-pointer text-indigo-500 hover:underline"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setResumeFile(null);
+                            if (fileInputRef.current)
+                              fileInputRef.current.value = "";
+                          }}
+                        >
+                          Change file
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      Ready to analyze
+                    </div>
                   </div>
-                  {!resumeFile && (
-                    <Button
+                ) : (
+                  <div className="flex flex-col items-center gap-3 text-center">
+                    <div
+                      className={`flex h-12 w-12 items-center justify-center rounded-xl transition-colors ${
+                        isDragging
+                          ? "bg-violet-500/20"
+                          : "bg-muted/50 group-hover:bg-indigo-500/10"
+                      }`}
+                    >
+                      <Upload
+                        className={`h-5 w-5 transition-colors ${
+                          isDragging
+                            ? "text-violet-500"
+                            : "text-muted-foreground group-hover:text-indigo-500"
+                        }`}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {isDragging
+                          ? "Drop it here"
+                          : "Drag & drop your resume"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        PDF or DOCX · max 5 MB
+                      </p>
+                    </div>
+                    <button
                       type="button"
-                      size="sm"
-                      variant="outline"
                       onClick={(e) => {
                         e.preventDefault();
                         fileInputRef.current?.click();
                       }}
+                      className="rounded-lg border border-border bg-background px-4 py-1.5 text-xs font-semibold shadow-sm hover:bg-muted transition-colors"
                     >
                       Browse Files
-                    </Button>
-                  )}
-                </div>
+                    </button>
+                  </div>
+                )}
               </label>
             </div>
-          </div>
 
-          {/* Job Description & Role in Compact 2-column Grid */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="job-description" className="text-sm font-medium">
-                Job Description (Optional)
-              </Label>
-              <Textarea
-                id="job-description"
-                value={jobDescription}
-                onChange={handleJDChange}
-                rows={4}
-                placeholder="Paste job description..."
-                className="resize-none text-sm"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="role-type" className="text-sm font-medium">
-                Target Role {!hasJD && <span className="text-destructive">*</span>}
-              </Label>
-              <div className="relative">
-                <select
-                  id="role-type"
-                  value={roleType}
-                  onChange={(e) => setRoleType(e.target.value)}
-                  className="w-full appearance-none bg-background border border-border rounded-md px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  disabled={hasJD}
-                >
-                  <option value="">Select a role...</option>
-                  {profileRoles.length > 0 && (
-                    <optgroup label="From your profile">
-                      {profileRoles.map((r) => {
-                        const opt = ROLE_OPTIONS.find((o) => o.value === r);
-                        return opt ? (
-                          <option key={r} value={r}>
-                            {opt.label}
-                          </option>
-                        ) : null;
-                      })}
-                    </optgroup>
-                  )}
-                  <optgroup
-                    label={
-                      profileRoles.length > 0 ? "All roles" : "Select a role"
-                    }
+            {/* ── Right: JD + Role Panel (1 col) ── */}
+            <div className="lg:col-span-1 rounded-2xl border border-border/60 bg-card/50 backdrop-blur-sm p-5 space-y-4 hover:border-indigo-400/30 hover:bg-card/70 transition-all duration-300">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Targeting Details
+              </p>
+              <div className="space-y-4">
+                {/* JD */}
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="job-description"
+                    className="text-xs font-medium text-foreground"
                   >
-                    {ROLE_OPTIONS.filter(
-                      (o) => !profileRoles.includes(o.value),
-                    ).map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-                <ChevronDown className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    Job Description{" "}
+                    <span className="text-muted-foreground font-normal">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Textarea
+                    id="job-description"
+                    value={jobDescription}
+                    onChange={handleJDChange}
+                    rows={4}
+                    placeholder="Paste the job description to get keyword-matched analysis..."
+                    className="resize-none text-sm bg-background border border-border/60 rounded-lg placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/60 focus:shadow-lg focus:shadow-indigo-500/10 transition-all duration-200"
+                  />
+                  {hasJD && (
+                    <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+                      Role will be extracted from JD
+                    </p>
+                  )}
+                </div>
+
+                {/* Role */}
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="role-type"
+                    className="text-xs font-medium text-foreground"
+                  >
+                    Target Role{" "}
+                    {!hasJD && (
+                      <span className="text-rose-500 font-semibold">*</span>
+                    )}
+                  </Label>
+                  <div className="relative">
+                    <select
+                      id="role-type"
+                      value={roleType}
+                      onChange={(e) => setRoleType(e.target.value)}
+                      disabled={hasJD}
+                      className="w-full appearance-none rounded-lg border border-border/60 bg-background px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/60 focus:shadow-lg focus:shadow-indigo-500/10 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option value="">Select a role...</option>
+                      {profileRoles.length > 0 && (
+                        <optgroup label="From your profile">
+                          {profileRoles.map((r) => {
+                            const opt = ROLE_OPTIONS.find((o) => o.value === r);
+                            return opt ? (
+                              <option key={r} value={r}>{opt.label}</option>
+                            ) : null;
+                          })}
+                        </optgroup>
+                      )}
+                      <optgroup label={profileRoles.length > 0 ? "All roles" : "Select a role"}>
+                        {ROLE_OPTIONS.filter((o) => !profileRoles.includes(o.value)).map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  </div>
+                  {!hasJD && profileRoles.length > 0 && (
+                    <p className="flex items-center gap-1 text-xs text-indigo-500">
+                      <Sparkles className="h-3 w-3" /> Pre-filled from your profile
+                    </p>
+                  )}
+
+                  {/* Info pill */}
+                  <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 hover:bg-amber-500/12 transition-colors duration-200">
+                    <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                      <span className="font-semibold">Pro tip:</span> Pasting a
+                      JD gives you keyword-matched scoring and tailored
+                      suggestions.
+                    </p>
+                  </div>
+                </div>
               </div>
-              {hasJD && (
-                <p className="text-xs text-muted-foreground">
-                  Role extracted from JD
-                </p>
-              )}
-              {!hasJD && profileRoles.length > 0 && (
-                <p className="text-xs text-primary/70">
-                  Pre-selected from profile
-                </p>
-              )}
             </div>
-          </div>
 
-          {/* Analyze Button */}
-          {loading ? (
-            <div className="flex gap-2">
-              <Button type="button" disabled className="flex-1" size="lg">
-                <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin mr-2"></div>
-                <span>{statusText}</span>
-              </Button>
-              <Button 
-                type="button" 
-                onClick={handleCancelAnalysis}
-                variant="destructive"
-                size="lg"
-                className="px-6"
+            {/* ── Submit ── */}
+            {loading ? (
+              <div className="lg:col-span-3 flex gap-3">
+                <button
+                  type="button"
+                  disabled
+                  className="flex flex-1 items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-5 py-3 text-sm font-semibold text-white opacity-80 cursor-not-allowed shadow-lg shadow-indigo-500/25"
+                >
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {statusText}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelAnalysis}
+                  className="flex items-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-500 transition-all duration-200 hover:bg-rose-500/20 hover:border-rose-500/60 hover:-translate-y-1 active:translate-y-0"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={!resumeFile || (!jobDescription.trim().length && !roleType)}
+                className="group relative col-span-1 lg:col-span-3 flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-500 to-violet-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-indigo-500/40 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <Button type="submit" disabled={loading} className="w-full" size="lg">
-              <Zap className="w-4 h-4 mr-2" />
-              <span>Analyze Resume</span>
-            </Button>
-          )}
-        </form>
-
-        {/* Error */}
-        {error && !isSizeError && (
-          <div className="px-5 pb-5">
-            <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
-              {error}
-            </div>
-          </div>
-        )}
+                {/* Shimmer */}
+                <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+                <Zap className="h-4 w-4" />
+                Analyze Resume
+              </button>
+            )}
+          </form>
+        </div>
       </div>
+
+      {/* ── Non-size errors ── */}
+      {error && !isSizeError && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-400">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
     </div>
   );
 }
