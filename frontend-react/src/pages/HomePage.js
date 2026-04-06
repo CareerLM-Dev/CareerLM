@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import Sidebar from "../components/layout/Sidebar";
 
 /**
  * HomePage - Resume Evaluation landing page for authenticated users
@@ -26,7 +25,6 @@ function HomePage() {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [builderNotice, setBuilderNotice] = useState(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -79,12 +77,7 @@ function HomePage() {
 
   return (
     <div className="flex h-full bg-background">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((prev) => !prev)}
-      />
-
-      <main className="flex-1 overflow-auto no-scrollbar">
+      <main className="w-full overflow-auto no-scrollbar">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 pb-20">
         {/* Title Section */}
         <div className="mb-8">

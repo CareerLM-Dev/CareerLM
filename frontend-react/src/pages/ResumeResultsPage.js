@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
-import Sidebar from "../components/layout/Sidebar";
 import { Upload, FileText, CheckCircle, XCircle, Zap } from "lucide-react";
 
 function FeedbackList({ items, icon: Icon, emptyLabel, showBulletRewrite = false }) {
@@ -36,7 +35,6 @@ function ResumeResultsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [resumeData, setResumeData] = useState(location.state?.resumeData);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loading, setLoading] = useState(!location.state?.resumeData);
 
   useEffect(() => {
@@ -96,21 +94,11 @@ function ResumeResultsPage() {
     }
   }, [resumeData]);
 
-  const handleSetPage = (pageId) => {
-    navigate("/dashboard", { state: { initialPage: pageId } });
-  };
-
   // Loading state
   if (loading) {
     return (
       <div className="flex h-full bg-background">
-        <Sidebar
-          setCurrentPage={handleSetPage}
-          currentPage="resume_optimizer"
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((p) => !p)}
-        />
-        <main className="flex-1 overflow-auto flex items-center justify-center">
+        <main className="w-full flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <div className="h-8 w-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
             <p className="text-sm text-muted-foreground">Loading analysis...</p>
@@ -124,13 +112,7 @@ function ResumeResultsPage() {
   if (!resumeData) {
     return (
       <div className="flex h-full bg-background">
-        <Sidebar
-          setCurrentPage={handleSetPage}
-          currentPage="resume_optimizer"
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((p) => !p)}
-        />
-        <main className="flex-1 overflow-auto flex items-center justify-center">
+        <main className="w-full flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 text-center p-6">
             <p className="text-muted-foreground">No analysis data found. Please upload a resume first.</p>
             <button
@@ -160,14 +142,7 @@ function ResumeResultsPage() {
 
   return (
     <div className="flex h-full bg-background">
-      <Sidebar
-        setCurrentPage={handleSetPage}
-        currentPage="resume_optimizer"
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((p) => !p)}
-      />
-
-      <main className="flex-1 overflow-auto no-scrollbar">
+      <main className="w-full overflow-auto no-scrollbar">
         <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-5">
           {/* ── Page header ─────────────────────────────────────────────── */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

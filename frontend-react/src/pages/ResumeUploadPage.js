@@ -4,14 +4,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
 import ResumeUpload from "../components/ResumeUpload";
-import Sidebar from "../components/layout/Sidebar";
 
 
 function ResumeUploadPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState(null);
   const [isOnboardingFlow, setIsOnboardingFlow] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [currentResults, setCurrentResults] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -73,11 +71,7 @@ function ResumeUploadPage() {
 
   return (
     <div className="flex h-full bg-background">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((p) => !p)}
-      />
-      <main className="flex-1 overflow-auto no-scrollbar">
+      <main className="w-full overflow-auto no-scrollbar">
         <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold tracking-tight text-foreground">
