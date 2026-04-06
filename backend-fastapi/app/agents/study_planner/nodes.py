@@ -36,50 +36,211 @@ ROADMAP_SH_API = "https://roadmap.sh/api/v1"
 ROADMAP_SH_BASE = "https://roadmap.sh"
 ROADMAP_API_TIMEOUT = 10
 
-# Skill-to-roadmap mapping for roadmap.sh API
-SKILL_TO_ROADMAP_ID = {
-    "python": "python",
-    "javascript": "javascript",
-    "typescript": "typescript",
+# ────────────────────────────────────────────────────────
+# Comprehensive skill → roadmap.sh path mapping
+# Source: https://roadmap.sh (all verified live paths as of 2026)
+# ────────────────────────────────────────────────────────
+SKILL_TO_ROADMAP_ID: dict[str, str] = {
+    # ── Role-based roadmaps ──────────────────────────────
+    "frontend": "frontend",
+    "frontend development": "frontend",
+    "frontend developer": "frontend",
+    "backend": "backend",
+    "backend development": "backend",
+    "backend developer": "backend",
+    "full stack": "full-stack",
+    "full stack development": "full-stack",
+    "full-stack": "full-stack",
+    "devops": "devops",
+    "devsecops": "devsecops",
+    "dev sec ops": "devsecops",
+    "data analyst": "data-analyst",
+    "data analysis": "data-analyst",
+    "ai engineer": "ai-engineer",
+    "artificial intelligence engineer": "ai-engineer",
+    "ai and data scientist": "ai-data-scientist",
+    "ai data scientist": "ai-data-scientist",
+    "data scientist": "ai-data-scientist",
+    "data science": "ai-data-scientist",
+    "data engineer": "data-engineer",
+    "data engineering": "data-engineer",
+    "android": "android",
+    "android development": "android",
+    "machine learning": "machine-learning",
+    "ml": "machine-learning",
+    "postgresql": "postgresql-dba",
+    "postgresql dba": "postgresql-dba",
+    "ios": "ios",
+    "ios development": "ios",
+    "blockchain": "blockchain",
+    "web3": "blockchain",
+    "qa": "qa",
+    "quality assurance": "qa",
+    "qa engineer": "qa",
+    "testing": "qa",
+    "software architect": "software-architect",
+    "software architecture": "software-architect",
+    "cyber security": "cyber-security",
+    "cybersecurity": "cyber-security",
+    "security": "cyber-security",
+    "ux design": "ux-design",
+    "ux": "ux-design",
+    "ui/ux": "ux-design",
+    "technical writer": "technical-writer",
+    "technical writing": "technical-writer",
+    "game developer": "game-developer",
+    "game development": "game-developer",
+    "mlops": "mlops",
+    "product manager": "product-manager",
+    "product management": "product-manager",
+    "engineering manager": "engineering-manager",
+    "developer relations": "devrel",
+    "devrel": "devrel",
+    "bi analyst": "bi-analyst",
+    "business intelligence": "bi-analyst",
+
+    # ── Language & technology roadmaps ───────────────────
+    "sql": "sql",
+    "mysql": "sql",
+    "sqlite": "sql",
+    "computer science": "computer-science",
+    "cs fundamentals": "computer-science",
+    "data structures": "datastructures-and-algorithms",
+    "algorithms": "datastructures-and-algorithms",
+    "data structures and algorithms": "datastructures-and-algorithms",
+    "dsa": "datastructures-and-algorithms",
     "react": "react",
-    "angular": "angular",
-    "vue.js": "vue",
+    "react.js": "react",
+    "reactjs": "react",
     "vue": "vue",
+    "vue.js": "vue",
+    "vuejs": "vue",
+    "angular": "angular",
+    "angularjs": "angular",
+    "javascript": "javascript",
+    "js": "javascript",
+    "typescript": "typescript",
+    "ts": "typescript",
     "node.js": "nodejs",
     "nodejs": "nodejs",
+    "node": "nodejs",
+    "python": "python",
+    "system design": "system-design",
     "java": "java",
+    "asp.net": "aspnet-core",
+    "asp.net core": "aspnet-core",
+    ".net": "aspnet-core",
+    "dotnet": "aspnet-core",
+    "c#": "aspnet-core",
+    "api design": "api-design",
+    "rest api": "api-design",
+    "restful api": "api-design",
+    "api": "api-design",
+    "spring boot": "spring-boot",
+    "spring": "spring-boot",
+    "spring-boot": "spring-boot",
+    "flutter": "flutter",
+    "dart": "flutter",
     "c++": "cpp",
     "cpp": "cpp",
     "rust": "rust",
     "go": "golang",
     "golang": "golang",
-    "docker": "docker",
+    "software design": "software-design-architecture",
+    "design patterns": "software-design-architecture",
+    "software design and architecture": "software-design-architecture",
+    "graphql": "graphql",
+    "react native": "react-native",
+    "react-native": "react-native",
+    "design system": "design-system",
+    "prompt engineering": "prompt-engineering",
+    "llm": "prompt-engineering",
+    "mongodb": "mongodb",
+    "nosql": "mongodb",
+    "linux": "linux",
     "kubernetes": "kubernetes",
-    "terraform": "terraform",
-    "jenkins": "devops",
+    "k8s": "kubernetes",
+    "docker": "docker",
+    "containerization": "docker",
     "aws": "aws",
+    "amazon web services": "aws",
+    "terraform": "terraform",
+    "infrastructure as code": "terraform",
+    "iac": "terraform",
+    "redis": "redis",
+    "caching": "redis",
+    "git": "git-github",
+    "github": "git-github",
+    "git and github": "git-github",
+    "version control": "git-github",
+    "php": "php",
+    "cloudflare": "cloudflare",
+    "ai agents": "ai-agents",
+    "agentic ai": "ai-agents",
+    "next.js": "nextjs",
+    "nextjs": "nextjs",
+    "next js": "nextjs",
+    "kotlin": "kotlin",
+    "html": "html",
+    "html5": "html",
+    "css": "css",
+    "css3": "css",
+    "swift": "swift-ui",
+    "swiftui": "swift-ui",
+    "swift ui": "swift-ui",
+    "shell": "shell-bash",
+    "bash": "shell-bash",
+    "shell scripting": "shell-bash",
+    "command line": "shell-bash",
+    "laravel": "laravel",
+    "elasticsearch": "elasticsearch",
+    "wordpress": "wordpress",
+    "django": "django",
+    "ruby": "ruby",
+    "ruby on rails": "ruby-on-rails",
+    "rails": "ruby-on-rails",
+    "scala": "scala",
+
+    # ── Cloud provider aliases ────────────────────────────
     "azure": "devops",
     "gcp": "devops",
     "google cloud": "devops",
     "google cloud platform": "devops",
-    "sql": "sql",
-    "postgresql": "postgresql-dba",
-    "mysql": "sql",
-    "mongodb": "mongodb",
-    "git": "git-github",
-    "graphql": "graphql",
-    "linux": "linux",
-    "devops": "devops",
-    "django": "python",
+
+    # ── Framework / library aliases ───────────────────────
     "flask": "python",
     "fastapi": "python",
-    "spring": "spring-boot",
-    "spring-boot": "spring-boot",
-    "system design": "system-design",
-    "rest api": "api-design",
-    "full stack": "full-stack",
-    "frontend": "frontend",
-    "backend": "backend",
+    "express": "nodejs",
+    "express.js": "nodejs",
+    "nestjs": "nodejs",
+    "nest.js": "nodejs",
+    "nuxt": "vue",
+    "nuxt.js": "vue",
+    "svelte": "frontend",
+    "tailwind": "css",
+    "tailwindcss": "css",
+    "webpack": "frontend",
+    "vite": "frontend",
+    "pandas": "ai-data-scientist",
+    "numpy": "ai-data-scientist",
+    "scikit-learn": "machine-learning",
+    "sklearn": "machine-learning",
+    "tensorflow": "machine-learning",
+    "pytorch": "machine-learning",
+    "deep learning": "machine-learning",
+    "neural networks": "machine-learning",
+    "nlp": "machine-learning",
+    "natural language processing": "machine-learning",
+    "computer vision": "machine-learning",
+    "jenkins": "devops",
+    "ci/cd": "devops",
+    "cicd": "devops",
+    "github actions": "devops",
+    "ansible": "devops",
+    "nginx": "backend",
+    "apache": "backend",
+    "microservices": "software-design-architecture",
+    "distributed systems": "software-design-architecture",
 }
 
 # ────────────────────────────────────────────────────────
@@ -157,13 +318,64 @@ def _fetch_roadmap_sh_data(skill: str) -> Optional[dict]:
     return None
 
 
+def _resolve_roadmap_id_via_llm(skill: str) -> str | None:
+    """
+    Use a lightweight GROQ call to fuzzy-match a skill to the closest
+    roadmap.sh path from the authoritative list.
+
+    Only called when the static SKILL_TO_ROADMAP_ID lookup fails.
+    Returns the raw path slug (e.g. 'computer-science') or None.
+    """
+    # Flat list of all known slugs derived from SKILL_TO_ROADMAP_ID values
+    slug_options = sorted(set(SKILL_TO_ROADMAP_ID.values()))
+    slugs_str = ", ".join(slug_options)
+
+    prompt = (
+        f"Given the skill '{skill}', pick the single best-matching roadmap.sh slug "
+        f"from this list: {slugs_str}.\n\n"
+        "Rules:\n"
+        "- Output ONLY the slug string, nothing else (e.g. 'python').\n"
+        "- If no slug is a reasonable match, output: none\n"
+        "- Do NOT invent slugs not in the list."
+    )
+    try:
+        response = GROQ_CLIENT.chat.completions.create(
+            model=GROQ_DEFAULT_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=20,
+        )
+        raw = (response.choices[0].message.content or "").strip().lower()
+        # Validate the returned slug is actually in our known set
+        if raw and raw != "none" and raw in slug_options:
+            logger.info(f"[Roadmap.sh] LLM resolved '{skill}' → slug '{raw}'")
+            return raw
+        logger.info(f"[Roadmap.sh] LLM could not resolve '{skill}' (returned: '{raw}')")
+    except Exception as exc:
+        logger.warning(f"[Roadmap.sh] LLM slug resolution failed for '{skill}': {exc}")
+    return None
+
+
 def _get_roadmap_sh_url(skill: str) -> str:
-    """Get the roadmap.sh URL for a skill."""
+    """Get the roadmap.sh URL for a skill.
+
+    Resolution order:
+    1. Static SKILL_TO_ROADMAP_ID map (instant, zero latency)
+    2. LLM fuzzy-match against all known slugs (one fast GROQ call)
+    3. Fallback to /computer-science as a universally useful page
+    """
     roadmap_id = _get_roadmap_sh_id(skill)
     if roadmap_id:
         return f"{ROADMAP_SH_BASE}/{roadmap_id}"
-    # Fallback to best practices
-    return f"{ROADMAP_SH_BASE}/best-practices"
+
+    # LLM-powered fuzzy resolution for skills not in the static map
+    llm_id = _resolve_roadmap_id_via_llm(skill)
+    if llm_id:
+        return f"{ROADMAP_SH_BASE}/{llm_id}"
+
+    # Final fallback: computer-science is the most broadly useful roadmap
+    logger.info(f"[Roadmap.sh] No roadmap found for '{skill}', using /computer-science fallback")
+    return f"{ROADMAP_SH_BASE}/computer-science"
 
 
 def validate_input_node(state: StudyPlannerState) -> dict:
@@ -1125,4 +1337,247 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
         "study_plan": [],
         "skill_gap_report": skill_gap_report,
         "error": None,  # Clear the error since we recovered
+    }
+
+
+# ────────────────────────────────────────────────────────
+# Node Q1: Validate quick-prep plan input
+# ────────────────────────────────────────────────────────
+
+def validate_quick_plan_input_node(state: StudyPlannerState) -> dict:
+    """
+    Validate and sanitise inputs for a Quick Prep plan.
+
+    Ensures:
+    - quick_goal is non-empty
+    - deadline_days is between 1 and 31
+    - target_career is provided
+
+    Sets error on the state if any validation fails.
+    """
+    quick_goal = (state.get("quick_goal") or "").strip()
+    deadline_days = state.get("deadline_days")
+    target_career = (state.get("target_career") or "").strip()
+
+    if not quick_goal:
+        return {"error": "quick_goal is required for a Quick Prep plan"}
+
+    if not target_career:
+        return {"error": "target_career is required"}
+
+    if deadline_days is None:
+        return {"error": "deadline_days is required for a Quick Prep plan"}
+
+    try:
+        deadline_days = int(deadline_days)
+    except (TypeError, ValueError):
+        return {"error": "deadline_days must be an integer"}
+
+    if deadline_days < 1:
+        return {"error": "deadline_days must be at least 1"}
+
+    if deadline_days > 31:
+        return {"error": "Quick Prep plans support a maximum deadline of 31 days"}
+
+    logger.info(
+        f"[Quick Plan] Validated: goal='{quick_goal[:60]}', "
+        f"deadline={deadline_days}d, career='{target_career}'"
+    )
+    return {
+        "quick_goal": quick_goal,
+        "deadline_days": deadline_days,
+        "target_career": target_career,
+    }
+
+
+# ────────────────────────────────────────────────────────
+# Node Q2: Build the day-by-day Quick Prep plan via Gemini
+# ────────────────────────────────────────────────────────
+
+def _build_quick_plan_prompt(
+    quick_goal: str,
+    target_career: str,
+    deadline_days: int,
+    specific_requirements: str,
+) -> str:
+    """
+    Build the Gemini prompt for Quick Prep plan generation.
+
+    The LLM is asked to return both detected_skills and day_by_day_schedule
+    in a single pass to avoid a costly two-step chain.
+    """
+    req_block = (
+        f"\nExtra requirements from the user: {specific_requirements}"
+        if specific_requirements and specific_requirements.strip()
+        else ""
+    )
+
+    return f"""You are an expert career coach and curriculum designer.
+
+A user has the following SHORT-TERM goal:
+  Goal: "{quick_goal}"
+  Career context: {target_career}
+  Deadline: {deadline_days} days from today
+{req_block}
+
+Your task is to generate a hyper-focused, day-by-day study plan to help the user hit this goal before the deadline.
+
+Rules:
+1. First, extract the 3-7 most important skills or topics implied by the goal.
+2. Then create EXACTLY {deadline_days} day entries — one per day, numbered 1 to {deadline_days}.
+3. Each day must have a clear, actionable focus and a concrete deliverable (something the user can check off).
+4. Include AT LEAST ONE high-quality, real resource per day (direct URL, no search links).
+5. Distribute skills logically: build foundations early, practice and simulate towards the end.
+6. If deadline_days >= 7, include at least one mock-test or practice-project day in the last quarter.
+7. Keep each task completable in 1-3 hours of focused study.
+8. Use Google Search to find the best real resource URLs for each topic.
+
+Output ONLY valid JSON (no preamble, no markdown fences):
+{{
+  "detected_skills": ["skill1", "skill2", ...],
+  "day_by_day": [
+    {{
+      "day": 1,
+      "focus": "Short topic name (e.g. React Hooks Basics)",
+      "task": "One sentence describing what to do today",
+      "resource": {{
+        "title": "Resource name",
+        "url": "https://direct-url-here.com",
+        "est_time": "X hours"
+      }},
+      "deliverable": "What the user should have completed by end of day",
+      "skill_tag": "which detected_skill this maps to"
+    }}
+  ]
+}}"""
+
+
+def _parse_quick_plan_response(raw: str) -> dict | None:
+    """
+    Parse the Gemini JSON response for a quick plan.
+    Returns dict with detected_skills and day_by_day, or None on failure.
+    """
+    if not raw:
+        return None
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # Strip markdown fences or surrounding text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start == -1 or end <= start:
+            return None
+        try:
+            data = json.loads(raw[start:end])
+        except json.JSONDecodeError:
+            return None
+
+    skills = data.get("detected_skills", [])
+    days = data.get("day_by_day", [])
+
+    if not days:
+        return None
+
+    # Normalise each day entry to the QuickPlanDay shape
+    normalised = []
+    for d in days:
+        if not isinstance(d, dict):
+            continue
+        normalised.append({
+            "day": d.get("day", len(normalised) + 1),
+            "focus": d.get("focus", "Study Session"),
+            "task": d.get("task", "Focused study"),
+            "resource": d.get("resource") or {},
+            "deliverable": d.get("deliverable", "Complete today's study task"),
+            "skill_tag": d.get("skill_tag", ""),
+        })
+
+    return {
+        "detected_skills": [s for s in skills if isinstance(s, str)],
+        "day_by_day": normalised,
+    }
+
+
+def _build_quick_plan_fallback(quick_goal: str, deadline_days: int) -> dict:
+    """
+    Generate a simple generic fallback quick plan when Gemini fails.
+    Phases: Learn → Practice → Review → Simulate.
+    """
+    days = []
+    phases = ["Learn Fundamentals", "Deepen Understanding", "Practice & Apply", "Simulate & Review"]
+    for day_num in range(1, deadline_days + 1):
+        phase_idx = min(int((day_num - 1) / max(1, deadline_days) * len(phases)), len(phases) - 1)
+        phase = phases[phase_idx]
+        days.append({
+            "day": day_num,
+            "focus": f"Day {day_num}: {phase}",
+            "task": f"Study key concepts related to your goal: '{quick_goal[:50]}'. Use the resource link.",
+            "resource": {
+                "title": "roadmap.sh — Learning Roadmaps",
+                "url": "https://roadmap.sh",
+                "est_time": "1-2 hours",
+            },
+            "deliverable": f"Complete {phase.lower()} tasks and take notes",
+            "skill_tag": "",
+        })
+    return {"detected_skills": [], "day_by_day": days}
+
+
+def build_quick_plan_node(state: StudyPlannerState) -> dict:
+    """
+    Generate a day-by-day Quick Prep plan using a single Gemini Flash call
+    with Google Search grounding.
+
+    Output shape:
+    - detected_skills: list of skill strings inferred from the goal
+    - quick_plan_days: list of QuickPlanDay dicts (one per deadline day)
+    """
+    if state.get("error"):
+        return {}
+
+    if not GEMINI_CLIENT:
+        return {"error": "GEMINI_API_KEY not configured"}
+
+    from google.genai import types as gtypes
+
+    quick_goal = state.get("quick_goal", "")
+    target_career = state.get("target_career", "")
+    deadline_days = state.get("deadline_days", 7)
+    specific_requirements = state.get("specific_requirements", "")
+
+    prompt = _build_quick_plan_prompt(quick_goal, target_career, deadline_days, specific_requirements)
+
+    parsed = None
+    for attempt in range(1, 3):
+        try:
+            response = GEMINI_CLIENT.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config=gtypes.GenerateContentConfig(
+                    tools=[gtypes.Tool(google_search=gtypes.GoogleSearch())],
+                    response_mime_type="application/json",
+                ),
+            )
+            raw = response.text or ""
+            if raw:
+                parsed = _parse_quick_plan_response(raw)
+            if parsed:
+                logger.info(
+                    f"[Quick Plan] Generated {len(parsed['day_by_day'])} days "
+                    f"with {len(parsed['detected_skills'])} detected skills "
+                    f"(attempt {attempt})"
+                )
+                break
+            logger.warning(f"[Quick Plan] Attempt {attempt}: bad JSON, retrying")
+        except Exception as exc:
+            logger.warning(f"[Quick Plan] Attempt {attempt} failed: {exc}")
+
+    if not parsed:
+        logger.warning("[Quick Plan] Both Gemini attempts failed — using fallback plan")
+        parsed = _build_quick_plan_fallback(quick_goal, deadline_days)
+
+    return {
+        "detected_skills": parsed["detected_skills"],
+        "quick_plan_days": parsed["day_by_day"],
     }

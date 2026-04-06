@@ -279,15 +279,28 @@ async def get_study_materials_cache(
 
             plans = []
             for row in result.data:
+                plan_type = row.get("plan_type", "standard")
                 sgr = row.get("skill_gap_report", [])
-                sched = compute_schedule_summary(sgr, questionnaire_answers) if sgr else None
-                plans.append({
+                # Only compute schedule for standard plans with skill data
+                sched = (
+                    compute_schedule_summary(sgr, questionnaire_answers)
+                    if sgr and plan_type == "standard"
+                    else None
+                )
+                plan_obj = {
                     "target_career": row.get("target_career", ""),
+                    "plan_type": plan_type,
                     "skill_gap_report": sgr,
                     "study_plan": [],
                     "schedule_summary": sched,
                     "cached_at": row.get("created_at"),
-                })
+                    # Quick Prep extras (None for standard plans)
+                    "goal_description": row.get("goal_description"),
+                    "deadline": row.get("deadline"),
+                    "quick_plan_days": row.get("quick_plan") or [],
+                    "detected_skills": [],  # populated from quick_plan skill_tags if needed
+                }
+                plans.append(plan_obj)
             return JSONResponse({
                 "success": True,
                 "cached": True,
@@ -590,20 +603,21 @@ async def generate_study_materials_simple(
             f"Study planner complete. {len(result.get('skill_gap_report', []))} skills covered"
         )
 
-        # Auto-save to Supabase if user is authenticated
-        # Upsert per career: delete only the matching career entry, keep others
+        # Auto-save to Supabase — upsert per (user, career, plan_type='standard')
         if user:
             try:
                 supabase.table("study_materials_cache") \
                     .delete() \
                     .eq("user_id", user.id) \
                     .eq("target_career", result.get("target_career", target_career)) \
+                    .eq("plan_type", "standard") \
                     .execute()
 
                 supabase.table("study_materials_cache").insert({
                     "user_id": user.id,
                     "target_career": result.get("target_career", target_career),
                     "skill_gap_report": result.get("skill_gap_report", []),
+                    "plan_type": "standard",
                 }).execute()
                 logger.info(f"Study materials cached for user {user.id} / career {target_career}")
             except Exception as cache_err:
@@ -633,6 +647,106 @@ async def generate_study_materials_simple(
                 "error": str(e),
                 "message": "Failed to generate study materials",
             },
+        )
+
+
+# ────────────────────────────────────────────────────────
+# Quick Prep Plan endpoint
+# ────────────────────────────────────────────────────────
+
+@router.post("/generate-quick-plan")
+async def generate_quick_plan_endpoint(
+    target_career: str = Form(...),
+    quick_goal: str = Form(...),
+    deadline_days: int = Form(...),
+    specific_requirements: Optional[str] = Form(default=""),
+    user=Depends(get_current_user_optional),
+):
+    """
+    Generate a deadline-driven day-by-day Quick Prep study plan.
+
+    Uses a single Gemini Flash + Google Search call to:
+    1. Infer key skills from the user's goal text
+    2. Produce a concrete day-by-day schedule up to the deadline
+
+    Rules:
+    - deadline_days must be 1-31
+    - Results are saved to study_materials_cache with plan_type='quick_prep'
+    - Only one quick_prep plan per (user, career) is kept; calling again replaces it
+    """
+    try:
+        logger.info(
+            f"[Quick Plan] Request: career={target_career}, "
+            f"goal='{quick_goal[:60]}', deadline={deadline_days}d"
+        )
+
+        from app.agents.study_planner import generate_quick_plan
+        from datetime import date, timedelta
+
+        result = generate_quick_plan(
+            quick_goal=quick_goal,
+            target_career=target_career,
+            deadline_days=deadline_days,
+            specific_requirements=specific_requirements or "",
+        )
+
+        if result.get("error"):
+            logger.warning(f"[Quick Plan] Agent error: {result['error']}")
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": result["error"]},
+            )
+
+        # Compute absolute dates for each day (starting from tomorrow)
+        start = date.today() + timedelta(days=1)
+        for day_entry in result.get("quick_plan_days", []):
+            day_num = day_entry.get("day", 1)
+            day_entry["date"] = (start + timedelta(days=day_num - 1)).isoformat()
+
+        deadline_date = (date.today() + timedelta(days=deadline_days)).isoformat()
+
+        # Persist to Supabase — upsert per (user, career, plan_type='quick_prep')
+        if user:
+            try:
+                supabase.table("study_materials_cache") \
+                    .delete() \
+                    .eq("user_id", user.id) \
+                    .eq("target_career", target_career) \
+                    .eq("plan_type", "quick_prep") \
+                    .execute()
+
+                supabase.table("study_materials_cache").insert({
+                    "user_id": user.id,
+                    "target_career": target_career,
+                    "plan_type": "quick_prep",
+                    "goal_description": quick_goal,
+                    "deadline": deadline_date,
+                    "quick_plan": result.get("quick_plan_days", []),
+                    "skill_gap_report": [],  # not used for quick plans
+                }).execute()
+                logger.info(
+                    f"[Quick Plan] Cached for user {user.id} / career {target_career} / "
+                    f"deadline {deadline_date}"
+                )
+            except Exception as cache_err:
+                logger.warning(f"[Quick Plan] Failed to cache: {cache_err}")
+
+        return JSONResponse({
+            "success": True,
+            "target_career": target_career,
+            "quick_goal": quick_goal,
+            "deadline_days": deadline_days,
+            "deadline": deadline_date,
+            "plan_type": "quick_prep",
+            "detected_skills": result.get("detected_skills", []),
+            "quick_plan_days": result.get("quick_plan_days", []),
+        })
+
+    except Exception as e:
+        logger.exception(f"[Quick Plan] Unexpected error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)},
         )
 
 

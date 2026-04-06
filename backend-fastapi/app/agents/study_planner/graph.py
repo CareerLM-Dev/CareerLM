@@ -1,21 +1,33 @@
 """
 LangGraph workflow for the study planner agent.
+
+Two graphs are defined:
+  1. study_planner_workflow  — standard long-term skill-gap plan (existing)
+  2. quick_plan_workflow     — deadline-driven quick-prep plan (new)
+
+The main entry-point functions are:
+  - generate_study_plan(target_career, missing_skills, questionnaire_answers)
+  - generate_quick_plan(quick_goal, target_career, deadline_days, specific_requirements)
 """
 
 from langgraph.graph import StateGraph, START, END
 from .state import StudyPlannerState
 from .nodes import (
+    # Standard plan nodes
     validate_input_node,
     sequence_skills_node,
     fetch_live_resources_node,
     validate_urls_node,
     build_schedule_node,
     fallback_resources_node,
+    # Quick prep nodes
+    validate_quick_plan_input_node,
+    build_quick_plan_node,
 )
 
 
 # ────────────────────────────────────────────────────────
-# Conditional edge functions
+# Conditional edge functions — Standard plan
 # ────────────────────────────────────────────────────────
 
 def should_continue_after_validation(state: StudyPlannerState) -> str:
@@ -38,9 +50,24 @@ def should_fallback(state: StudyPlannerState) -> str:
     return "validate_urls"
 
 
+# ────────────────────────────────────────────────────────
+# Conditional edge functions — Quick prep plan
+# ────────────────────────────────────────────────────────
+
+def should_continue_after_quick_validation(state: StudyPlannerState) -> str:
+    """Skip build if quick-plan validation failed."""
+    if state.get("error"):
+        return END
+    return "build_quick_plan"
+
+
+# ────────────────────────────────────────────────────────
+# Graph builders
+# ────────────────────────────────────────────────────────
+
 def build_study_planner_graph() -> StateGraph:
     """
-    Build the study planner workflow graph.
+    Build the standard study planner workflow graph.
 
     Flow:
         START → validate_input
@@ -51,7 +78,6 @@ def build_study_planner_graph() -> StateGraph:
     """
     graph = StateGraph(StudyPlannerState)
 
-    # Add nodes
     graph.add_node("validate_input", validate_input_node)
     graph.add_node("sequence_skills", sequence_skills_node)
     graph.add_node("fetch_live_resources", fetch_live_resources_node)
@@ -59,7 +85,6 @@ def build_study_planner_graph() -> StateGraph:
     graph.add_node("build_schedule", build_schedule_node)
     graph.add_node("fallback_resources", fallback_resources_node)
 
-    # Edges
     graph.add_edge(START, "validate_input")
     graph.add_conditional_edges("validate_input", should_continue_after_validation)
     graph.add_edge("sequence_skills", "fetch_live_resources")
@@ -71,19 +96,51 @@ def build_study_planner_graph() -> StateGraph:
     return graph
 
 
-# Create the compiled workflow
-study_planner_workflow = build_study_planner_graph().compile()
-
-
-def generate_study_plan(target_career: str, missing_skills: list[str], questionnaire_answers: dict | None = None) -> dict:
+def build_quick_plan_graph() -> StateGraph:
     """
-    Main entry-point: generate a learning roadmap for the given skill gaps.
+    Build the quick-prep workflow graph.
+
+    Flow:
+        START → validate_quick_plan_input
+            ─(error)─→ END
+            ─(ok)─→ build_quick_plan → END
+    """
+    graph = StateGraph(StudyPlannerState)
+
+    graph.add_node("validate_quick_plan_input", validate_quick_plan_input_node)
+    graph.add_node("build_quick_plan", build_quick_plan_node)
+
+    graph.add_edge(START, "validate_quick_plan_input")
+    graph.add_conditional_edges("validate_quick_plan_input", should_continue_after_quick_validation)
+    graph.add_edge("build_quick_plan", END)
+
+    return graph
+
+
+# ────────────────────────────────────────────────────────
+# Compiled workflows (module-level singletons)
+# ────────────────────────────────────────────────────────
+
+study_planner_workflow = build_study_planner_graph().compile()
+quick_plan_workflow = build_quick_plan_graph().compile()
+
+
+# ────────────────────────────────────────────────────────
+# Public entry-point functions
+# ────────────────────────────────────────────────────────
+
+def generate_study_plan(
+    target_career: str,
+    missing_skills: list[str],
+    questionnaire_answers: dict | None = None,
+) -> dict:
+    """
+    Main entry-point: generate a standard long-term learning roadmap.
 
     Args:
         target_career: The career the user is targeting.
         missing_skills: List of skills the user needs to learn.
-        questionnaire_answers: Optional onboarding questionnaire data
-            (target_role, primary_goal, learning_preference, time_commitment).
+        questionnaire_answers: Optional onboarding questionnaire data.
 
     Returns:
         Dictionary with ``skill_gap_report``, ``study_plan``, and ``schedule_summary``.
@@ -92,6 +149,7 @@ def generate_study_plan(target_career: str, missing_skills: list[str], questionn
         initial_state: StudyPlannerState = {
             "target_career": target_career,
             "missing_skills": missing_skills,
+            "plan_type": "standard",
         }
 
         if questionnaire_answers:
@@ -111,3 +169,46 @@ def generate_study_plan(target_career: str, missing_skills: list[str], questionn
 
     except Exception as exc:
         return {"error": f"Study planner failed: {exc}"}
+
+
+def generate_quick_plan(
+    quick_goal: str,
+    target_career: str,
+    deadline_days: int,
+    specific_requirements: str = "",
+) -> dict:
+    """
+    Entry-point: generate a deadline-driven day-by-day quick prep plan.
+
+    Args:
+        quick_goal: The user's short-term goal (e.g. "React frontend interview").
+        target_career: Career context.
+        deadline_days: Number of days until the deadline (1-31).
+        specific_requirements: Any additional constraints from the user.
+
+    Returns:
+        Dictionary with ``detected_skills``, ``quick_plan_days``, and optional ``error``.
+    """
+    try:
+        initial_state: StudyPlannerState = {
+            "target_career": target_career,
+            "missing_skills": [],          # Not used in quick path
+            "plan_type": "quick_prep",
+            "quick_goal": quick_goal,
+            "deadline_days": deadline_days,
+            "specific_requirements": specific_requirements,
+        }
+
+        result = quick_plan_workflow.invoke(initial_state)
+
+        return {
+            "target_career": result.get("target_career", target_career),
+            "quick_goal": result.get("quick_goal", quick_goal),
+            "deadline_days": result.get("deadline_days", deadline_days),
+            "detected_skills": result.get("detected_skills", []),
+            "quick_plan_days": result.get("quick_plan_days", []),
+            "error": result.get("error"),
+        }
+
+    except Exception as exc:
+        return {"error": f"Quick plan generation failed: {exc}"}
