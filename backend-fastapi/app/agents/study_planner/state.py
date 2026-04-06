@@ -53,6 +53,17 @@ class ScheduleSummary(TypedDict):
     note: str
 
 
+class QuickPlanDay(TypedDict):
+    """A single day entry in a Quick Prep plan."""
+    day: int                       # 1-indexed day number
+    date: NotRequired[str]         # ISO date string (filled in by route handler)
+    focus: str                     # Short focus area for the day (e.g. "React Hooks")
+    task: str                      # Concrete task description
+    resource: NotRequired[dict]    # { title, url, est_time }
+    deliverable: str               # What the user should produce/complete by end of day
+    skill_tag: NotRequired[str]    # Which detected_skill this day maps to
+
+
 class StudyPlannerState(TypedDict):
     """State for the study planner workflow."""
     target_career: str
@@ -64,3 +75,11 @@ class StudyPlannerState(TypedDict):
     urls_validated: NotRequired[bool]
     schedule_summary: NotRequired[Optional[ScheduleSummary]]
     error: NotRequired[Optional[str]]
+
+    # ── Quick-Plan fields (only populated when plan_type == "quick_prep") ──
+    plan_type: NotRequired[str]              # "standard" | "quick_prep"
+    quick_goal: NotRequired[str]             # User's short-term goal text
+    deadline_days: NotRequired[int]          # Days until deadline (1-31)
+    specific_requirements: NotRequired[str]  # Extra constraints from user
+    detected_skills: NotRequired[list[str]]  # Skills extracted by LLM from quick_goal
+    quick_plan_days: NotRequired[list[QuickPlanDay]]  # Day-by-day schedule output

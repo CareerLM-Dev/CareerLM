@@ -1,8 +1,11 @@
 // src/components/StudyPlanner.js
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../api/supabaseClient";
+import { generateQuickPlan as apiGenerateQuickPlan } from "../api/supabaseClient";
 import { Button } from "./ui/button";
 import GoogleCalendarSync from "./GoogleCalendarSync";
+import NativeCalendar, { buildStandardDayEntries } from "./NativeCalendar";
 import {
   BookOpen,
   ExternalLink,
@@ -21,6 +24,10 @@ import {
   Clock,
   CalendarDays,
   X,
+  Zap,
+  Calendar as CalIcon,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 
 function StudyPlanner({ resumeData }) {
@@ -44,21 +51,33 @@ function StudyPlanner({ resumeData }) {
   const [selectedNewRole, setSelectedNewRole] = useState(null);
   const [deletingCareer, setDeletingCareer] = useState(null);
 
+  // ── Quick Plan state ──
+  const [activePlanType, setActivePlanType] = useState({});
+  const [allQuickPlans, setAllQuickPlans] = useState({});
+  // Quick Prep form is now a standalone top-level card, not tied to a career path
+  const [showQuickForm, setShowQuickForm] = useState(false);
+  const [quickGoal, setQuickGoal] = useState("");
+  const [quickRequirements, setQuickRequirements] = useState("");
+  const [quickDeadline, setQuickDeadline] = useState("");
+  const [quickTargetCareer, setQuickTargetCareer] = useState(""); // free-text or from dropdown
+  const [generatingQuick, setGeneratingQuick] = useState(false);
+  const [quickError, setQuickError] = useState(null);
+  const [activeQuickPlan, setActiveQuickPlan] = useState(null); // currently displayed quick plan
+  // Calendar is always visible on right column
+  const [calendarPlanType, setCalendarPlanType] = useState("standard"); // 'standard' | 'quick_prep'
+
   const getAuthToken = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
     return data?.session?.access_token || null;
   }, []);
 
-  // Load ALL cached plans on mount
+  // Load ALL cached plans on mount (standard + quick_prep)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const token = await getAuthToken();
-        if (!token) {
-          setLoadingCache(false);
-          return;
-        }
+        if (!token) { setLoadingCache(false); return; }
         const res = await fetch(
           "http://localhost:8000/api/v1/orchestrator/study-materials-cache",
           { headers: { Authorization: `Bearer ${token}` } },
@@ -66,17 +85,30 @@ function StudyPlanner({ resumeData }) {
         const data = await res.json();
         if (cancelled) return;
         if (data.success && data.cached && data.plans?.length > 0) {
-          const plans = {};
+          const standardPlans = {};
+          const quickPlans = {};
           for (const p of data.plans) {
-            plans[p.target_career] = {
-              skill_gap_report: p.skill_gap_report,
-              study_plan: p.study_plan,
-              schedule_summary: p.schedule_summary || null,
-              cached_at: p.cached_at,
-            };
+            if (p.plan_type === "quick_prep") {
+              quickPlans[p.target_career] = {
+                quick_plan_days: p.quick_plan_days || [],
+                goal_description: p.goal_description,
+                deadline: p.deadline,
+                cached_at: p.cached_at,
+              };
+            } else {
+              standardPlans[p.target_career] = {
+                skill_gap_report: p.skill_gap_report,
+                study_plan: p.study_plan,
+                schedule_summary: p.schedule_summary || null,
+                cached_at: p.cached_at,
+              };
+            }
           }
-          setAllPlans(plans);
-          setActiveCareer(data.plans[0].target_career);
+          setAllPlans(standardPlans);
+          setAllQuickPlans(quickPlans);
+          const firstCareer = data.plans.find(p => p.plan_type === "standard")?.target_career
+            || data.plans[0].target_career;
+          setActiveCareer(firstCareer);
           setExpandedSkills({ 0: true });
         }
       } catch (err) {
@@ -85,9 +117,7 @@ function StudyPlanner({ resumeData }) {
         if (!cancelled) setLoadingCache(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [getAuthToken]);
 
   // Fetch suggested roles (re-runs when activeStack changes)
@@ -297,6 +327,61 @@ function StudyPlanner({ resumeData }) {
     },
     [allPlans, getAuthToken],
   );
+
+  // ── Generate a Quick Prep plan (standalone, not tied to a career) ──
+  const generateQuickPlanForCareer = useCallback(async () => {
+    const targetCareer = quickTargetCareer.trim() || activeCareer || "General";
+    if (!quickGoal.trim() || !quickDeadline) return;
+    const today = new Date();
+    const deadline = new Date(quickDeadline);
+    const deadlineDays = Math.ceil((deadline - today) / 86400000);
+    if (deadlineDays < 1 || deadlineDays > 31) {
+      setQuickError("Deadline must be 1–31 days from today.");
+      return;
+    }
+    setGeneratingQuick(true);
+    setQuickError(null);
+    try {
+      const token = await getAuthToken();
+      const data = await apiGenerateQuickPlan(token, {
+        targetCareer,
+        quickGoal: quickGoal.trim(),
+        deadlineDays,
+        specificRequirements: quickRequirements,
+      });
+      if (!data.success) throw new Error(data.error || "Failed to generate quick plan");
+      const newPlan = {
+        quick_plan_days: data.quick_plan_days || [],
+        goal_description: data.quick_goal,
+        deadline: data.deadline,
+        detected_skills: data.detected_skills || [],
+        cached_at: new Date().toISOString(),
+      };
+      setAllQuickPlans((prev) => ({ ...prev, [targetCareer]: newPlan }));
+      setActiveQuickPlan(newPlan);
+      setCalendarPlanType("quick_prep");
+      setShowQuickForm(false);
+    } catch (err) {
+      setQuickError(err.message || "Failed to generate quick plan");
+    } finally {
+      setGeneratingQuick(false);
+    }
+  }, [activeCareer, quickGoal, quickDeadline, quickRequirements, quickTargetCareer, getAuthToken]);
+
+  const cancelQuickPlan = useCallback(() => {
+    setActiveQuickPlan(null);
+    setCalendarPlanType("standard");
+    setQuickGoal(""); setQuickRequirements(""); setQuickDeadline(""); setQuickTargetCareer("");
+  }, []);
+
+  // When a quick plan loads from cache, make the most recent one active
+  useEffect(() => {
+    const keys = Object.keys(allQuickPlans);
+    if (keys.length > 0 && !activeQuickPlan) {
+      const first = allQuickPlans[keys[0]];
+      setActiveQuickPlan(first);
+    }
+  }, [allQuickPlans]); // eslint-disable-line
 
   const toggleSkill = (idx) =>
     setExpandedSkills((p) => ({ ...p, [idx]: !p[idx] }));
@@ -549,10 +634,132 @@ function StudyPlanner({ resumeData }) {
     0,
   );
 
+  // Calendar entries for the right-column
+  const calendarDayEntries = calendarPlanType === "quick_prep" && activeQuickPlan
+    ? activeQuickPlan.quick_plan_days
+    : buildStandardDayEntries(activePlan?.skill_gap_report, activePlan?.schedule_summary);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-[1400px] mx-auto px-4 space-y-6">
       {/* Tech Stack Selector */}
       <StackSelector />
+
+      {/* ── Quick Prep Hero Banner (standalone, top-level) ── */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-amber-500/10 via-orange-400/5 to-transparent border border-amber-400/30 rounded-2xl p-5">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(251,191,36,0.08),transparent)] pointer-events-none" />
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center flex-shrink-0">
+              <Zap className="w-5 h-5 text-amber-500" />
+            </div>
+            <div>
+              <h2 className="font-bold text-base text-foreground">⚡ Quick Prep Plan</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {activeQuickPlan
+                  ? `Active: "${activeQuickPlan.goal_description}" · Deadline ${new Date(activeQuickPlan.deadline).toLocaleDateString()}`
+                  : "Nail your next interview or exam with a focused day-by-day study plan. Up to 31 days."}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {activeQuickPlan && (
+              <button
+                onClick={() => { setCalendarPlanType(p => p === "quick_prep" ? "standard" : "quick_prep"); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  calendarPlanType === "quick_prep"
+                    ? "bg-amber-500 text-white border-amber-500"
+                    : "border-amber-400/40 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                }`}
+              >
+                <CalIcon className="w-3 h-3" />
+                {calendarPlanType === "quick_prep" ? "Showing in Calendar" : "Show in Calendar"}
+              </button>
+            )}
+            {activeQuickPlan && (
+              <button onClick={cancelQuickPlan}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-destructive/30 text-xs text-destructive hover:bg-destructive/5 transition-all">
+                <Trash2 className="w-3 h-3" /> Clear
+              </button>
+            )}
+            <button
+              onClick={() => { setShowQuickForm(p => !p); setQuickError(null); }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold shadow-sm shadow-amber-500/25 transition-all"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              {activeQuickPlan ? "New Plan" : "Generate Plan"}
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Prep detected skills pills */}
+        {activeQuickPlan?.detected_skills?.length > 0 && (
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Skills:</span>
+            {activeQuickPlan.detected_skills.map((s, i) => (
+              <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-400/20">{s}</span>
+            ))}
+          </div>
+        )}
+
+        {/* Quick Plan Form (inline expand) */}
+        <AnimatePresence>
+          {showQuickForm && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 pt-4 border-t border-amber-400/20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="lg:col-span-2">
+                  <label className="block text-xs font-medium mb-1">Your goal <span className="text-destructive">*</span></label>
+                  <input type="text" value={quickGoal} onChange={e => setQuickGoal(e.target.value)}
+                    placeholder='e.g. "System design interview next week"'
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Career / Topic</label>
+                  <input type="text" value={quickTargetCareer} onChange={e => setQuickTargetCareer(e.target.value)}
+                    placeholder={activeCareer || "e.g. Software Engineer"}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Deadline <span className="text-destructive">*</span></label>
+                  <input type="date" value={quickDeadline}
+                    min={new Date(Date.now() + 86400000).toISOString().split("T")[0]}
+                    max={new Date(Date.now() + 31 * 86400000).toISOString().split("T")[0]}
+                    onChange={e => setQuickDeadline(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                </div>
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <label className="block text-xs font-medium mb-1">Specific requirements (optional)</label>
+                  <textarea value={quickRequirements} onChange={e => setQuickRequirements(e.target.value)} rows={2}
+                    placeholder="e.g. Focus on React hooks and system design patterns"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-background resize-none focus:outline-none focus:ring-2 focus:ring-amber-400/60" />
+                </div>
+                {quickError && (
+                  <div className="sm:col-span-2 lg:col-span-4 flex items-center gap-2 text-destructive text-xs">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />{quickError}
+                  </div>
+                )}
+                <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
+                  <Button onClick={generateQuickPlanForCareer}
+                    disabled={generatingQuick || !quickGoal.trim() || !quickDeadline}
+                    className="bg-amber-500 hover:bg-amber-600 text-white font-semibold flex-1">
+                    {generatingQuick
+                      ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin mr-2" />Generating… (~10s)</>
+                      : <><Zap className="w-4 h-4 mr-2" />Generate Quick Plan</>}
+                  </Button>
+                  <button onClick={() => setShowQuickForm(false)} className="px-4 py-2 rounded-xl border border-border text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Career Path Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1">
@@ -647,44 +854,39 @@ function StudyPlanner({ resumeData }) {
         </div>
       )}
 
-      {/* Header */}
+      {/* ── Two-column layout: LEFT = plan content, RIGHT = compact calendar ── */}
       {activePlan && (
-        <div className="bg-primary/10 border border-border rounded-lg p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <GraduationCap className="w-6 h-6 text-primary" />
-              <div>
-                <h2 className="text-xl font-bold">{activeCareer}</h2>
-                <p className="text-sm text-muted-foreground">
-                  Your personalized learning roadmap
-                </p>
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start">
+
+          {/* ── LEFT COLUMN ── */}
+          <div className="space-y-6 min-w-0">
+
+          {/* Header */}
+          <div className="bg-primary/10 border border-border rounded-lg p-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <GraduationCap className="w-6 h-6 text-primary" />
+                <div>
+                  <h2 className="text-xl font-bold">{activeCareer}</h2>
+                  <p className="text-sm text-muted-foreground">Your personalized learning roadmap</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {activePlan.cached_at && (
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded hidden sm:inline">
+                    Saved {new Date(activePlan.cached_at).toLocaleDateString()}
+                  </span>
+                )}
+                <Button variant="outline" size="sm" onClick={() => generateForCareer(activeCareer)} disabled={loading}>
+                  <RefreshCw className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+                  {loading ? "Refreshing..." : "Refresh"}
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {activePlan.cached_at && (
-                <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded hidden sm:inline">
-                  Saved {new Date(activePlan.cached_at).toLocaleDateString()}
-                </span>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => generateForCareer(activeCareer)}
-                disabled={loading}
-              >
-                <RefreshCw
-                  className={`w-4 h-4 mr-1 ${loading ? "animate-spin" : ""}`}
-                />
-                {loading ? "Refreshing..." : "Refresh"}
-              </Button>
-            </div>
           </div>
-        </div>
-      )}
 
-      {/* Summary Cards */}
-      {activePlan && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-card border border-border rounded-lg p-4 text-center">
             <div className="text-2xl font-bold text-primary">
               {skillReport.length}
@@ -717,12 +919,11 @@ function StudyPlanner({ resumeData }) {
               </div>
             </>
           )}
-        </div>
-      )}
+          </div>
 
-      {/* Schedule Summary & Google Calendar */}
-      {activePlan?.schedule_summary && (
-        <div className="bg-card border border-border rounded-lg p-5 space-y-4">
+          {/* Schedule Summary & Google Calendar */}
+          {activePlan?.schedule_summary && (
+            <div className="bg-card border border-border rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <CalendarDays className="w-5 h-5 text-primary" />
@@ -784,22 +985,22 @@ function StudyPlanner({ resumeData }) {
               disabled={loading}
             />
           </div>
-        </div>
-      )}
+            </div>
+          )}
 
-      {/* Controls */}
-      {skillReport.length > 0 && (
-        <div className="flex gap-2 justify-end">
-          <Button variant="outline" size="sm" onClick={expandAll}>
-            <ChevronDown className="w-4 h-4 mr-1" /> Expand All
-          </Button>
-          <Button variant="outline" size="sm" onClick={collapseAll}>
-            <ChevronUp className="w-4 h-4 mr-1" /> Collapse All
-          </Button>
-        </div>
-      )}
+          {/* Controls */}
+          {skillReport.length > 0 && (
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={expandAll}>
+                <ChevronDown className="w-4 h-4 mr-1" /> Expand All
+              </Button>
+              <Button variant="outline" size="sm" onClick={collapseAll}>
+                <ChevronUp className="w-4 h-4 mr-1" /> Collapse All
+              </Button>
+            </div>
+          )}
 
-      {/* Skill Roadmaps */}
+          {/* Skill Roadmaps */}
       {skillReport.length > 0 ? (
         <div className="space-y-4">
           {skillReport.map((skillData, skillIdx) => (
@@ -927,16 +1128,76 @@ function StudyPlanner({ resumeData }) {
               )}
             </div>
           ))}
+            </div>
+          ) : activePlan ? (
+            <div className="bg-card border border-border rounded-lg p-8 text-center">
+              <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+              <h2 className="text-lg font-semibold mb-1">No resources found</h2>
+              <p className="text-muted-foreground text-sm">
+                Try refreshing or analyzing your skill gaps first
+              </p>
+            </div>
+          ) : null}
+
+          </div>{/* end LEFT COLUMN */}
+
+          {/* ── RIGHT COLUMN: Compact Calendar (always visible, sticky) ── */}
+          <div className="hidden xl:block">
+            <div className="sticky top-6 space-y-3">
+              {/* Calendar type switcher */}
+              {activeQuickPlan && (
+                <div className="flex gap-1 p-1 bg-muted/40 rounded-xl border border-border">
+                  <button
+                    onClick={() => setCalendarPlanType("standard")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      calendarPlanType === "standard" ? "bg-background shadow-sm text-primary" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <CalIcon className="w-3 h-3" /> Roadmap
+                  </button>
+                  <button
+                    onClick={() => setCalendarPlanType("quick_prep")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      calendarPlanType === "quick_prep" ? "bg-amber-500 shadow-sm text-white" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Zap className="w-3 h-3" /> Quick Prep
+                  </button>
+                </div>
+              )}
+
+              {/* Calendar card */}
+              <div className="bg-card border border-border rounded-2xl p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <CalIcon className="w-4 h-4 text-primary" />
+                  <h3 className="font-semibold text-sm">
+                    {calendarPlanType === "quick_prep" && activeQuickPlan ? "Quick Prep" : "Study Calendar"}
+                  </h3>
+                  {calendarPlanType === "quick_prep" && activeQuickPlan?.deadline && (
+                    <span className="ml-auto text-[10px] text-orange-500 font-medium">
+                      Due {new Date(activeQuickPlan.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  )}
+                </div>
+                <NativeCalendar
+                  dayEntries={calendarDayEntries}
+                  planType={calendarPlanType === "quick_prep" && activeQuickPlan ? "quick_prep" : "standard"}
+                  deadline={calendarPlanType === "quick_prep" ? activeQuickPlan?.deadline : undefined}
+                />
+              </div>
+
+              {/* Google Calendar sync (compact row) */}
+              {activePlan?.schedule_summary && calendarPlanType === "standard" && (
+                <div className="bg-card border border-border rounded-xl p-3">
+                  <p className="text-[11px] text-muted-foreground mb-2">Sync to Google Calendar</p>
+                  <GoogleCalendarSync targetCareer={activeCareer} disabled={loading} />
+                </div>
+              )}
+            </div>
+          </div>
+
         </div>
-      ) : activePlan ? (
-        <div className="bg-card border border-border rounded-lg p-8 text-center">
-          <BookOpen className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-          <h2 className="text-lg font-semibold mb-1">No resources found</h2>
-          <p className="text-muted-foreground text-sm">
-            Try refreshing or analyzing your skill gaps first
-          </p>
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
