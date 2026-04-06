@@ -5,7 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../api/supabaseClient";
-import Sidebar from "../components/layout/Sidebar";
+
 import ResumeUpload from "../components/ResumeUpload";
 import ResumeResultsView from "../components/ResumeResultsView";
 import SkillGapAnalyzer from "../components/SkillGapAnalyzer";
@@ -51,7 +51,7 @@ function Dashboard() {
   const [resumeData, setResumeData] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
   const [userProfile, setUserProfile] = useState(null);
   const [backendDown, setBackendDown] = useState(false);
   const [showResumeUploader, setShowResumeUploader] = useState(false);
@@ -668,25 +668,19 @@ function Dashboard() {
   };
 
   return (
-    <div className="flex h-full bg-background">
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed((prev) => !prev)}
-      />
-      <main className="flex-1 overflow-auto no-scrollbar transition-all duration-300">
-        <div className="max-w-7xl mx-auto p-4">
-          {backendDown && (
-            <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-xl text-sm flex items-center gap-3 mb-4">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <p>
-                <strong>Unable to reach the server.</strong> Please ensure the backend is running.
-              </p>
-            </div>
-          )}
-          {renderPage()}
-        </div>
-      </main>
-    </div>
+    <main className="flex-1 overflow-auto no-scrollbar w-full">
+      <div className="max-w-7xl mx-auto px-4 py-4 md:px-6">
+        {backendDown && (
+          <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-xl text-sm flex items-center gap-3 mb-4">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <p>
+              <strong>Unable to reach the server.</strong> Please ensure the backend is running.
+            </p>
+          </div>
+        )}
+        {renderPage()}
+      </div>
+    </main>
   );
 }
 
