@@ -41,6 +41,7 @@ class QuestionAnswer(BaseModel):
 class GenerateFeedbackRequest(BaseModel):
     user_id: str
     target_role: str
+    difficulty: Optional[str] = "medium"  # easy, medium, hard — controls depth, not count
     questions: List[Dict[str, Any]]
     answers: List[str]
     resume_text: Optional[str] = None
@@ -364,14 +365,6 @@ async def generate_feedback(
                 detail="Number of questions and answers must match"
             )
         
-        # Validate question count (5 for easy, 10 for medium, 15 for hard)
-        valid_counts = [5, 10, 15]
-        if len(request.questions) not in valid_counts:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Expected 5, 10, or 15 questions based on difficulty level, got {len(request.questions)}"
-            )
-        
         logger.info(f"Generating feedback for user {request.user_id}")
         
         # Get resume text if not provided
@@ -404,8 +397,7 @@ async def generate_feedback(
         
         # Store interview session in database (optional)
         try:
-            difficulty_by_count = {5: "easy", 10: "medium", 15: "hard"}
-            difficulty = difficulty_by_count.get(len(request.questions), "medium")
+            difficulty = request.difficulty or "medium"
             user_details = {
                 "id": getattr(user, "id", None),
                 "email": getattr(user, "email", None),

@@ -1,3 +1,6 @@
+import re
+
+
 def truncate_natural(text: str, max_chars: int) -> str:
     if not text:
         return ""
@@ -55,3 +58,36 @@ def extract_balanced_json_object(text: str, start_index: int) -> str:
                 return text[json_start : idx + 1]
 
     return ""
+
+
+STOPWORDS = {
+    "a", "an", "the", "in", "on", "to", "for", "of", "and",
+    "how", "what", "tell", "me", "about", "your", "you", "describe", "explain",
+}
+
+
+def _normalized_tokens(text: str) -> set:
+    base = (text or "").lower()
+    words = [w for w in re.findall(r"[a-z0-9]+", base) if w and w not in STOPWORDS]
+    return set(words)
+
+
+def is_duplicate(new_question: str, existing_questions: list[str], threshold: float = 0.75) -> bool:
+    candidate_tokens = _normalized_tokens(new_question)
+    if not candidate_tokens:
+        return True
+
+    for existing in existing_questions or []:
+        existing_tokens = _normalized_tokens(existing)
+        if not existing_tokens:
+            continue
+
+        union = candidate_tokens | existing_tokens
+        if not union:
+            continue
+
+        overlap = len(candidate_tokens & existing_tokens) / len(union)
+        if overlap >= threshold:
+            return True
+
+    return False
