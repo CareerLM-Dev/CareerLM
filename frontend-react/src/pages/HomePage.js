@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import ChooseHowToStart from "../components/ChooseHowToStart";
 
 const TRACK_SUMMARIES = {
   exploring:
@@ -395,66 +396,70 @@ function HomePage() {
             </Alert>
           )}
 
-          {/* Section 2 - Primary action */}
-          <section className="mb-8">
-            <div className="bg-card border-2 border-primary/30 rounded-xl p-6 md:p-7">
-              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-                <div className="space-y-3">
-                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                    <primaryModule.icon className="w-6 h-6 text-primary" />
-                  </div>
-                  <p className="text-xs uppercase tracking-wide font-semibold text-primary">
-                    Recommended next step
-                  </p>
-                  <h2 className="text-2xl md:text-3xl font-bold text-foreground">
-                    {primaryAction.headline}
-                  </h2>
-                  <p className="text-muted-foreground max-w-2xl">{primaryAction.context}</p>
+          {/* Section 2 - Choose How to Start (if no resume) OR Primary action (if resume exists) */}
+          {!hasResumeUploaded ? (
+            <ChooseHowToStart />
+          ) : (
+            <section className="mb-8">
+              <div className="bg-card border-2 border-primary/30 rounded-xl p-6 md:p-7">
+                <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                  <div className="space-y-3">
+                    <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                      <primaryModule.icon className="w-6 h-6 text-primary" />
+                    </div>
+                    <p className="text-xs uppercase tracking-wide font-semibold text-primary">
+                      Recommended next step
+                    </p>
+                    <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                      {primaryAction.headline}
+                    </h2>
+                    <p className="text-muted-foreground max-w-2xl">{primaryAction.context}</p>
 
-                  {primaryAction.moduleId === "interview" && (
-                    <div className="pt-2 space-y-2">
-                      <label className="text-sm font-medium text-foreground" htmlFor="interview-date">
-                        Interview date (optional)
-                      </label>
-                      <input
-                        id="interview-date"
-                        value={interviewDate}
-                        onChange={(e) => setInterviewDate(e.target.value)}
-                        placeholder="Set inside Interview Prep when ready"
-                        className="w-full md:w-80 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        You can finalize and manage interview dates inside the Interview Prep module.
-                      </p>
+                    {primaryAction.moduleId === "interview" && (
+                      <div className="pt-2 space-y-2">
+                        <label className="text-sm font-medium text-foreground" htmlFor="interview-date">
+                          Interview date (optional)
+                        </label>
+                        <input
+                          id="interview-date"
+                          value={interviewDate}
+                          onChange={(e) => setInterviewDate(e.target.value)}
+                          placeholder="Set inside Interview Prep when ready"
+                          className="w-full md:w-80 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          You can finalize and manage interview dates inside the Interview Prep module.
+                        </p>
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={() => handleModuleNavigate(primaryModule)}
+                      className="mt-2"
+                      size="lg"
+                    >
+                      {primaryAction.cta}
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  </div>
+
+                  {resumeScore !== null && (
+                    <div className="flex md:justify-end">
+                      <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-center min-w-[120px]">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                          Resume Score
+                        </p>
+                        <p className="text-3xl font-bold text-primary">
+                          {Math.round(resumeScore)}
+                          <span className="text-sm text-muted-foreground">/100</span>
+                        </p>
+                      </div>
                     </div>
                   )}
-
-                  <Button
-                    onClick={() => handleModuleNavigate(primaryModule)}
-                    className="mt-2"
-                    size="lg"
-                  >
-                    {primaryAction.cta}
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
                 </div>
-
-                {resumeScore !== null && (
-                  <div className="flex md:justify-end">
-                    <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-center min-w-[120px]">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
-                        Resume Score
-                      </p>
-                      <p className="text-3xl font-bold text-primary">
-                        {Math.round(resumeScore)}
-                        <span className="text-sm text-muted-foreground">/100</span>
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* Section 3 - Secondary modules */}
           <section className="mb-10">
