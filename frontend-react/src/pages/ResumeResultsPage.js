@@ -3,6 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabaseClient";
 import { Upload, FileText, CheckCircle, XCircle, Zap } from "lucide-react";
 
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const RESUME_API = `${API_BASE}/api/v1/orchestrator`;
+
 function FeedbackList({ items, icon: Icon, emptyLabel, showBulletRewrite = false }) {
   if (!items.length) {
     return <p className="text-sm text-muted-foreground text-center py-4">{emptyLabel}</p>;
@@ -36,6 +39,7 @@ function ResumeResultsPage() {
   const navigate = useNavigate();
   const [resumeData, setResumeData] = useState(location.state?.resumeData);
   const [loading, setLoading] = useState(!location.state?.resumeData);
+  const [openingEditor, setOpeningEditor] = useState(false);
 
   useEffect(() => {
     // If no data from navigation, try to load from localStorage or backend
@@ -93,6 +97,30 @@ function ResumeResultsPage() {
       loadPreviousAnalysis();
     }
   }, [resumeData]);
+
+  const handleOpenEditor = async () => {
+    try {
+      setOpeningEditor(true);
+      const { data } = await supabase.auth.getUser();
+      if (!data?.user?.id) {
+        return;
+      }
+
+      const response = await fetch(`${RESUME_API}/user/${data.user.id}/latest-version`);
+      const payload = await response.json();
+      if (!payload?.version_id) {
+        window.alert("No resume version found yet. Upload a resume first.");
+        return;
+      }
+
+      navigate(`/resume-editor?versionId=${payload.version_id}`);
+    } catch (error) {
+      console.error("Failed to open resume editor:", error);
+      window.alert("Unable to open resume editor right now.");
+    } finally {
+      setOpeningEditor(false);
+    }
+  };
 
   // Loading state
   if (loading) {
@@ -156,6 +184,13 @@ function ResumeResultsPage() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleOpenEditor}
+                disabled={openingEditor}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              >
+                {openingEditor ? "Opening..." : "Edit in Resume Editor"}
+              </button>
               <button
                 onClick={() => navigate("/dashboard/resume-analyzer")}
                 className="flex items-center gap-1.5 px-3 py-1.5 border border-border rounded-lg text-sm font-medium hover:bg-muted transition-colors"

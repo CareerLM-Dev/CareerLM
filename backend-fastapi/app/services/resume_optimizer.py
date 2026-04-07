@@ -120,6 +120,7 @@ def optimize_resume_logic(
         resume_text=resume_text,
         job_description=job_description or "",
         category="resume",
+        parsed_sections=sections,
     )
 
     return {

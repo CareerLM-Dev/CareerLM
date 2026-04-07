@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any
 import json
 import logging
 from datetime import datetime
+from pydantic import BaseModel
 
 from app.agents.orchestrator import (
     CareerLMState,
@@ -22,10 +23,18 @@ from app.agents.orchestrator.graph import orchestrator_graph
 from app.services.resume_parser import get_parser
 from app.services.latex_generator import generate_latex
 from app.services.pdf_compiler import compile_latex_with_fallback, PDFCompilationError
+from app.agents.resume.graph import resume_workflow
 from supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class ApplySuggestionRequest(BaseModel):
+    suggestion_id: str
+    section_key: str
+    original_text: str
+    rewrite_text: str
 
 
 def _dump_compact_json(payload: dict) -> str:
@@ -611,7 +620,7 @@ async def get_editor_data(version_id: int):
     try:
         row = (
             supabase.table("resume_versions")
-            .select("version_id, content, resume_analysis, ats_score")
+            .select("version_id, content, resume_analysis, ats_score, score_delta, applied_suggestion_ids")
             .eq("version_id", version_id)
             .limit(1)
             .execute()
@@ -661,14 +670,40 @@ async def get_editor_data(version_id: int):
         if isinstance(analysis, str):
             analysis = json.loads(analysis)
 
-        raw_suggestions = analysis.get("suggestions") or []
+        raw_suggestions = analysis.get("suggestions") or {}
         suggestions = {"bullet_rewrites": [], "improvements": []}
         if isinstance(raw_suggestions, dict):
             suggestions["bullet_rewrites"] = raw_suggestions.get("bullet_rewrites") or []
             suggestions["improvements"] = raw_suggestions.get("improvements") or []
         elif isinstance(raw_suggestions, list):
+            # Flat mixed list: split by suggestion_id prefix (br_* vs impr_*)
+            for s in raw_suggestions:
+                if isinstance(s, str):
+                    suggestions["improvements"].append({"suggestion": s})
+                elif isinstance(s, dict):
+                    sid = s.get("suggestion_id", "")
+                    if sid.startswith("br_") and s.get("original_text"):
+                        suggestions["bullet_rewrites"].append(s)
+                    else:
+                        suggestions["improvements"].append(s)
+
+        applied_ids = record.get("applied_suggestion_ids") or []
+        if isinstance(applied_ids, str):
+            try:
+                applied_ids = json.loads(applied_ids)
+            except Exception:
+                applied_ids = []
+        if not isinstance(applied_ids, list):
+            applied_ids = []
+
+        if applied_ids:
+            suggestions["bullet_rewrites"] = [
+                s for s in suggestions["bullet_rewrites"]
+                if s.get("suggestion_id") not in applied_ids
+            ]
             suggestions["improvements"] = [
-                {"text": s} if isinstance(s, str) else s for s in raw_suggestions
+                s for s in suggestions["improvements"]
+                if s.get("suggestion_id") not in applied_ids
             ]
 
         return {
@@ -677,11 +712,209 @@ async def get_editor_data(version_id: int):
             "sections": sections,
             "suggestions": suggestions,
             "ats_score": record.get("ats_score"),
+            "score_delta": record.get("score_delta"),
+            "applied_suggestion_ids": applied_ids,
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[EDITOR_GET] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/editor/{version_id}/apply-suggestion")
+async def apply_suggestion_for_editor(
+    version_id: int,
+    payload: ApplySuggestionRequest = Body(...),
+):
+    """Apply a suggestion: update user_profile.resume_parsed_sections only (no new version created)."""
+    try:
+        parser = get_parser()
+
+        # ── 1. Find the user who owns this version ───────────────────────
+        owner_row = (
+            supabase.table("resume_versions")
+            .select("resumes!inner(user_id), applied_suggestion_ids")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if not owner_row.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+
+        owner_id = owner_row.data[0]["resumes"]["user_id"]
+        applied_ids = owner_row.data[0].get("applied_suggestion_ids") or []
+        if isinstance(applied_ids, str):
+            try:
+                applied_ids = json.loads(applied_ids)
+            except Exception:
+                applied_ids = []
+        if not isinstance(applied_ids, list):
+            applied_ids = []
+
+        # ── 2. Load current sections from user_profile ────────────────────
+        existing_profile = _load_user_profile(owner_id)
+        sections = parser.sanitize_sections_for_storage(
+            existing_profile.get("resume_parsed_sections") or {}
+        )
+
+        # ── 3. Apply the text replacement ─────────────────────────────────
+        section_key = payload.section_key
+        original_text = payload.original_text
+        rewrite_text = payload.rewrite_text
+
+        updated = False
+        if section_key in sections and isinstance(sections.get(section_key), str):
+            source = sections[section_key]
+            if original_text and original_text in source:
+                sections[section_key] = source.replace(original_text, rewrite_text, 1)
+                updated = True
+
+        if not updated:
+            return {"success": False, "error": "No matching text found to replace in user profile sections"}
+
+        # ── 4. Rebuild resume_text from updated sections ──────────────────
+        updated_sections = parser.sanitize_sections_for_storage(sections)
+        resume_text = parser.build_resume_text_from_sections(updated_sections)
+
+        # ── 5. Write back to user_profile only ───────────────────────────
+        updated_profile = {
+            **existing_profile,
+            "resume_parsed_sections": updated_sections,
+            "resume_text": resume_text,
+        }
+        supabase.table("user").update({"user_profile": updated_profile}).eq("id", owner_id).execute()
+
+        # ── 6. Track applied suggestion on the version row ────────────────
+        if payload.suggestion_id not in applied_ids:
+            applied_ids.append(payload.suggestion_id)
+        supabase.table("resume_versions").update({
+            "applied_suggestion_ids": applied_ids,
+        }).eq("version_id", version_id).execute()
+
+        logger.info(
+            "[EDITOR_APPLY] Applied %s for user %s — updated user_profile only",
+            payload.suggestion_id, owner_id,
+        )
+
+        return {
+            "success": True,
+            "new_version_id": version_id,   # same version, no new row
+            "updated_sections": updated_sections,
+            "applied_suggestion_ids": applied_ids,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EDITOR_APPLY] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/editor/{version_id}/rescore")
+async def rescore_resume_version(version_id: int):
+    """Rescore a resume version after edits."""
+    try:
+        parser = get_parser()
+        row = (
+            supabase.table("resume_versions")
+            .select("version_id, parent_version_id, content, job_description, ats_score")
+            .eq("version_id", version_id)
+            .limit(1)
+            .execute()
+        )
+        if not row.data:
+            raise HTTPException(status_code=404, detail="Resume version not found")
+
+        record = row.data[0]
+        content = record.get("content") or {}
+        if isinstance(content, str):
+            content = json.loads(content)
+
+        sections = parser.sanitize_sections_for_storage(content.get("sections") or {})
+        resume_text = parser.build_resume_text_from_sections(sections)
+        job_description = record.get("job_description") or ""
+
+        resume_input = {
+            "resume_text": resume_text,
+            "job_description": job_description,
+            "resume_sections": sections,
+            "role_type": None,
+            "has_job_description": bool(job_description),
+            "structure_score": None,
+            "completeness_score": None,
+            "relevance_score": None,
+            "impact_score": None,
+            "ats_score": None,
+            "score_zone": None,
+            "needs_template": None,
+            "keyword_gap_table": [],
+            "skills_analysis": [],
+            "overall_readiness": None,
+            "ready_skills": [],
+            "critical_gaps": [],
+            "learning_priorities": [],
+            "job_readiness_estimate": None,
+            "gaps": [],
+            "messages": [],
+            "_status": None,
+        }
+
+        config = {"configurable": {"thread_id": f"rescore_{version_id}"}}
+        resume_result = resume_workflow.invoke(resume_input, config=config)
+        new_score = resume_result.get("ats_score")
+
+        parent_score = None
+        parent_id = record.get("parent_version_id")
+        if parent_id:
+            parent_row = (
+                supabase.table("resume_versions")
+                .select("ats_score")
+                .eq("version_id", parent_id)
+                .limit(1)
+                .execute()
+            )
+            if parent_row.data:
+                parent_score = parent_row.data[0].get("ats_score")
+
+        score_delta = None
+        if new_score is not None and parent_score is not None:
+            try:
+                score_delta = int(new_score) - int(parent_score)
+            except Exception:
+                score_delta = None
+
+        # We must save the ENTIRE updated analysis back to the DB to refresh suggestions
+        new_analysis_data = {
+            "ats_score": resume_result.get("ats_score"),
+            "structure_score": resume_result.get("structure_score"),
+            "completeness_score": resume_result.get("completeness_score"),
+            "relevance_score": resume_result.get("relevance_score"),
+            "impact_score": resume_result.get("impact_score"),
+            "suggestions": resume_result.get("suggestions"),
+            "overall_readiness": resume_result.get("overall_readiness"),
+            "critical_gaps": resume_result.get("critical_gaps"),
+            "score_zone": resume_result.get("score_zone")
+        }
+
+        supabase.table("resume_versions").update({
+            "ats_score": new_score,
+            "score_delta": score_delta,
+            "resume_analysis": new_analysis_data,
+            "applied_suggestion_ids": [], # Reset applied suggestions since these are fresh
+            "edit_source": "rescore",
+        }).eq("version_id", version_id).execute()
+
+        return {
+            "success": True,
+            "ats_score": new_score,
+            "score_delta": score_delta,
+            "version_id": version_id,
+            "new_analysis": new_analysis_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EDITOR_RESCORE] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

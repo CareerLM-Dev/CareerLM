@@ -459,42 +459,19 @@ function SkillGapAnalyzer({ resumeData }) {
           </p>
         </div>
 
-        {/* Upload card */}
-        <div className="bg-card border border-border rounded-2xl p-6 space-y-4">
-          {resumeData ? (
-            <div className="flex items-center gap-3 px-4 py-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-              <span className="text-sm text-emerald-700">
-                Resume loaded: <strong>{resumeData?.filename || "Uploaded Resume"}</strong>
-              </span>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <label htmlFor="resumeUpload" className="text-sm font-medium block">
-                Upload your resume <span className="text-muted-foreground font-normal">(PDF or DOCX)</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="resumeUpload"
-                  type="file"
-                  accept=".pdf,.doc,.docx"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <label
-                  htmlFor="resumeUpload"
-                  className="flex items-center justify-center w-full h-24 transition-all bg-muted hover:bg-muted/70 border-2 border-dashed border-border hover:border-primary/40 rounded-xl cursor-pointer focus-within:ring-2 focus-within:ring-ring"
-                >
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <Upload className="w-5 h-5 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">
-                      {resumeFile ? <span className="text-foreground font-medium">{resumeFile.name}</span> : "Click to browse or drag & drop"}
-                    </span>
-                  </div>
-                </label>
-              </div>
-            </div>
-          )}
+        {/* Action card */}
+        <div className="bg-card border border-border rounded-2xl p-8 text-center space-y-6">
+          <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-emerald-600" />
+          </div>
+          
+          <div>
+            <h3 className="text-lg font-semibold mb-2">Resume Ready</h3>
+            <p className="text-muted-foreground text-sm max-w-sm mx-auto">
+              We found your resume <strong>{resumeData?.filename || "on file"}</strong>. 
+              Click below to map your extracted skills to hundreds of industry career paths.
+            </p>
+          </div>
 
           {error && (
             <div className="flex items-start gap-3 bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded-xl text-sm">

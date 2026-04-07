@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -11,7 +11,12 @@ import {
   Sparkles,
   Copy,
   Code2,
+  Lightbulb,
 } from "lucide-react";
+import SuggestionPanel from "./SuggestionPanel";
+
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const RESUME_API = `${API_BASE}/api/v1/orchestrator`;
 
 // ── Circular Score ─────────────────────────────────────────────────────────
 function CircularScore({ score, size = 140 }) {
@@ -143,7 +148,7 @@ function RewriteCard({ item, index }) {
           <div>
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">Current Bullet</p>
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-              <p className="text-sm text-slate-600 italic">"{item.original || item.summary || "Your current text..."}"</p>
+              <p className="text-sm text-slate-600 italic">"{item.original_text || item.summary || "Your current text..."}"</p>
             </div>
           </div>
 
@@ -197,6 +202,8 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
     );
   }
 
+
+
   const {
     ats_score,
     structure_score,
@@ -216,6 +223,9 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
         detail: item.explanation || item.detail || item.reason || item.why,
       };
     });
+
+  const generalTips = suggestions.filter(s => s.suggestion_id?.startsWith("impr_"));
+  const rewriteSuggestions = suggestions.filter(s => s.suggestion_id?.startsWith("br_"));
 
   const strengthsList =
     strengths.length > 0
@@ -364,8 +374,32 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
         </div>
       </div>
 
+      {/* ── General Improvements ── */}
+      {generalTips.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="h-5 w-5 text-amber-600" />
+              <h3 className="text-lg font-bold text-slate-900">Strategic Advice</h3>
+            </div>
+            <span className="rounded-full bg-amber-50 text-amber-700 px-3 py-1 text-xs font-semibold">
+              {generalTips.length} GENERAL TIPS
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {normalizeFeedback(generalTips).map((tip, i) => (
+              <div key={i} className="rounded-lg border border-amber-200 bg-amber-50/30 p-4">
+                <p className="text-sm font-semibold text-slate-900">{tip.title}</p>
+                {tip.detail && <p className="text-xs text-slate-600 leading-relaxed mt-1">{tip.detail}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── AI-Powered Rewrites ── */}
-      {suggestions.length > 0 && (
+      {rewriteSuggestions.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2">
@@ -373,13 +407,13 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
               <h3 className="text-lg font-bold text-slate-900">AI-Powered Rewrites</h3>
             </div>
             <span className="rounded-full bg-indigo-50 text-indigo-700 px-3 py-1 text-xs font-semibold">
-              {suggestions.length} HIGH PRIORITY ISSUES
+              {rewriteSuggestions.length} HIGH PRIORITY ISSUES
             </span>
           </div>
           <p className="text-sm text-slate-600 mb-6">Click to copy changes directly to your resume.</p>
 
           <div className="space-y-0">
-            {suggestions.map((item, i) => (
+            {rewriteSuggestions.map((item, i) => (
               <RewriteCard key={i} item={item} index={i} />
             ))}
           </div>

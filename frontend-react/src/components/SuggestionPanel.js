@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from "react";
 import {
   Lightbulb, Check, X, ChevronDown, ChevronUp,
-  Sparkles, ArrowRight, RefreshCw
+  Sparkles,
 } from "lucide-react";
 
 // Section label mapping
@@ -20,18 +20,18 @@ const SECTION_LABELS = {
   general: "General"
 };
 
-// Suggestion card for bullet rewrites
-function BulletRewriteCard({ suggestion, onApply, onDismiss, isApplying }) {
+// Suggestion card for bullet rewrites (read-only — Apply is in Resume Editor)
+function BulletRewriteCard({ suggestion }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const before = suggestion.before || suggestion.original || "";
-  const after = suggestion.after || suggestion.rewritten || "";
-  const reason = suggestion.reason || "";
+  const before = suggestion.before || suggestion.original_text || "";
+  const after = suggestion.after || suggestion.rewrite_text || suggestion.bullet_rewrite || "";
+  const reason = suggestion.reason || suggestion.explanation || "";
   const sectionKey = suggestion.section_key || "unknown";
 
   return (
     <div className="bg-card border border-border rounded-lg overflow-hidden hover:shadow-md transition-all">
       {/* Header */}
-      <div 
+      <div
         className="flex items-start gap-3 p-3 cursor-pointer"
         onClick={() => setIsExpanded(!isExpanded)}
       >
@@ -69,7 +69,7 @@ function BulletRewriteCard({ suggestion, onApply, onDismiss, isApplying }) {
 
           {/* After */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Suggested:</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1">Suggested rewrite:</p>
             <p className="text-sm bg-green-500/5 border border-green-500/20 rounded p-2 text-foreground">
               {after}
             </p>
@@ -83,34 +83,9 @@ function BulletRewriteCard({ suggestion, onApply, onDismiss, isApplying }) {
             </div>
           )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onApply(suggestion);
-              }}
-              disabled={isApplying}
-              className="flex-1 flex items-center justify-center gap-2 bg-primary text-primary-foreground px-3 py-2 rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-all"
-            >
-              {isApplying ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Check className="w-4 h-4" />
-              )}
-              Apply
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDismiss(suggestion);
-              }}
-              className="flex items-center justify-center gap-2 bg-muted text-muted-foreground px-3 py-2 rounded-lg text-sm font-medium hover:bg-muted/80 transition-all"
-            >
-              <X className="w-4 h-4" />
-              Dismiss
-            </button>
-          </div>
+          <p className="text-xs text-muted-foreground italic pt-1">
+            Open the Resume Editor to apply this change.
+          </p>
         </div>
       )}
     </div>
@@ -314,9 +289,6 @@ export default function SuggestionPanel({
           <BulletRewriteCard
             key={`rewrite-${index}`}
             suggestion={suggestion}
-            onApply={onApplySuggestion}
-            onDismiss={onDismissSuggestion}
-            isApplying={applyingSuggestionId === `rewrite-${index}`}
           />
         ))}
         
@@ -335,12 +307,12 @@ export default function SuggestionPanel({
         )}
       </div>
 
-      {/* Quick apply hint */}
+      {/* Open editor hint */}
       {filteredRewrites.length > 0 && (
-        <div className="bg-muted/50 rounded-lg p-3 flex items-center gap-2">
-          <ArrowRight className="w-4 h-4 text-primary flex-shrink-0" />
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 flex items-center gap-2">
+          <Lightbulb className="w-4 h-4 text-primary flex-shrink-0" />
           <p className="text-xs text-muted-foreground">
-            Click <strong>Apply</strong> on any rewrite to update your resume instantly
+            Open the <strong>Resume Editor</strong> to apply bullet rewrites to your resume
           </p>
         </div>
       )}

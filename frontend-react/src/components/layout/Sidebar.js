@@ -17,6 +17,7 @@ import {
 
 const routeMap = {
   dashboard: "/dashboard",
+  upload_resume: "/dashboard/upload-resume",
   resume_optimizer: "/dashboard/resume-analyzer",
   skill_gap: "/dashboard/skill-gap",
   mock_interview: "/dashboard/mock-interview",
@@ -34,6 +35,11 @@ function Sidebar({ collapsed, onToggle }) {
       id: "dashboard",
       label: "Dashboard",
       icon: LayoutDashboard,
+    },
+    {
+      id: "upload_resume",
+      label: "Upload Resume",
+      icon: Upload,
     },
     {
       id: "resume_optimizer",

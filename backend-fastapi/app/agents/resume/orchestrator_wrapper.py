@@ -118,7 +118,8 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
     print("[RESUME_WRAPPER] Calling resume_workflow...")
 
     try:
-        resume_result = resume_workflow.invoke(resume_input)
+        config = {"configurable": {"thread_id": "orchestrator_resume_subgraph"}}
+        resume_result = resume_workflow.invoke(resume_input, config=config)
 
         messages.append("[RESUME_WRAPPER] Resume workflow completed")
         print("[RESUME_WRAPPER] Resume workflow completed")
@@ -139,6 +140,7 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
         resume_text=resume_text,
         job_description=job_description,
         category="resume",
+        parsed_sections=parsed_sections,
     )
 
     # Resume sections were parsed before workflow and should be in result

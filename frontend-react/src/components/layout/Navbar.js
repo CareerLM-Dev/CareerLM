@@ -22,6 +22,7 @@ import {
   X,
   LayoutDashboard,
   BarChart,
+  Upload,
 } from "lucide-react";
 import { useTheme } from "../../context/ThemeContext";
 
@@ -31,6 +32,7 @@ const NAV_GROUPS = [
     id: "tailor",
     label: "Tailor Your Resume",
     items: [
+      { label: "Upload Resume", icon: Upload, route: "/dashboard/upload-resume" },
       { label: "Resume Analyzer", icon: FileText, route: "/dashboard/resume-analyzer" },
       { label: "Resume Editor", icon: Edit3, route: "/dashboard/resume-editor" },
     ],

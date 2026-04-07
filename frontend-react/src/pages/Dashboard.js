@@ -17,6 +17,8 @@ import ProfileCompletionWidget from "../components/ProfileCompletionWidget";
 import ResumeEditorPage from "./ResumeEditorPage";
 import { formatText } from "../utils/textFormatter";
 import { AlertCircle } from "lucide-react";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const RESUME_API = `${API_BASE}/api/v1/orchestrator`;
 
 function Dashboard() {
   const { session, loading: authLoading } = useUser();
@@ -32,6 +34,7 @@ function Dashboard() {
     "/dashboard/study-planner": "study_planner",
     "/dashboard/job-matcher": "job_matcher",
     "/dashboard/resume-editor": "resume_editor",
+    "/dashboard/upload-resume": "upload_resume",
   };
 
   const pageToRoute = {
@@ -43,18 +46,21 @@ function Dashboard() {
     study_planner: "/dashboard/study-planner",
     job_matcher: "/dashboard/job-matcher",
     resume_editor: "/dashboard/resume-editor",
+    upload_resume: "/dashboard/upload-resume",
   };
 
   const currentPage = pathToPage[location.pathname] ?? "dashboard";
   const setCurrentPage = (pageId) =>
     navigate(pageToRoute[pageId] ?? "/dashboard");
   const [resumeData, setResumeData] = useState(null);
+  const [latestVersionId, setLatestVersionId] = useState(null);
   const [scoreHistory, setScoreHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [userProfile, setUserProfile] = useState(null);
   const [backendDown, setBackendDown] = useState(false);
   const [showResumeUploader, setShowResumeUploader] = useState(false);
+  const [openingEditor, setOpeningEditor] = useState(false);
 
   const isBackendError = (error) => {
     if (!error?.response) {
@@ -160,6 +166,7 @@ function Dashboard() {
         };
 
         setResumeData(transformedData);
+        setLatestVersionId(mostRecent.id);
       }
     } catch (error) {
       if (isBackendError(error)) {
@@ -253,6 +260,30 @@ function Dashboard() {
     // History refreshes automatically when user navigates to the history tab.
   };
 
+  const handleOpenResumeEditor = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      setOpeningEditor(true);
+      const response = await axios.get(
+        `${RESUME_API}/user/${session.user.id}/latest-version`
+      );
+      const versionId = response.data?.version_id;
+
+      if (!versionId) {
+        window.alert("No resume version found yet. Upload a resume first.");
+        return;
+      }
+
+      navigate(`/dashboard/resume-editor?versionId=${versionId}`);
+    } catch (error) {
+      console.error("Failed to open resume editor:", error);
+      window.alert("Unable to open resume editor right now.");
+    } finally {
+      setOpeningEditor(false);
+    }
+  };
+
   // Generate SVG path from score history
   const generateChartPath = () => {
     if (!scoreHistory || scoreHistory.length === 0) {
@@ -286,72 +317,101 @@ function Dashboard() {
   };
 
   const renderPage = () => {
+    const requiresResume = [
+      "skill_gap",
+      "mock_interview",
+      "cold_email",
+      "study_planner",
+      "job_matcher",
+    ];
+
+    if (requiresResume.includes(currentPage) && !resumeData && !loading) {
+      const titles = {
+        skill_gap: "Resume Required for Skill Gap Analysis",
+        mock_interview: "Resume Required for Mock Interviews",
+        cold_email: "Resume Required for Cold Emails",
+        study_planner: "Resume Required for Study Planner",
+        job_matcher: "Resume Required for Job Matcher",
+      };
+      
+      const descriptions = {
+        skill_gap: "We need your resume to compare your current skills against industry requirements.",
+        mock_interview: "Upload your resume so the AI interviewer can personalize questions to your experience.",
+        cold_email: "Upload your resume to automatically personalize your outreach emails.",
+        study_planner: "Upload your resume so we can plan study materials based on your existing skills.",
+        job_matcher: "We need your resume to find the best job matches for your profile.",
+      };
+
+      return (
+        <div className="w-full flex-1 flex flex-col pt-6">
+          <ResumeUpload 
+            title={titles[currentPage]}
+            description={descriptions[currentPage]}
+            onResult={(data) => {
+              handleResumeDataUpdate(data);
+            }} 
+          />
+        </div>
+      );
+    }
+
     switch (currentPage) {
+      case "upload_resume":
+        return (
+          <div className="w-full flex-1 flex flex-col pt-6">
+            <ResumeUpload 
+              title="Upload Your Resume"
+              description="Upload your latest resume to update your profile and start analyzing."
+              onResult={(data) => {
+                handleResumeDataUpdate(data);
+                setCurrentPage("resume_optimizer");
+              }}
+            />
+          </div>
+        );
       case "resume_results":
         return (
           <ResumeResultsView
             resumeData={resumeData}
             onUploadAnother={() => setCurrentPage("resume_optimizer")}
+            versionId={latestVersionId}
           />
         );
       case "resume_optimizer":
+        // Auto redirect if no resume data instead of inline rendering
+        if (!resumeData && !loading) {
+          setCurrentPage("upload_resume");
+        }
+        
         return (
           <div className="space-y-5">
             {/* Toggle banner */}
             <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
               <div>
                 <p className="text-sm font-semibold">
-                  {resumeData ? "Analysis ready" : "Start a new analysis"}
+                  Analysis ready
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {resumeData
-                    ? "Run a new analysis while keeping your last results visible."
-                    : "Upload your resume to get scores and suggestions."}
+                  Run a new analysis while keeping your last results visible.
                 </p>
               </div>
               <button
-                onClick={() => setShowResumeUploader((prev) => !prev)}
+                onClick={() => setCurrentPage("upload_resume")}
                 className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium shadow-sm hover:bg-muted transition-colors"
               >
-                {showResumeUploader ? "Hide Uploader" : "Analyze Another"}
+                Analyze Another
               </button>
             </div>
 
-            {/* Desktop: side-by-side when both panels are open */}
-            <div
-              className={
-                showResumeUploader && resumeData
-                  ? "grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-5 items-start"
-                  : ""
-              }
-            >
-              {showResumeUploader && (
-                <div className="lg:sticky lg:top-4">
-                  <ResumeUpload
-                    onResult={(data) => {
-                      handleResumeDataUpdate(data);
-                      setShowResumeUploader(false);
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* If no results yet and uploader is not showing, show uploader inline */}
-              {!resumeData && !showResumeUploader && (
-                <ResumeUpload
-                  onResult={(data) => {
-                    handleResumeDataUpdate(data);
-                  }}
-                />
-              )}
-
-              {resumeData && (
-                <ResumeResultsView
-                  resumeData={resumeData}
-                  onUploadAnother={() => setShowResumeUploader(true)}
-                />
-              )}
-            </div>
+            {resumeData && (
+              <ResumeResultsView
+                resumeData={resumeData}
+                onUploadAnother={() => setCurrentPage("upload_resume")}
+                onOpenEditor={handleOpenResumeEditor}
+                isOpeningEditor={openingEditor}
+                versionId={latestVersionId}
+              />
+            )}
           </div>
         );
 

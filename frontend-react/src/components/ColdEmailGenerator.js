@@ -656,12 +656,6 @@ function ColdEmailGenerator({ resumeData }) {
                 Using your profile and resume: <strong>{resumeData.filename}</strong>
               </div>
             )}
-            {!resumeData && (
-              <div className="flex items-center gap-2 text-sm bg-amber-500/10 text-amber-600 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-4 h-4" />
-                Please upload a resume first to generate personalized emails
-              </div>
-            )}
 
             <Button onClick={() => handleGenerate()} disabled={loading} className="w-full">
               {loading ? (
