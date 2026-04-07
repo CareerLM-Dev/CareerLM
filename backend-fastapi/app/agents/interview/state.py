@@ -36,9 +36,11 @@ class InterviewState(TypedDict, total=False):
     education_excerpt: Optional[str]  # First 300 chars of education section
     difficulty_desc: Optional[str]  # Guideline string for LLM
     question_distribution: Optional[Dict[str, Any]]  # {"total": 10, "breakdown": "..."}
+    resume_anchors: Optional[Dict[str, Any]]  # Compact parsed resume signals used in prompts
     
     # ===== METRICS (Feedback) =====
     transcript: Optional[str]  # Built transcript of Q/A used by feedback node
+    transcript_entries: Optional[List[Dict[str, Any]]]  # Compact per-answer transcript signals
     total_questions: Optional[int]
     answered_count: Optional[int]
     skipped_count: Optional[int]

@@ -5,20 +5,26 @@ Contains all business logic for question generation and feedback
 
 from typing import Dict, Any, List
 import logging
-import re
 import json
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
 from app.services.interview.prompts import (
+    DIFFICULTY_DEPTH,
     build_feedback_generation_prompt,
-    build_question_generation_prompt,
+    build_feedback_system_prompt,
+    build_question_system_prompt,
+    build_section_generation_prompt,
 )
 from app.services.interview.recovery import (
     recover_feedback_from_error,
     recover_questions_from_error,
 )
+from app.services.interview.fallbacks import get_fallback_questions
 from app.services.interview.schemas import FeedbackOutput, QuestionList
-from app.services.interview.transcript import build_transcript_and_metrics
-from app.services.interview.utils import truncate_natural, extract_balanced_json_object
+from app.services.interview.transcript import build_transcript_and_metrics, serialize_transcript_for_llm
+from app.services.interview.utils import truncate_natural, extract_balanced_json_object, is_duplicate
+from app.services.interview.resume_parser import extract_resume_anchors
 
 from .state import InterviewState
 
@@ -27,190 +33,271 @@ from app.agents.llm_config import INTERVIEW_LLM
 logger = logging.getLogger(__name__)
 
 
-# ===== CONSTANTS =====
-# DIFFICULTY_GUIDANCE = {
-#     "easy": "Use beginner-friendly, practical questions suitable for junior/entry-level developers. Avoid edge cases, trick questions, and overly deep system internals.",
-#     "medium": "Use accessible foundational-to-intermediate questions with practical context. Keep scenarios realistic and avoid punishing complexity.",
-#     "hard": "Use moderately advanced but still approachable questions. Prioritize clarity and real-world relevance over obscure trivia."
-# }
 DIFFICULTY_GUIDANCE = {
-        "easy": "Focus on fundamental concepts, basic terminology, and straightforward scenarios. Questions should be answerable by entry-level candidates.",
-        "medium": "Mix of fundamental and intermediate concepts. Include some problem-solving scenarios and practical applications. Suitable for mid-level candidates.",
-        "hard": "Advanced concepts, complex scenarios, optimization problems, and deep technical knowledge. Challenge the candidate with edge cases and architectural decisions."
+    "easy": "Fundamentals and direct implementation clarity.",
+    "medium": "Balanced practical depth with design and trade-offs.",
+    "hard": "Advanced architecture reasoning and optimization depth.",
 }
 
-QUESTION_DISTRIBUTIONS = {
-    "easy": {
-        "total": 5,
-        "breakdown": "2 Resume Validation, 2 Project Deep Dive, 1 Core Technical"
-    },
-    "medium": {
-        "total": 10,
-        "breakdown": "2 Resume Validation, 3 Project Deep Dive, 3 Core Technical, 1 System Design, 1 Behavioral"
-    },
-    "hard": {
-        "total": 15,
-        "breakdown": "3 Resume Validation, 4 Project Deep Dive, 4 Core Technical, 2 System Design, 2 Behavioral"
-    }
+# Always 10 questions regardless of difficulty.
+# Difficulty controls depth of questions, not how many are asked.
+TOTAL_QUESTIONS = 10
+
+SECTION_PLAN = [
+    ("resume_validation", 2),
+    ("core_technical", 3),
+    ("project_deep_dive", 2),
+    ("behavioral", 2),
+    ("situational", 1),
+]
+
+SECTION_TO_CATEGORY = {
+    "resume_validation": "Resume Validation",
+    "core_technical": "Core Technical",
+    "project_deep_dive": "Project Deep Dive",
+    "behavioral": "Behavioral",
+    "situational": "Situational",
 }
 
-EXPECTED_QUESTION_COUNTS = {
-    "easy": 5,
-    "medium": 10,
-    "hard": 15
-}
+
+def _compress_for_history(questions: List[Dict[str, Any]]) -> str:
+    lines = []
+    for item in questions:
+        category = str(item.get("category", "General"))
+        text = str(item.get("question", "")).strip()
+        compressed = text[:60] + ("..." if len(text) > 60 else "")
+        lines.append(f"{category}: {compressed}")
+    return "\n".join(lines) if lines else "No questions generated"
 
 
-def normalize_question_text(question: str) -> str:
-    base = (question or "").strip().lower()
-    base = re.sub(r"\s+", " ", base)
-    base = re.sub(r"[^a-z0-9 ]", "", base)
-    return base
+def _parse_question_result(raw_result: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw_result, QuestionList):
+        return [q.model_dump() for q in raw_result.questions]
+    if isinstance(raw_result, dict):
+        validated = QuestionList.model_validate(raw_result)
+        return [q.model_dump() for q in validated.questions]
+    return []
+
+
+def _is_category_match(section_key: str, candidate_category: str) -> bool:
+    expected = SECTION_TO_CATEGORY.get(section_key, "General").lower()
+    actual = (candidate_category or "").strip().lower()
+
+    if section_key == "situational":
+        return actual in {"situational", "system design"}
+
+    return actual == expected
+
+
+def _normalize_category(section_key: str, candidate_category: str) -> str:
+    if _is_category_match(section_key, candidate_category):
+        if section_key == "situational":
+            return "Situational"
+        return SECTION_TO_CATEGORY.get(section_key, "General")
+    return SECTION_TO_CATEGORY.get(section_key, "General")
 
 
 def prepare_context_node(state: InterviewState) -> Dict[str, Any]:
     """
     Node: Prepare and extract context from resume sections
-    
-    Extracts experience, projects, skills, education excerpts
-    Determines difficulty guidance and question distribution
+
+    Extracts short resume excerpts and deterministic anchors for low-token prompts.
     """
-    difficulty = str(state.get("difficulty", "medium"))
-    logger.info(f"Preparing context for {difficulty} difficulty interview")
-    
-    # Extract sections with length limits
-    resume_sections = state.get("resume_sections", {})
-    
+    difficulty = str(state.get("difficulty", "medium")).lower()
+    target_role = str(state.get("target_role", "Software Engineer"))
+    logger.info("Preparing context for %s difficulty interview", difficulty)
+
+    resume_sections = state.get("resume_sections", {}) or {}
+    resume_text = str(state.get("resume_text", ""))
+
     experience_excerpt = truncate_natural(str(resume_sections.get("experience", "")), 500)
     projects_excerpt = truncate_natural(str(resume_sections.get("projects", "")), 500)
     skills_excerpt = truncate_natural(str(resume_sections.get("skills", "")), 300)
     education_excerpt = truncate_natural(str(resume_sections.get("education", "")), 300)
-    
-    # Get difficulty guidance
-    difficulty_lower = difficulty.lower()
-    difficulty_desc = DIFFICULTY_GUIDANCE.get(difficulty_lower, DIFFICULTY_GUIDANCE["medium"])
-    
-    # Get question distribution
-    question_distribution = QUESTION_DISTRIBUTIONS.get(difficulty_lower, QUESTION_DISTRIBUTIONS["medium"])
-    
+
+    difficulty_desc = DIFFICULTY_GUIDANCE.get(difficulty, DIFFICULTY_GUIDANCE["medium"])
+
+    resume_anchors = extract_resume_anchors(resume_text=resume_text, target_role=target_role)
+
     return {
         "experience_excerpt": experience_excerpt,
         "projects_excerpt": projects_excerpt,
         "skills_excerpt": skills_excerpt,
         "education_excerpt": education_excerpt,
         "difficulty_desc": difficulty_desc,
-        "question_distribution": question_distribution,
+        "resume_anchors": resume_anchors,
     }
 
 
 def generate_questions_node(state: InterviewState) -> Dict[str, Any]:
     """
-    Node: Generate interview questions via LLM
-    
-    Uses structured output schema to enforce question format
+    Node: Generate interview questions section-by-section via multi-turn messages.
     """
-    logger.info("Generating interview questions")
-    
-    # Build context from state
-    skills = state.get("skills_excerpt", "")
-    experience = state.get("experience_excerpt", "")
-    projects = state.get("projects_excerpt", "")
+    logger.info("Generating interview questions via sequential section calls")
+
     target_role = str(state.get("target_role", "Software Engineer"))
-    user_skills = state.get("user_skills", [])
-    difficulty = str(state.get("difficulty", "medium"))
-    distribution = state.get("question_distribution", QUESTION_DISTRIBUTIONS["medium"])
+    difficulty = str(state.get("difficulty", "medium")).lower()
     difficulty_desc = str(state.get("difficulty_desc", DIFFICULTY_GUIDANCE["medium"]))
+    total_questions = TOTAL_QUESTIONS
 
-    if not isinstance(distribution, dict):
-        distribution = QUESTION_DISTRIBUTIONS["medium"]
+    resume_text = str(state.get("resume_text", ""))
+    resume_sections = state.get("resume_sections", {}) or {}
+    resume_anchors = state.get("resume_anchors") or extract_resume_anchors(resume_text=resume_text, target_role=target_role)
 
-    total_questions = int(distribution.get("total", 10))
-    breakdown = str(distribution.get("breakdown", QUESTION_DISTRIBUTIONS["medium"]["breakdown"]))
     previous_questions = state.get("previous_questions", []) or []
+    previous_questions_clean = [q.strip() for q in previous_questions if isinstance(q, str) and q.strip()]
 
-    previous_questions_clean = [
-        q.strip() for q in previous_questions
-        if isinstance(q, str) and q.strip()
-    ]
-    blocked_normalized = {normalize_question_text(q) for q in previous_questions_clean}
-    aggregated_questions: List[Dict[str, Any]] = []
-    seen_normalized = set(blocked_normalized)
+    section_plan = SECTION_PLAN
+    accumulated_questions: List[Dict[str, Any]] = []
     last_error_text = ""
-    
-    for attempt in range(3):
-        remaining = max(total_questions - len(aggregated_questions), 0)
-        if remaining == 0:
+
+    system_prompt = build_question_system_prompt(
+        target_role=target_role,
+        difficulty=difficulty,
+        difficulty_desc=difficulty_desc,
+        anchors=resume_anchors,
+    )
+    messages: List[Any] = [SystemMessage(content=system_prompt)]
+
+    for section_key, required_count in section_plan:
+        if len(accumulated_questions) >= total_questions:
             break
 
-        exclusion_for_prompt = previous_questions_clean + [
-            str(item.get("question", "")).strip()
-            for item in aggregated_questions
-            if isinstance(item, dict) and str(item.get("question", "")).strip()
-        ]
-        previous_questions_text = "\n".join(
-            f"- {q}" for q in exclusion_for_prompt[:150]
+        remaining_capacity = total_questions - len(accumulated_questions)
+        required = min(required_count, remaining_capacity)
+        if required <= 0:
+            continue
+
+        section_prompt = build_section_generation_prompt(
+            section_key=section_key,
+            required_count=required,
+            accumulated_questions=accumulated_questions,
+            previous_questions=previous_questions_clean,
         )
 
-        prompt = build_question_generation_prompt(
-            target_role=target_role,
-            skills=str(skills),
-            user_skills_text=", ".join(user_skills) if isinstance(user_skills, list) else "",
-            experience=str(experience),
-            projects=str(projects),
-            difficulty=difficulty,
-            difficulty_desc=difficulty_desc,
-            total_questions=remaining,
-            breakdown=breakdown,
-            previous_questions_text=previous_questions_text,
-        )
-
+        section_questions: List[Dict[str, Any]] = []
         try:
             structured_llm = INTERVIEW_LLM.with_structured_output(QuestionList)
-            result = structured_llm.invoke(prompt)
+            result = structured_llm.invoke(messages + [HumanMessage(content=section_prompt)])
+            parsed = _parse_question_result(result)
 
-            question_models = result.questions if isinstance(result, QuestionList) else []
-            if not question_models and isinstance(result, dict):
-                validated = QuestionList.model_validate(result)
-                question_models = validated.questions
-
-            questions_payload = [q.model_dump() for q in question_models]
-
-            unique_batch = []
-            for item in questions_payload:
+            for item in parsed:
                 question_text = str(item.get("question", "")).strip()
-                normalized = normalize_question_text(question_text)
-                if not normalized or normalized in seen_normalized:
+                if not question_text:
                     continue
-                seen_normalized.add(normalized)
-                unique_batch.append(item)
 
-            if unique_batch:
-                aggregated_questions.extend(unique_batch)
+                comparison_pool = previous_questions_clean + [str(x.get("question", "")) for x in accumulated_questions] + [str(x.get("question", "")) for x in section_questions]
+                if is_duplicate(question_text, comparison_pool, threshold=0.75):
+                    continue
+
+                section_questions.append(
+                    {
+                        "category": _normalize_category(section_key, str(item.get("category", ""))),
+                        "question": question_text,
+                    }
+                )
+                if len(section_questions) >= required:
+                    break
 
         except Exception as e:
-            error_text = str(e)
-            last_error_text = error_text
-            recovered_questions = recover_questions_from_error(error_text)
-
-            if recovered_questions:
-                logger.warning("Recovered questions from failed structured output payload")
-                unique_batch = []
-                for item in recovered_questions:
+            last_error_text = str(e)
+            recovered = recover_questions_from_error(last_error_text)
+            if recovered:
+                logger.warning("Recovered section questions from malformed structured output")
+                for item in recovered:
                     question_text = str(item.get("question", "")).strip()
-                    normalized = normalize_question_text(question_text)
-                    if not normalized or normalized in seen_normalized:
+                    if not question_text:
                         continue
-                    seen_normalized.add(normalized)
-                    unique_batch.append(item)
 
-                if unique_batch:
-                    aggregated_questions.extend(unique_batch)
+                    comparison_pool = previous_questions_clean + [str(x.get("question", "")) for x in accumulated_questions] + [str(x.get("question", "")) for x in section_questions]
+                    if is_duplicate(question_text, comparison_pool, threshold=0.75):
+                        continue
+
+                    section_questions.append(
+                        {
+                            "category": _normalize_category(section_key, str(item.get("category", ""))),
+                            "question": question_text,
+                        }
+                    )
+                    if len(section_questions) >= required:
+                        break
+            else:
+                logger.warning("Section generation failed for %s: %s", section_key, last_error_text)
+
+        if len(section_questions) < required:
+            deficit = required - len(section_questions)
+            fallback_candidates = get_fallback_questions(
+                target_role=target_role,
+                difficulty=difficulty,
+                resume_sections=resume_sections,
+                existing_questions=accumulated_questions + section_questions,
+                blocked_questions=previous_questions_clean,
+            )
+
+            for item in fallback_candidates:
+                if len(section_questions) >= required:
+                    break
+
+                candidate_text = str(item.get("question", "")).strip()
+                candidate_category = str(item.get("category", ""))
+                if not candidate_text:
                     continue
 
-            logger.warning(f"Question generation attempt {attempt + 1} failed: {error_text}")
+                if not _is_category_match(section_key, candidate_category):
+                    continue
 
-    if not aggregated_questions:
-        logger.error(f"Question generation error: {last_error_text or 'No unique questions generated'}")
+                comparison_pool = previous_questions_clean + [str(x.get("question", "")) for x in accumulated_questions] + [str(x.get("question", "")) for x in section_questions]
+                if is_duplicate(candidate_text, comparison_pool, threshold=0.75):
+                    continue
+
+                section_questions.append(
+                    {
+                        "category": _normalize_category(section_key, candidate_category),
+                        "question": candidate_text,
+                    }
+                )
+
+            if len(section_questions) < required and deficit > 0:
+                logger.warning("Section %s still missing %s questions after fallback", section_key, required - len(section_questions))
+
+        accumulated_questions.extend(section_questions)
+
+        messages.append(HumanMessage(content=f"Section {section_key} generated."))
+        messages.append(AIMessage(content=_compress_for_history(section_questions)))
+
+    if len(accumulated_questions) < total_questions:
+        deficit = total_questions - len(accumulated_questions)
+        fallback_candidates = get_fallback_questions(
+            target_role=target_role,
+            difficulty=difficulty,
+            resume_sections=resume_sections,
+            existing_questions=accumulated_questions,
+            blocked_questions=previous_questions_clean,
+        )
+
+        for item in fallback_candidates:
+            if len(accumulated_questions) >= total_questions:
+                break
+
+            candidate_text = str(item.get("question", "")).strip()
+            if not candidate_text:
+                continue
+
+            comparison_pool = previous_questions_clean + [str(x.get("question", "")) for x in accumulated_questions]
+            if is_duplicate(candidate_text, comparison_pool, threshold=0.75):
+                continue
+
+            accumulated_questions.append(
+                {
+                    "category": str(item.get("category", "General")).strip() or "General",
+                    "question": candidate_text,
+                }
+            )
+
+        logger.warning("Global fallback added %s questions", max(len(accumulated_questions) - (total_questions - deficit), 0))
+
+    if not accumulated_questions:
+        logger.error("Question generation error: %s", last_error_text or "No unique questions generated")
         return {
             "questions_generated": [],
             "is_valid": False,
@@ -218,11 +305,12 @@ def generate_questions_node(state: InterviewState) -> Dict[str, Any]:
             "error": f"Question generation failed: {last_error_text or 'No unique questions generated'}",
         }
 
-    for idx, item in enumerate(aggregated_questions, start=1):
+    for idx, item in enumerate(accumulated_questions, start=1):
         item["id"] = idx
 
     return {
-        "questions_generated": aggregated_questions,
+        "questions_generated": accumulated_questions,
+        "resume_anchors": resume_anchors,
         "is_valid": True,
         "validation_error": "",
     }
@@ -231,19 +319,17 @@ def generate_questions_node(state: InterviewState) -> Dict[str, Any]:
 def validate_questions_node(state: InterviewState) -> Dict[str, Any]:
     """
     Node: Validate and truncate questions to expected count
-    
-    Ensures question count matches difficulty level
-    Truncates if excess, marks invalid state if insufficient
+
+    Ensures question count matches difficulty level.
     """
     logger.info("Validating generated questions")
-    
+
     questions = state.get("questions_generated", [])
-    difficulty = str(state.get("difficulty", "medium")).lower()
-    expected_count = EXPECTED_QUESTION_COUNTS.get(difficulty, 10)
-    
+    expected_count = TOTAL_QUESTIONS
+
     actual_count = len(questions)
-    logger.info(f"Expected {expected_count} questions, got {actual_count}")
-    
+    logger.info("Expected %s questions, got %s", expected_count, actual_count)
+
     if actual_count < expected_count:
         validation_error = f"Expected at least {expected_count} questions, got {actual_count}"
         logger.warning(validation_error)
@@ -252,11 +338,11 @@ def validate_questions_node(state: InterviewState) -> Dict[str, Any]:
             "is_valid": False,
             "validation_error": validation_error,
         }
-    
+
     if actual_count > expected_count:
-        logger.warning(f"Truncating {actual_count} questions to {expected_count}")
+        logger.warning("Truncating %s questions to %s", actual_count, expected_count)
         questions = questions[:expected_count]
-    
+
     return {
         "questions_generated": questions,
         "is_valid": True,
@@ -266,28 +352,35 @@ def validate_questions_node(state: InterviewState) -> Dict[str, Any]:
 
 def build_transcript_node(state: InterviewState) -> Dict[str, Any]:
     """
-    Node: Build transcript and calculate metrics for feedback
-    
-    Combines questions and answers into transcript format
-    Counts answered vs skipped questions
+    Node: Build transcript and calculate metrics for feedback.
     """
     logger.info("Building interview transcript and metrics")
-    
+
     questions = state.get("questions", [])
     answers = state.get("answers", [])
-    return build_transcript_and_metrics(questions=questions, answers=answers)
+    resume_text = str(state.get("resume_text", ""))
+    target_role = str(state.get("target_role", "Software Engineer"))
+    anchors = state.get("resume_anchors") or extract_resume_anchors(resume_text=resume_text, target_role=target_role)
+
+    data = build_transcript_and_metrics(questions=questions, answers=answers, anchors=anchors)
+    data["resume_anchors"] = anchors
+    return data
 
 
 def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
     """
-    Node: Generate comprehensive feedback report via LLM
-    
-    Generates structured feedback via schema and formats markdown in Python
+    Node: Generate comprehensive feedback report via LLM.
+
+    Keeps fallback order unchanged while switching to compact transcript signals.
     """
     logger.info("Generating interview feedback report")
-    
+
     target_role = str(state.get("target_role", "Software Engineer"))
+    difficulty = str(state.get("difficulty", "medium")).lower()
+    difficulty_desc = DIFFICULTY_GUIDANCE.get(difficulty, DIFFICULTY_GUIDANCE["medium"])
+
     transcript = str(state.get("transcript", "")).strip()
+    transcript_entries = state.get("transcript_entries", []) or []
     total_questions = int(state.get("total_questions", len(state.get("questions", []))))
     answered = int(state.get("answered_count", 0))
     skipped = int(state.get("skipped_count", 0))
@@ -297,13 +390,17 @@ def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
     quality_band = str(response_quality.get("quality_band", "acceptable"))
     quality_note = str(response_quality.get("quality_note", ""))
 
+    resume_text = str(state.get("resume_text", ""))
+    resume_anchors = state.get("resume_anchors") or extract_resume_anchors(resume_text=resume_text, target_role=target_role)
+
     if not transcript:
         logger.warning("Transcript missing from state in generate_feedback_node, rebuilding fallback transcript")
         questions = state.get("questions", [])
         answers = state.get("answers", [])
 
-        fallback_data = build_transcript_and_metrics(questions=questions, answers=answers)
+        fallback_data = build_transcript_and_metrics(questions=questions, answers=answers, anchors=resume_anchors)
         transcript = str(fallback_data.get("transcript", "")).strip()
+        transcript_entries = fallback_data.get("transcript_entries", []) or []
         total_questions = int(fallback_data.get("total_questions", len(questions)))
         answered = int(fallback_data.get("answered_count", 0))
         skipped = int(fallback_data.get("skipped_count", 0))
@@ -365,24 +462,36 @@ def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
                 ]
             }
         }
-    
-    prompt = build_feedback_generation_prompt(
+
+    serialized_transcript = serialize_transcript_for_llm(transcript_entries, target_role=target_role)
+
+    feedback_prompt = build_feedback_generation_prompt(
         target_role=target_role,
         total_questions=total_questions,
         answered=answered,
         skipped=skipped,
-        transcript=transcript,
+        transcript=serialized_transcript,
         low_signal_count=low_signal_count,
         low_signal_ratio=low_signal_ratio,
         quality_band=quality_band,
         quality_note=quality_note,
     )
 
+    system_prompt = build_feedback_system_prompt(
+        target_role=target_role,
+        difficulty=difficulty,
+        difficulty_desc=difficulty_desc,
+        anchors=resume_anchors,
+    )
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=feedback_prompt),
+    ]
+
     try:
         structured_llm = INTERVIEW_LLM.with_structured_output(FeedbackOutput)
-        feedback_obj = structured_llm.invoke(prompt)
+        feedback_obj = structured_llm.invoke(messages)
 
-        # Handle dict responses from some LLM providers
         if not isinstance(feedback_obj, FeedbackOutput) and isinstance(feedback_obj, dict):
             feedback_obj = FeedbackOutput.model_validate(feedback_obj)
 
@@ -404,7 +513,7 @@ def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
 
         logger.warning("Structured feedback generation failed; attempting raw JSON fallback")
         try:
-            raw_result = INTERVIEW_LLM.invoke(prompt)
+            raw_result = INTERVIEW_LLM.invoke(messages)
             raw_content = getattr(raw_result, "content", raw_result)
 
             if isinstance(raw_content, list):
@@ -431,16 +540,15 @@ def generate_feedback_node(state: InterviewState) -> Dict[str, Any]:
                 return {"feedback_json": validated_feedback.model_dump()}
 
         except Exception as fallback_error:
-            logger.warning(f"Raw JSON feedback fallback failed: {str(fallback_error)}")
+            logger.warning("Raw JSON feedback fallback failed: %s", str(fallback_error))
 
         logger.warning("Falling back to deterministic feedback after all LLM parsing paths failed")
 
-        # Final guaranteed fallback to avoid returning null feedback on provider tool-use failures.
         readiness = "Needs Practice"
         if answered == total_questions and low_signal_ratio < 0.2:
             readiness = "Interview Ready"
         elif answered >= max(1, int(total_questions * 0.7)) and low_signal_ratio < 0.4:
-            readiness = "Almost Ready"
+            readiness = "Nearly Ready"
 
         stage_level = "Needs Work"
         if low_signal_ratio < 0.2:
