@@ -1,43 +1,324 @@
 """
-Supervisor orchestrator node.
+Supervisor orchestrator node — Dynamic Recommendation Engine.
 
-The brain of the system. Sees the full user context and decides which
-specialist to call next based on what work is complete, user status,
-onboarding answers, and what makes sense right now.
+Instead of forcing a rigid single-path flow, the supervisor reads the user's
+current track (status) and computes a primary recommendation + parallel
+secondary options. It then YIELDS control back to the user rather than
+looping back into a specialist node automatically.
 
-Routing rules:
-1. If no resume uploaded → send to resume analysis
-2. If resume score is low (< 50) → fix resume before anything else
-3. If interview is within 7 days → prioritize interview prep
-4. If actively applying → cold email + interview prep
-5. If exploring/building skills → study plan for gaps
-6. If weak bullets identified → offer bullet rewrite (human-in-loop)
+Track Flows:
+  APPLYING:
+    Primary:   tailor_resume (paste JD, optimize resume for it)
+    Secondary: cold_email, mock_interview, skill_gap
+    Loop:      After each JD match → cold_email → "ready for next application"
+  
+  BUILDING:
+    Primary:   skill_gap (discover what to learn)
+    Secondary: study_plan, resume_optimizer
+    Loop:      After skill gap → study_plan → "continue building"
+  
+  EXPLORING:
+    Primary:   skill_gap (find career matches)
+    Secondary: resume_optimizer, study_plan
+    Loop:      After exploration → "update target role?"
+  
+  INTERVIEW_UPCOMING:
+    Primary:   mock_interview
+    Secondary: resume_optimizer (if score <75), study_plan
+    Loop:      After practice → "practice again or review resume"
 
-The supervisor doesn't do work itself. It decides, directs, and re-evaluates.
+Infinite Loop Prevention:
+  - Each node type has a run counter in state (resume_analysis_runs, etc.)
+  - Supervisor checks counter before routing to a node
+  - Hard cap: MAX_RUNS_PER_NODE = 1 for automated nodes (user re-triggers manually)
+  - After cap is reached, supervisor yields to recommendations rather than re-running
 """
 
 from datetime import datetime
-from app.agents.orchestrator.state import CareerLMState
+from app.agents.orchestrator.state import CareerLMState, TrackRecommendations, RecommendedAction
+
+# Hard cap: automated nodes should not run more than once per session automatically.
+# User can always manually re-trigger via the frontend.
+MAX_AUTO_RUNS = 1
+
+
+def _make_action(action_id: str, label: str, description: str, page: str,
+                 priority: str, estimated_time: str, track: str) -> RecommendedAction:
+    return {
+        "action_id": action_id,
+        "label": label,
+        "description": description,
+        "page": page,
+        "priority": priority,
+        "estimated_time": estimated_time,
+        "track": track,
+    }
+
+
+def _compute_applying_recommendations(state: CareerLMState) -> TrackRecommendations:
+    """
+    Applying track: primary goal is tailoring resume to JDs and sending cold emails.
+    Mock interviews are a parallel activity.
+    """
+    resume_analysis = state.get("resume_analysis", {}) or {}
+    resume_score = resume_analysis.get("overall_score")
+    has_resume = bool(resume_analysis.get("resume_text"))
+    resume_analysis_complete = state.get("resume_analysis_complete", False)
+
+    # Step 0: No resume yet — getting started is the only thing
+    if not has_resume or not resume_analysis_complete:
+        return {
+            "track": "applying",
+            "primary": _make_action(
+                "upload_resume", "Upload Your Resume",
+                "Let's establish your baseline before we tailor it to specific jobs.",
+                "resume_optimizer", "primary", "2 min", "applying"
+            ),
+            "secondary": [],
+            "reasoning": "Before tailoring your resume to job descriptions, we need your base resume on file.",
+            "loop_key": "resume_ready",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    # Step 1: Resume score is critical — fix basics first
+    if resume_score is not None and resume_score < 45 and not state.get("fix_resume_complete"):
+        return {
+            "track": "applying",
+            "primary": _make_action(
+                "fix_resume", "Fix Critical Resume Issues",
+                f"Your resume scored {resume_score}/100. Fix the critical issues before applying — employers often filter by ATS score.",
+                "resume_optimizer", "primary", "10 min", "applying"
+            ),
+            "secondary": [
+                _make_action("mock_interview", "Practice Interviews Anyway",
+                             "Start preparing for interviews while refining your resume.",
+                             "mock_interview", "secondary", "15 min", "applying"),
+            ],
+            "reasoning": f"Resume score {resume_score}/100 is below the typical ATS threshold (45). Fixing critical issues before applying maximizes your chances.",
+            "loop_key": "resume_fixed",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    # Step 2: Resume is ready — start the JD matching loop
+    return {
+        "track": "applying",
+        "primary": _make_action(
+            "tailor_resume", "Tailor Resume to a Job",
+            "Paste a job description to get a version of your resume optimized specifically for that role.",
+            "resume_optimizer", "primary", "5 min", "applying"
+        ),
+        "secondary": [
+            _make_action("cold_email", "Draft a Cold Email",
+                         "Write a targeted outreach email for a company or recruiter.",
+                         "cold_email", "secondary", "5 min", "applying"),
+            _make_action("mock_interview", "Practice Mock Interview",
+                         "Practice interview questions for your target role while waiting to hear back.",
+                         "mock_interview", "secondary", "15 min", "applying"),
+            _make_action("skill_gap", "Discover Skill Gaps",
+                         "Find out what skills are most in-demand for your target role.",
+                         "skill_gap", "secondary", "10 min", "applying"),
+        ],
+        "reasoning": "Your resume is ready. The highest-value activity is tailoring it to specific jobs and sending targeted outreach.",
+        "loop_key": "next_application",
+        "computed_at": datetime.now().isoformat(),
+    }
+
+
+def _compute_building_recommendations(state: CareerLMState) -> TrackRecommendations:
+    """Building track: primary goal is identifying skill gaps and learning."""
+    resume_analysis = state.get("resume_analysis", {}) or {}
+    has_resume = bool(resume_analysis.get("resume_text"))
+    resume_analysis_complete = state.get("resume_analysis_complete", False)
+    skill_gap_complete = state.get("skill_gap_complete", False)
+
+    if not has_resume or not resume_analysis_complete:
+        return {
+            "track": "building",
+            "primary": _make_action(
+                "upload_resume", "Upload Your Resume",
+                "Start by uploading your resume so we can identify exactly what skills you already have.",
+                "resume_optimizer", "primary", "2 min", "building"
+            ),
+            "secondary": [],
+            "reasoning": "We need your resume to accurately identify skill gaps against your target role.",
+            "loop_key": "resume_ready",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    if not skill_gap_complete:
+        return {
+            "track": "building",
+            "primary": _make_action(
+                "skill_gap", "Analyze Your Skill Gaps",
+                "Discover which skills you already have and which ones are holding you back.",
+                "skill_gap", "primary", "10 min", "building"
+            ),
+            "secondary": [
+                _make_action("resume_optimizer", "Review Resume",
+                             "Check your resume score and see what areas need improvement.",
+                             "resume_optimizer", "secondary", "5 min", "building"),
+            ],
+            "reasoning": "Understanding your skill gaps is the foundation of any effective learning plan.",
+            "loop_key": "gaps_identified",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    return {
+        "track": "building",
+        "primary": _make_action(
+            "study_plan", "Build Your Learning Plan",
+            "Create a personalized study plan based on your identified skill gaps.",
+            "study_planner", "primary", "15 min", "building"
+        ),
+        "secondary": [
+            _make_action("skill_gap", "Re-analyze Skills",
+                         "Run another skill gap analysis with a different target role in mind.",
+                         "skill_gap", "secondary", "10 min", "building"),
+            _make_action("resume_optimizer", "Improve Resume",
+                         "Add newly learned skills to your resume.",
+                         "resume_optimizer", "secondary", "5 min", "building"),
+        ],
+        "reasoning": "Skill gaps identified. A personalized study plan will give you a structured path forward.",
+        "loop_key": "continue_building",
+        "computed_at": datetime.now().isoformat(),
+    }
+
+
+def _compute_exploring_recommendations(state: CareerLMState) -> TrackRecommendations:
+    """Exploring track: help user discover career paths that match their skills."""
+    resume_analysis = state.get("resume_analysis", {}) or {}
+    has_resume = bool(resume_analysis.get("resume_text"))
+    resume_analysis_complete = state.get("resume_analysis_complete", False)
+    skill_gap_complete = state.get("skill_gap_complete", False)
+
+    if not has_resume or not resume_analysis_complete:
+        return {
+            "track": "exploring",
+            "primary": _make_action(
+                "upload_resume", "Upload Your Resume",
+                "Upload your resume and we'll show you which career paths are the best fit for your current skills.",
+                "resume_optimizer", "primary", "2 min", "exploring"
+            ),
+            "secondary": [],
+            "reasoning": "We need your resume to map your skills to career opportunities.",
+            "loop_key": "resume_ready",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    if not skill_gap_complete:
+        return {
+            "track": "exploring",
+            "primary": _make_action(
+                "skill_gap", "Discover Career Matches",
+                "Find out which roles your current skills are most aligned with, and what the gaps look like for each.",
+                "skill_gap", "primary", "10 min", "exploring"
+            ),
+            "secondary": [
+                _make_action("resume_optimizer", "Review Resume Score",
+                             "See how your resume scores overall before exploring career paths.",
+                             "resume_optimizer", "secondary", "5 min", "exploring"),
+            ],
+            "reasoning": "Career exploration starts with understanding where your skills already place you.",
+            "loop_key": "paths_discovered",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    return {
+        "track": "exploring",
+        "primary": _make_action(
+            "skill_gap", "Explore a Different Role",
+            "Try analyzing against a different target role to compare how well you'd fit.",
+            "skill_gap", "primary", "10 min", "exploring"
+        ),
+        "secondary": [
+            _make_action("study_plan", "Build Skills for a Target Role",
+                         "Once you've picked a direction, create a study plan to close the gaps.",
+                         "study_planner", "secondary", "15 min", "exploring"),
+            _make_action("resume_optimizer", "Optimize Resume",
+                         "Improve your resume once you've identified a target role.",
+                         "resume_optimizer", "secondary", "5 min", "exploring"),
+            _make_action("cold_email", "Reach out to Professionals",
+                         "Connect with people in roles you're interested in exploring.",
+                         "cold_email", "secondary", "5 min", "exploring"),
+        ],
+        "reasoning": "You've started exploring. Try different roles to find where you want to focus.",
+        "loop_key": "continue_exploring",
+        "computed_at": datetime.now().isoformat(),
+    }
+
+
+def _compute_interview_recommendations(state: CareerLMState) -> TrackRecommendations:
+    """Interview upcoming track: urgency on prep, resume polish is secondary."""
+    resume_analysis = state.get("resume_analysis", {}) or {}
+    resume_score = resume_analysis.get("overall_score")
+    has_resume = bool(resume_analysis.get("resume_text"))
+    resume_analysis_complete = state.get("resume_analysis_complete", False)
+
+    if not has_resume or not resume_analysis_complete:
+        return {
+            "track": "interview_upcoming",
+            "primary": _make_action(
+                "upload_resume", "Upload Resume First",
+                "Upload your resume so we can tailor your interview prep to the exact role.",
+                "resume_optimizer", "primary", "2 min", "interview_upcoming"
+            ),
+            "secondary": [],
+            "reasoning": "Even with an interview coming up fast, starting with your resume helps us ask the right practice questions.",
+            "loop_key": "prep_started",
+            "computed_at": datetime.now().isoformat(),
+        }
+
+    secondary = [
+        _make_action("study_plan", "Review Key Topics",
+                     "Generate a quick study checklist for topics likely to come up in your interview.",
+                     "study_planner", "secondary", "10 min", "interview_upcoming"),
+    ]
+
+    # If resume is poor, add it as a secondary recommendation
+    if resume_score is not None and resume_score < 75:
+        secondary.insert(0, _make_action(
+            "resume_optimizer", f"Improve Resume (Score: {resume_score})",
+            "Your resume score could be higher. A strong resume improves your confidence walking into the interview.",
+            "resume_optimizer", "secondary", "10 min", "interview_upcoming"
+        ))
+
+    return {
+        "track": "interview_upcoming",
+        "primary": _make_action(
+            "mock_interview", "Start Mock Interview",
+            "Practice with AI-generated interview questions specific to your role. Repetition builds confidence.",
+            "mock_interview", "primary", "15 min", "interview_upcoming"
+        ),
+        "secondary": secondary,
+        "reasoning": "Interview coming up — mock practice is the highest-leverage activity right now. The more you practice, the better you'll perform.",
+        "loop_key": "practice_again",
+        "computed_at": datetime.now().isoformat(),
+    }
 
 
 def supervisor_node(state: CareerLMState) -> CareerLMState:
     """
-    Central orchestrator decision node.
+    Central orchestrator decision node — Recommendation Engine.
 
-    Reads the full state, evaluates what's been done,
-    and decides which specialist should run next.
+    Reads the full state, evaluates what track the user is on and what
+    work has been completed, and computes dynamic recommendations.
 
-    Returns updated state with:
-    - current_phase: next specialist to run
-    - supervisor_decision: explanation for the choice
+    DOES NOT force users into a single path. After computing recommendations,
+    it sets current_phase to 'ready_for_next_action' and yields back to the
+    human (via the frontend Floating Helper).
+
+    Infinite loop prevention:
+    - Checks run counters before routing to any automated node.
+    - Only one automated trigger per node per session (user re-triggers manually).
     """
     print("[SUPERVISOR] Entered supervisor_node")
 
-    # Initialize messages if not present
     if "messages" not in state or state["messages"] is None:
         state["messages"] = []
 
-    # Check for cancellation flag
+    messages = state["messages"]
+
+    # ── Cancellation check ──────────────────────────────────────────────────
     user_id = state.get("profile", {}).get("user_id")
     if user_id:
         try:
@@ -45,158 +326,57 @@ def supervisor_node(state: CareerLMState) -> CareerLMState:
             result = supabase.table("user").select("analysis_cancelled").eq("id", user_id).execute()
             if result.data and result.data[0].get("analysis_cancelled"):
                 print(f"[SUPERVISOR] Cancellation detected for user {user_id}")
-                state["current_phase"] = "idle"
-                state["supervisor_decision"] = "Analysis cancelled by user."
-                state["messages"].append("[SUPERVISOR] Analysis cancelled by user request.")
-                # Clear the cancellation flag
+                state["current_phase"] = "ready_for_next_action"
+                messages.append("[SUPERVISOR] Analysis cancelled by user request.")
                 supabase.table("user").update({"analysis_cancelled": False}).eq("id", user_id).execute()
+                state["messages"] = messages
                 return state
         except Exception as e:
             print(f"[SUPERVISOR] Error checking cancellation: {e}")
 
-    print("[SUPERVISOR] Reading state fields...")
+    profile = state.get("profile", {}) or {}
+    resume_analysis = state.get("resume_analysis", {}) or {}
+    user_status = profile.get("status", "exploring")
+    has_resume = bool(resume_analysis.get("resume_text"))
+    resume_analysis_complete = state.get("resume_analysis_complete", False)
 
-    profile         = state.get("profile", {})
-    resume_analysis = state.get("resume_analysis", {})
+    print(f"[SUPERVISOR] track={user_status}, has_resume={has_resume}, analysis_complete={resume_analysis_complete}")
 
-    user_status    = profile.get("status")
-    interview_date = profile.get("active_interview_date")
-    resume_score   = resume_analysis.get("overall_score")
-    has_resume     = bool(resume_analysis.get("resume_text"))
-
-    print(f"[SUPERVISOR] has_resume={has_resume}")
-    print(f"[SUPERVISOR] resume_score={resume_score}")
-    print(f"[SUPERVISOR] user_status={user_status}")
-    print(f"[SUPERVISOR] resume_analysis_complete={state.get('resume_analysis_complete')}")
-    print(f"[SUPERVISOR] resume_analysis_failed={state.get('resume_analysis_failed')}")
-
-    # ===== DECIDE NEXT PHASE =====
-
-    # Rule 1: No resume yet → demand resume
-    if not has_resume:
-        state["current_phase"]       = "upload_resume"
-        state["supervisor_decision"] = "No resume uploaded yet. User must upload to begin."
-        state["messages"].append("[SUPERVISOR] Directing to: upload_resume")
-        print("[SUPERVISOR] Decision: upload_resume")
-        return state
-
-    # Rule 1b: Resume exists but not analyzed yet → analyze it
-    if state.get("resume_analysis_failed"):
-        state["current_phase"] = "idle"
-        state["supervisor_decision"] = (
-            "Resume analysis failed. Waiting for user action or system fix."
-        )
-        state["messages"].append("[SUPERVISOR] Resume analysis failed. Going idle.")
-        print("[SUPERVISOR] Decision: idle (resume_analysis_failed)")
-        return state
-
-    # Rule 1b: Resume exists but not analyzed yet → analyze it
-    if has_resume and not state.get("resume_analysis_complete"):
-        state["current_phase"]       = "resume_analysis"
-        state["supervisor_decision"] = "Resume uploaded. Running analysis."
-        state["messages"].append("[SUPERVISOR] Directing to: resume_analysis")
-        print("[SUPERVISOR] Decision: resume_analysis")
-        return state
-
-    # Rule 2: Resume score is critical (< 50) → focus on fixes
-    if resume_score is not None and resume_score < 50 and not state.get("fix_resume_complete"):
-        state["current_phase"]       = "fix_resume"
-        state["supervisor_decision"] = (
-            f"Resume score is {resume_score}/100 (critical). "
-            "Prioritizing structure and completeness fixes before other work."
-        )
-        state["messages"].append("[SUPERVISOR] Directing to: fix_resume (score too low)")
-        print(f"[SUPERVISOR] Decision: fix_resume (score={resume_score})")
-        return state
-
-    # Rule 3: Interview within 7 days → prep comes first
-    if interview_date:
-        days_to_interview = (interview_date - datetime.now()).days
-        if 0 <= days_to_interview <= 7:
-            state["current_phase"]       = "interview_prep"
-            state["supervisor_decision"] = (
-                f"Interview in {days_to_interview} days. "
-                "Prioritizing interview preparation."
-            )
-            state["messages"].append("[SUPERVISOR] Directing to: interview_prep (interview soon)")
-            print(f"[SUPERVISOR] Decision: interview_prep (days={days_to_interview})")
+    # ── Auto-trigger resume analysis exactly once ───────────────────────────
+    # If resume is present but not yet analyzed, and we haven't run analysis yet,
+    # trigger it automatically. Cap at MAX_AUTO_RUNS to prevent infinite loops.
+    analysis_runs = state.get("resume_analysis_runs", 0)
+    if has_resume and not resume_analysis_complete and not state.get("resume_analysis_failed"):
+        if analysis_runs < MAX_AUTO_RUNS:
+            state["current_phase"] = "resume_analysis"
+            messages.append("[SUPERVISOR] Auto-triggering resume analysis (first time).")
+            print("[SUPERVISOR] Decision: resume_analysis (auto, first run)")
+            state["messages"] = messages
             return state
-
-    # Rule 4: Route based on user status (4-way flow)
-    # Statuses from onboarding: "exploring" | "applying" | "building" | "interview_upcoming"
-    
-    # APPLYING: resume + interview prep + cold email + skill gap
-    if user_status == "applying" and resume_score is not None and resume_score >= 50:
-        if not state.get("interview_prep_complete"):
-            state["current_phase"]       = "interview_prep"
-            state["supervisor_decision"] = "Actively applying. Prioritizing interview prep."
-            state["messages"].append("[SUPERVISOR] Directing to: interview_prep")
-            print("[SUPERVISOR] Decision: interview_prep (applying flow)")
-            return state
-        
-        if not state.get("cold_email_complete"):
-            state["current_phase"]       = "cold_email"
-            state["supervisor_decision"] = "Actively applying. Generating personalized cold email."
-            state["messages"].append("[SUPERVISOR] Directing to: cold_email")
-            print("[SUPERVISOR] Decision: cold_email (applying flow)")
-            return state
-    
-    # BUILDING: skill gap analysis + study plan
-    if user_status == "building":
-        if not state.get("study_plan_complete"):
-            state["current_phase"]       = "study_plan"
-            state["supervisor_decision"] = "Building skills. Creating personalized study plan."
-            state["messages"].append("[SUPERVISOR] Directing to: study_plan")
-            print("[SUPERVISOR] Decision: study_plan (building flow)")
-            return state
-    
-    # INTERVIEW_UPCOMING: resume optimization + mock interview + study plan
-    if user_status == "interview_upcoming":
-        if resume_score is not None and resume_score < 75 and not state.get("fix_resume_complete"):
-            state["current_phase"]       = "fix_resume"
-            state["supervisor_decision"] = "Interview upcoming. Optimizing resume first."
-            state["messages"].append("[SUPERVISOR] Directing to: fix_resume")
-            print("[SUPERVISOR] Decision: fix_resume (interview upcoming)")
-            return state
-        
-        if not state.get("interview_prep_complete"):
-            state["current_phase"]       = "interview_prep"
-            state["supervisor_decision"] = "Interview upcoming. Running mock interview prep."
-            state["messages"].append("[SUPERVISOR] Directing to: interview_prep")
-            print("[SUPERVISOR] Decision: interview_prep (interview upcoming)")
-            return state
-    
-    # EXPLORING: Suggest skill gap analysis after resume analysis
-    if user_status == "exploring":
-        if not state.get("skill_gap_complete") and resume_score is not None:
-            state["current_phase"]       = "skill_gap_analysis"
-            state["supervisor_decision"] = "Resume analyzed. Discover career matches based on your skills."
-            state["messages"].append("[SUPERVISOR] Directing to: skill_gap_analysis")
-            print("[SUPERVISOR] Decision: skill_gap_analysis (exploring flow)")
-            return state
-    
-    # Default: All work done for current status → suggest next logical step
-    if resume_score is not None:
-        if resume_score < 75 and not state.get("fix_resume_complete"):
-            state["current_phase"]       = "fix_resume"
-            state["supervisor_decision"] = f"Resume score is {resume_score}/100. Continue improving for better results."
-            state["messages"].append("[SUPERVISOR] Suggesting: fix_resume (score can improve)")
-        elif user_status in ["applying", "interview_upcoming"] and not state.get("interview_prep_complete"):
-            state["current_phase"]       = "interview_prep"
-            state["supervisor_decision"] = "Resume looks good. Practice interview questions to prepare."
-            state["messages"].append("[SUPERVISOR] Suggesting: interview_prep")
-        elif not state.get("study_plan_complete"):
-            state["current_phase"]       = "study_plan"
-            state["supervisor_decision"] = "Resume complete. Build skills with a personalized learning plan."
-            state["messages"].append("[SUPERVISOR] Suggesting: study_plan")
         else:
-            state["current_phase"]       = "idle"
-            state["supervisor_decision"] = "All primary tasks complete. Ready for new goals."
-            state["messages"].append("[SUPERVISOR] All work complete → idle")
+            # Already ran once — don't loop. Fall through to recommendations.
+            messages.append("[SUPERVISOR] Resume analysis already ran once. Skipping auto-trigger.")
+
+    # ── Compute track-specific recommendations ──────────────────────────────
+    if user_status == "applying":
+        recommendations = _compute_applying_recommendations(state)
+    elif user_status == "building":
+        recommendations = _compute_building_recommendations(state)
+    elif user_status == "interview_upcoming":
+        recommendations = _compute_interview_recommendations(state)
     else:
-        state["current_phase"]       = "idle"
-        state["supervisor_decision"] = "Waiting for user input."
-        state["messages"].append("[SUPERVISOR] Idle.")
-    
-    print(f"[SUPERVISOR] Decision: {state['current_phase']}")
+        # Default: exploring
+        recommendations = _compute_exploring_recommendations(state)
+
+    state["recommendations"] = recommendations
+    state["current_phase"] = "ready_for_next_action"
+
+    messages.append(
+        f"[SUPERVISOR] Track={user_status} | "
+        f"Primary={recommendations['primary']['action_id']} | "
+        f"Secondaries={[a['action_id'] for a in recommendations.get('secondary', [])]}"
+    )
+    print(f"[SUPERVISOR] Recommendations computed. Phase → ready_for_next_action")
+
+    state["messages"] = messages
     return state

@@ -277,6 +277,11 @@ async def analyze_resume(
         state["resume_analysis"]["resume_text"] = resume_text
         state["resume_analysis"]["parsed_sections"] = sections
         
+        # Reset counters dynamically so LangGraph's checkpointer doesn't skip the auto-trigger
+        state["resume_analysis_runs"] = 0
+        state["resume_analysis_complete"] = False
+        state["resume_analysis_failed"] = False
+        
         if job_description:
             state["active_job"]["job_description"] = job_description
         if job_title:
@@ -452,7 +457,7 @@ async def analyze_resume(
                     "success": True,
                     "user_id": user_id,
                     "current_phase": result.get("current_phase"),
-                    "supervisor_decision": result.get("supervisor_decision"),
+                    "recommendations": result.get("recommendations"),
                     "resume_score": result.get("resume_analysis", {}).get("overall_score"),
                     "score_delta": score_delta,
                     "filename": resume.filename,
@@ -520,9 +525,9 @@ async def get_current_user_state(authorization: str = Header(None)):
             "data": {
                 "user_id": user_id,
                 "current_phase": state.get("current_phase"),
-                "supervisor_decision": state.get("supervisor_decision"),
-                "status": state.get("user_profile", {}).get("status"),
-                "target_roles": state.get("user_profile", {}).get("target_roles", []),
+                "recommendations": state.get("recommendations"),
+                "status": (state.get("profile") or state.get("user_profile") or {}).get("status"),
+                "target_roles": (state.get("profile") or state.get("user_profile") or {}).get("target_roles", []),
                 "updated_at": state.get("updated_at"),
             }
         }

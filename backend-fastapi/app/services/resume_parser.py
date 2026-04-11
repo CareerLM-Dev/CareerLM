@@ -475,9 +475,19 @@ Return format (JSON only):
 
         return sections
 
-    def parse_skills_list(self, skills_text: str) -> List[str]:
+    def parse_skills_list(self, skills_text: Any) -> List[str]:
         if not skills_text:
             return []
+        
+        # Robustly handle list inputs
+        if isinstance(skills_text, list):
+            # If it's already a list, just ensure elements are strings and joined if needed
+            # or simply return a cleaned version of the list.
+            # To maintain compatibility with re.split logic below, we'll join it.
+            skills_text = ", ".join([str(s) for s in skills_text])
+        elif not isinstance(skills_text, str):
+            skills_text = str(skills_text)
+
         skills_list = re.split(r'[,\n;•|·]+', skills_text)
         cleaned = []
         label_tokens = {
@@ -509,13 +519,21 @@ Return format (JSON only):
         for _, value in sections.items():
             if value is None:
                 continue
+            
+            # Robustly handle different content types
+            if isinstance(value, list):
+                parts.append("\n".join([str(v) for v in value if v]))
+                continue
+                
             if isinstance(value, str):
                 if value.strip():
                     parts.append(value.strip())
                 continue
             if isinstance(value, dict):
                 content = value.get("content")
-                if isinstance(content, str) and content.strip():
+                if isinstance(content, list):
+                    parts.append("\n".join([str(v) for v in content if v]))
+                elif isinstance(content, str) and content.strip():
                     parts.append(content.strip())
                 else:
                     stringified = str(value).strip()

@@ -252,5 +252,6 @@ def resume_analysis_wrapper_node(state: CareerLMState) -> CareerLMState:
             print(f"[RESUME_WRAPPER] Warning: Failed to auto-populate user_profile: {e}")
             messages.append(f"[RESUME_WRAPPER] Warning: auto-population failed")
 
+    state["resume_analysis_complete"] = True
     state["messages"] = messages
     return state

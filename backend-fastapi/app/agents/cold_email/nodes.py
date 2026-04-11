@@ -9,7 +9,15 @@ import re
 logger = logging.getLogger(__name__)
 
 
-def _sanitize_contact_details(text: str) -> str:
+def _sanitize_contact_details(text: Any) -> str:
+    if not text:
+        return ""
+    # Ensure we are working with a string
+    if isinstance(text, list):
+        text = "\n".join([str(item) for item in text])
+    elif not isinstance(text, str):
+        text = str(text)
+
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[YOUR-EMAIL]", text)
     text = re.sub(r"\+?\d[\d\s().-]{7,}\d", "[YOUR-NUMBER]", text)
     return text
@@ -252,7 +260,21 @@ IMPORTANT: The subject line MUST be a single line, no line breaks. Keep it under
 """
 
     response = RESUME_LLM.invoke(prompt)
-    email_content = response.content if hasattr(response, 'content') else str(response)
+    
+    # Handle both string content and list of content blocks (common in recent LangChain/Anthropic/Gemini)
+    if hasattr(response, 'content'):
+        email_content = response.content
+        if isinstance(email_content, list):
+            # Extract text from content blocks
+            email_content = "".join([
+                (block.get("text", "") if isinstance(block, dict) else getattr(block, 'text', str(block)))
+                for block in email_content
+            ])
+    else:
+        email_content = str(response)
+    
+    # Ensure it's a string for split/replace operations
+    email_content = str(email_content)
     
     logger.info(f"[Cold Email] LLM response length: {len(email_content)} chars")
     

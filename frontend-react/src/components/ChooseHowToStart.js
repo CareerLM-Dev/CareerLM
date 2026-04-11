@@ -33,6 +33,7 @@ function ChooseHowToStart() {
   const [statusText, setStatusText] = useState("Analyzing...");
   const [loadingStep, setLoadingStep] = useState(0);
   const [existingResume, setExistingResume] = useState(null);
+  const [checkingHistory, setCheckingHistory] = useState(true);
   const [showUploadAgain, setShowUploadAgain] = useState(false);
   const [abortController, setAbortController] = useState(null);
   const fileInputRef = useRef(null);
@@ -82,6 +83,7 @@ function ChooseHowToStart() {
           }
         }
       }
+      setCheckingHistory(false);
     });
   }, []);
 
@@ -363,8 +365,15 @@ function ChooseHowToStart() {
             score and improvement suggestions.
           </p>
 
-          {/* Show existing resume info if available and not uploading again */}
-          {existingResume && !showUploadAgain ? (
+          {checkingHistory ? (
+            <div className="space-y-4 flex-1 flex flex-col justify-between animate-pulse">
+              <div className="bg-muted rounded-lg p-4 h-16 w-full"></div>
+              <div className="space-y-3">
+                <div className="h-10 bg-muted rounded-md w-full"></div>
+                <div className="h-10 bg-muted rounded-md w-full"></div>
+              </div>
+            </div>
+          ) : existingResume && !showUploadAgain ? (
             <div className="space-y-4 flex-1 flex flex-col justify-between">
               <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
                 <div className="flex items-center gap-3 mb-2">

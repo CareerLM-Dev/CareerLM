@@ -55,6 +55,7 @@ function ResumeUpload({
   const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState("");
   const [abortController, setAbortController] = useState(null);
+  const [checkingHistory, setCheckingHistory] = useState(true);
   const [hasExistingResults, setHasExistingResults] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [resumePdfUrl, setResumePdfUrl] = useState(null);
@@ -101,6 +102,7 @@ function ResumeUpload({
           } catch (_) {}
         }
       }
+      setCheckingHistory(false);
     });
   }, []);
 
@@ -159,6 +161,7 @@ function ResumeUpload({
     return {
       filename: payload?.filename || file?.name,
       file, jobDescription: jd, roleType: role,
+      resumeText: payload?.resume_text || state.resume_text || payload?.raw_text || "",
       current_phase: payload?.current_phase || state.current_phase,
       supervisor_decision: payload?.supervisor_decision || state.supervisor_decision,
       waiting_for_user: payload?.waiting_for_user || state.waiting_for_user,
@@ -273,6 +276,8 @@ function ResumeUpload({
         setHasExistingResults(true);
       }
       if (onResult) onResult(_completeResult);
+      // Signal GlobalFloatingHelper to invalidate its recommendations cache
+      window.dispatchEvent(new CustomEvent("careerlm:resume_analyzed"));
     } catch (err) {
       if (err.name === "AbortError") { setError(""); }
       else { setError(err?.message || "Failed to complete analysis. Please try again."); }
@@ -296,6 +301,22 @@ function ResumeUpload({
       setError("");
     }
   };
+
+  if (checkingHistory) {
+    return (
+      <div className="w-full h-[500px] animate-pulse rounded-2xl border border-border bg-card shadow-lg flex flex-col p-6">
+        <div className="h-8 bg-muted rounded-md w-1/3 mb-6"></div>
+        <div className="flex gap-6 h-full">
+          <div className="w-1/2 h-full bg-muted rounded-xl"></div>
+          <div className="w-1/2 h-full bg-muted rounded-xl space-y-4">
+            <div className="h-6 bg-muted-foreground/20 rounded-md w-full"></div>
+            <div className="h-6 bg-muted-foreground/20 rounded-md w-3/4"></div>
+            <div className="h-6 bg-muted-foreground/20 rounded-md w-5/6"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (hideIfResults && hasExistingResults) return null;
 

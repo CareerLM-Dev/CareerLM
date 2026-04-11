@@ -9,7 +9,6 @@ import Home from "./pages/Home";
 import HomePage from "./pages/HomePage";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import ResumeResultsPage from "./pages/ResumeResultsPage";
 import History from "./components/History";
 import Onboarding from "./pages/Onboarding";
 import Profile from "./pages/Profile";
@@ -42,7 +41,6 @@ function App() {
               path="/upload-resume"
               element={<ProtectedRoute><Navigate to="/dashboard/resume-analyzer" replace /></ProtectedRoute>}
             />
-            <Route path="/resume-results" element={<ProtectedRoute><ResumeResultsPage /></ProtectedRoute>} />
             <Route path="/dashboard/*" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />

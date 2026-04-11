@@ -13,6 +13,19 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Briefcase,
+  GraduationCap,
+  Target,
+  Mail,
+  Building2,
+  Calendar,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  MoreHorizontal,
+  Download,
+  Upload,
+  BookOpen,
 } from "lucide-react";
 import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
 import {
@@ -27,9 +40,11 @@ const questions = [
   {
     field: "status",
     title: "Where Are You Right Now?",
+    subtitle: "Help us understand your current career phase",
+    icon: Briefcase,
     options: [
-      { value: "exploring", label: "Exploring" },
-      { value: "applying", label: "Applying" },
+      { value: "exploring", label: "Exploring Options" },
+      { value: "applying", label: "Actively Applying" },
       { value: "building", label: "Building Skills" },
       { value: "interview_upcoming", label: "Interview Upcoming" },
     ],
@@ -37,6 +52,8 @@ const questions = [
   {
     field: "target_role",
     title: "What's Your Target Role?",
+    subtitle: "We'll tailor recommendations to this goal",
+    icon: Target,
     options: [
       { value: "software_engineer", label: "Software Engineer" },
       { value: "data_scientist", label: "Data Scientist" },
@@ -56,19 +73,21 @@ const questions = [
 ];
 
 const profileSections = [
-  { key: "intro", title: "Intro / Summary", type: "text" },
-  { key: "areas_of_interest", title: "Areas of Interest", type: "text" },
-  { key: "expertise", title: "Expertise", type: "text" },
-  { key: "skills", title: "Skills", type: "skills" },
-  { key: "education", title: "Education", type: "text" },
-  { key: "projects", title: "Projects", type: "cards" },
-  { key: "experience", title: "Experience", type: "cards" },
-  { key: "certifications", title: "Certifications", type: "text" },
-  { key: "coursework", title: "Coursework", type: "text" },
+  { key: "intro", title: "Professional Summary", type: "text", icon: User, description: "A brief overview of your professional background" },
+  { key: "areas_of_interest", title: "Areas of Interest", type: "text", icon: Sparkles, description: "Industries and domains you're passionate about" },
+  { key: "expertise", title: "Core Expertise", type: "text", icon: CheckCircle2, description: "Your primary areas of specialization" },
+  { key: "skills", title: "Technical Skills", type: "skills", icon: Briefcase, description: "Tools, technologies, and competencies" },
+  { key: "education", title: "Education", type: "text", icon: GraduationCap, description: "Academic background and qualifications" },
+  { key: "projects", title: "Projects", type: "cards", icon: Building2, description: "Key projects you've worked on" },
+  { key: "experience", title: "Work Experience", type: "cards", icon: Briefcase, description: "Professional employment history" },
+  { key: "certifications", title: "Certifications", type: "text", icon: CheckCircle2, description: "Professional certifications and licenses" },
+  { key: "coursework", title: "Relevant Coursework", type: "text", icon: BookOpen, description: "Courses and training completed" },
   {
     key: "co_curricular_achievements",
-    title: "Co-curricular Achievements",
+    title: "Achievements & Awards",
     type: "text",
+    icon: Sparkles,
+    description: "Recognition, awards, and notable accomplishments"
   },
 ];
 
@@ -184,8 +203,8 @@ function Profile() {
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
   const [activeTab, setActiveTab] = useState("basic");
-  // New state for accordion
-  const [expandedSection, setExpandedSection] = useState("intro"); 
+  // New state for accordion: multiple sections can be open at once
+  const [expandedSections, setExpandedSections] = useState(new Set(["intro"])); 
   const [addingNewItem, setAddingNewItem] = useState({
     key: null,
     isAdding: false,
@@ -622,67 +641,132 @@ function Profile() {
   };
 
   const toggleSection = (key) => {
-    setExpandedSection(prev => prev === key ? null : key);
-  }
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const expandAll = () => setExpandedSections(new Set(profileSections.map((s) => s.key)));
+  const collapseAll = () => setExpandedSections(new Set());
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-muted-foreground">Loading your profile...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <p className="text-gray-600">Loading your profile...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} className="h-full overflow-y-auto bg-background pb-12">
+    <div ref={scrollRef} className="h-full overflow-y-auto bg-gray-50 pb-12">
       {/* Top Banner Cover */}
-      <div className="h-60 w-full bg-gradient-to-r from-blue-600 to-indigo-600 relative">
+      <div className="h-48 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10" />
       </div>
 
-      {/* Main Content Container with negative margin */}
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 -mt-24 relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      {/* Main Content Container */}
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           
-          {/* LEFT COLUMN: Sidebar (Span 4 of 12) */}
-          <div className="lg:col-span-4">
-            <div className="sticky top-6 space-y-6">
+          {/* LEFT COLUMN: Sidebar */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="sticky top-6 space-y-4">
             
             {/* Profile Identity Card */}
-            <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden flex flex-col items-center p-6 text-center">
-               {/* Avatar Area */}
-               <div className="h-24 w-24 rounded-full border-4 border-card bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground shadow-sm mb-4 relative z-10 -mt-2">
-                  {profile?.first_name ? profile.first_name.charAt(0).toUpperCase() : (profile?.name ? profile.name.charAt(0).toUpperCase() : <User className="h-10 w-10"/>)}
-               </div>
-               
-               <h2 className="text-xl font-bold text-foreground">
-                 {profile?.name || "User"}
-               </h2>
-               <p className="text-sm text-muted-foreground mb-1">
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="h-20 bg-gradient-to-r from-blue-500/20 to-violet-500/20 relative">
+                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2">
+                  <div className="h-20 w-20 rounded-full border-4 border-white bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg">
+                    {profile?.first_name ? profile.first_name.charAt(0).toUpperCase() : (profile?.name ? profile.name.charAt(0).toUpperCase() : <User className="h-8 w-8"/>)}
+                  </div>
+                </div>
+              </div>
+              
+              <div className="pt-12 pb-6 px-6 text-center">
+                <h2 className="text-xl font-bold text-gray-900 mb-1">
+                  {profile?.name || "User"}
+                </h2>
+                <p className="text-sm text-gray-600 mb-3">
                   {profile?.email}
-               </p>
-               <div className="mt-2">
-                 <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary ring-1 ring-inset ring-primary/20 capitalize">
-                   {statusLabel}
-                 </span>
-               </div>
+                </p>
+                
+                <div className="flex justify-center gap-2 mb-4 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700">
+                    <Briefcase className="w-3 h-3" />
+                    {statusLabel}
+                  </span>
+                  {questionnaireAnswers?.target_role && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1.5 text-xs font-semibold text-violet-700">
+                      <Target className="w-3 h-3" />
+                      {formatAnswer('target_role')}
+                    </span>
+                  )}
+                </div>
+
+                {/* Quick Stats */}
+                <div className="grid grid-cols-3 gap-2 pt-4 border-t border-gray-200">
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-gray-900">
+                      {(() => {
+                        const exp = userProfileSections?.experience || "";
+                        const items = parseExperience(stripSectionHeader(exp, "experience", "Experience") || "");
+                        return items.length;
+                      })()}
+                    </div>
+                    <div className="text-xs text-gray-600">Experience</div>
+                  </div>
+                  <div className="text-center border-x border-gray-200">
+                    <div className="text-lg font-bold text-gray-900">
+                      {(() => {
+                        const proj = userProfileSections?.projects || "";
+                        const items = parseProjects(stripSectionHeader(proj, "projects", "Projects") || "");
+                        return items.length;
+                      })()}
+                    </div>
+                    <div className="text-xs text-gray-600">Projects</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-lg font-bold text-gray-900">
+                      {parseSkillsValue(userProfileSections?.skills).length}
+                    </div>
+                    <div className="text-xs text-gray-600">Skills</div>
+                  </div>
+                </div>
+              </div>
   
-               {/* Resume Metadata moved here */}
-               <div className="w-full mt-6 pt-6 border-t border-border text-left">
-                  <p className="text-xs font-semibold uppercase text-muted-foreground mb-3">Latest Resume</p>
-                  <div className="flex items-start gap-3 bg-muted/50 p-3 rounded-lg">
-                     <FileText className="h-5 w-5 text-primary mt-0.5" />
-                     <div className="overflow-hidden">
-                        <p className="text-sm font-medium text-foreground truncate">
-                          {latestResume?.filename || "No resume uploaded"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {latestResume ? formatDate(latestResume.created_at) : "N/A"}
-                        </p>
-                     </div>
+               {/* Resume Metadata */}
+               <div className="px-6 pb-6">
+                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-semibold uppercase text-gray-600 tracking-wider">Latest Resume</p>
+                      <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                        Upload New
+                      </button>
+                    </div>
+                    <div className="flex items-start gap-3">
+                       <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                         <FileText className="h-5 w-5 text-blue-600" />
+                       </div>
+                       <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {latestResume?.filename || "No resume uploaded"}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-0.5">
+                            {latestResume ? formatDate(latestResume.created_at) : "Upload to get started"}
+                          </p>
+                       </div>
+                       {latestResume && (
+                         <button className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
+                           <Download className="h-4 w-4 text-gray-600" />
+                         </button>
+                       )}
+                    </div>
                   </div>
                </div>
             </div>
@@ -692,72 +776,95 @@ function Profile() {
             </div>
           </div>
   
-          {/* RIGHT COLUMN: Main Content (Span 8 of 12) */}
-          <div className="lg:col-span-8 space-y-6">
+          {/* RIGHT COLUMN: Main Content */}
+          <div className="lg:col-span-8 space-y-4">
             
             {error && (
-              <div className="bg-destructive/10 text-destructive border border-destructive/20 rounded-lg px-4 py-3 text-sm font-medium shadow-sm backdrop-blur-sm relative z-20">
+              <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm font-medium shadow-sm flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
                 {error}
               </div>
             )}
   
-            {/* Improved Tab Navigation (Pills) */}
-            <div className="flex p-1 bg-muted rounded-xl border border-border overflow-x-auto no-scrollbar shadow-sm relative z-10">
+            {/* Tab Navigation */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-1.5 shadow-sm">
+              <div className="flex gap-1">
                 {[
-                  { id: 'basic', label: 'Basic Information' },
-                  { id: 'questionnaire', label: 'Questionnaire' },
-                  { id: 'resume', label: 'Resume Profile' }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`
-                      flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 whitespace-nowrap
-                      ${activeTab === tab.id 
-                        ? 'bg-background shadow-sm text-foreground ring-1 ring-border' 
-                        : 'text-muted-foreground hover:bg-background/50 hover:text-foreground'}
-                    `}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+                  { id: 'basic', label: 'Overview', icon: User },
+                  { id: 'questionnaire', label: 'Career Goals', icon: Target },
+                  { id: 'resume', label: 'Resume Details', icon: FileText }
+                ].map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`
+                        flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-xl transition-all duration-200
+                        ${isActive 
+                          ? 'bg-blue-600 text-white shadow-md' 
+                          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}
+                      `}
+                    >
+                      <Icon className="h-4 w-4" />
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Content Area */}
             <div className="min-h-[500px]">
               {/* Basic Information Content */}
               {activeTab === 'basic' && (
-                <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in duration-300 ease-in-out">
-                  <div className="px-6 py-4 border-b border-border bg-muted/5">
-                    <h3 className="text-lg font-semibold text-foreground">Basic Information</h3>
-                    <p className="text-sm text-muted-foreground">Account details and preferences.</p>
+                <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
+                  <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50">
+                    <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                      <User className="h-5 w-5 text-blue-600" />
+                      Basic Information
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">Your account details and current status</p>
                   </div>
                   <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div className="space-y-2">
-                       <label className="text-sm font-medium text-muted-foreground">Full Name</label>
-                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                       <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                         <User className="h-3.5 w-3.5" />
+                         Full Name
+                       </label>
+                       <div className="flex h-11 w-full items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-900">
                          {profile?.name || "Not provided"}
                        </div>
                      </div>
                      
                      <div className="space-y-2">
-                       <label className="text-sm font-medium text-muted-foreground">Email Address</label>
-                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                       <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                         <Mail className="h-3.5 w-3.5" />
+                         Email Address
+                       </label>
+                       <div className="flex h-11 w-full items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900">
                          {profile?.email || "Not provided"}
                        </div>
                      </div>
       
                      <div className="space-y-2">
-                       <label className="text-sm font-medium text-muted-foreground">Current Company</label>
-                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground">
+                       <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                         <Building2 className="h-3.5 w-3.5" />
+                         Current Company
+                       </label>
+                       <div className="flex h-11 w-full items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm text-gray-900">
                          {profile?.current_company || "Not set"}
                        </div>
                      </div>
 
                      <div className="space-y-2">
-                       <label className="text-sm font-medium text-muted-foreground">Target Role</label>
-                       <div className="flex h-10 w-full items-center rounded-md border border-input bg-muted/50 px-3 text-sm text-foreground capitalize">
-                          {typeof formatAnswer === 'function' && questionnaireAnswers?.target_role ? formatAnswer('target_role') : "Not set"} 
+                       <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                         <Target className="h-3.5 w-3.5" />
+                         Target Role
+                       </label>
+                       <div className="flex h-11 w-full items-center rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-medium text-gray-900">
+                          {questionnaireAnswers?.target_role ? formatAnswer('target_role') : "Not set"} 
                        </div>
                      </div>
                   </div>
@@ -766,179 +873,205 @@ function Profile() {
     
               {/* Questionnaire Content */}
               {activeTab === 'questionnaire' && (
-                <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in duration-300 ease-in-out">
-                  <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-muted/5">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-primary/10">
-                        <ClipboardList className="h-5 w-5 text-primary" />
+                <section className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in duration-300">
+                  <div className="px-6 py-5 border-b border-gray-200 bg-gray-50/50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-blue-100">
+                          <Target className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-semibold text-gray-900">
+                            Career Goals
+                          </h2>
+                          <p className="text-sm text-gray-600">
+                            Help us personalize your experience
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <h2 className="text-lg font-semibold text-foreground">
-                          Questionnaire
-                        </h2>
-                        <p className="text-sm text-muted-foreground">
-                          Edit answers to keep recommendations relevant.
-                        </p>
-                      </div>
-                    </div>
-                    {/* Keep existing button logic */}
-                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                        className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg"
                         onClick={() => navigate(`/onboarding/${session?.user?.id}`)}
                       >
-                        Change my goal
+                        Retake Assessment
                       </button>
-                      <span className="text-xs font-medium text-muted-foreground bg-muted px-3 py-1 rounded-full">
-                        Inline editing
-                      </span>
                     </div>
                   </div>
         
-                  <div className="divide-y divide-border">
-                    {questions.map((question) => (
-                      <div key={question.field} className="px-6 py-5">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold text-foreground">
-                            {question.title}
-                          </h3>
-                          {editingField !== question.field && (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                              onClick={() => {
-                                if (typeof startEdit !== 'undefined') startEdit(question.field);
-                              }}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                              Edit
-                            </button>
+                  <div className="divide-y divide-gray-200">
+                    {questions.map((question) => {
+                      const QuestionIcon = question.icon;
+                      const isEditing = editingField === question.field;
+                      return (
+                        <div key={question.field} className="px-6 py-6">
+                          <div className="flex items-start justify-between mb-4">
+                            <div className="flex items-start gap-3">
+                              <div className="p-2 rounded-lg bg-gray-100 mt-0.5">
+                                <QuestionIcon className="h-4 w-4 text-gray-600" />
+                              </div>
+                              <div>
+                                <h3 className="text-base font-semibold text-gray-900">
+                                  {question.title}
+                                </h3>
+                                <p className="text-sm text-gray-600 mt-0.5">
+                                  {question.subtitle}
+                                </p>
+                              </div>
+                            </div>
+                            {!isEditing && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
+                                onClick={() => startEdit(question.field)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                                Edit
+                              </button>
+                            )}
+                          </div>
+        
+                          {isEditing ? (
+                            <div className="mt-4 pl-11 space-y-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {question.options.map((option) => {
+                                  const isSelected = draftValues.includes(option.value);
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      onClick={() => toggleDraftValue(option.value)}
+                                      className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left ${
+                                        isSelected
+                                          ? "border-blue-600 bg-blue-50 text-gray-900 shadow-sm"
+                                          : "border-gray-200 bg-white hover:border-blue-300 text-gray-700 hover:bg-gray-50"
+                                      }`}
+                                    >
+                                      <div
+                                        className={`h-5 w-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                          isSelected
+                                            ? "border-blue-600 bg-blue-600"
+                                            : "border-gray-300"
+                                        }`}
+                                      >
+                                        {isSelected && (
+                                          <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+                                        )}
+                                      </div>
+                                      <span className="text-sm font-medium">{option.label}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm hover:shadow-md disabled:opacity-50"
+                                  onClick={() => saveAnswers(question.field)}
+                                  disabled={savingField === question.field}
+                                >
+                                  {savingField === question.field ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      Saving...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Save className="h-4 w-4" />
+                                      Save Changes
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-all"
+                                  onClick={cancelEdit}
+                                >
+                                  <X className="h-4 w-4" />
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="pl-11">
+                              <div className="inline-flex items-center gap-2 px-4 py-2 bg-violet-100 text-violet-800 rounded-lg text-sm font-semibold">
+                                {formatAnswer(question.field)}
+                              </div>
+                            </div>
                           )}
                         </div>
-        
-                        {editingField === question.field ? (
-                          <div className="mt-3 space-y-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {question.options.map((option) => (
-                                <button
-                                  key={option.value}
-                                  type="button"
-                                  onClick={() => toggleDraftValue(option.value)}
-                                  aria-pressed={draftValues.includes(option.value)}
-                                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors text-left ${
-                                    draftValues.includes(option.value)
-                                      ? "border-primary bg-primary/5 text-foreground"
-                                      : "border-border bg-background hover:border-primary/40 text-muted-foreground"
-                                  }`}
-                                >
-                                  <div
-                                    className={`h-4 w-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                                      draftValues.includes(option.value)
-                                        ? "border-primary bg-primary"
-                                        : "border-muted-foreground/40"
-                                    }`}
-                                  >
-                                    {draftValues.includes(option.value) && (
-                                      <svg
-                                        className="h-3 w-3 text-primary-foreground"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={3}
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          d="M5 13l4 4L19 7"
-                                        />
-                                      </svg>
-                                    )}
-                                  </div>
-                                  <span className="text-sm">{option.label}</span>
-                                </button>
-                              ))}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                                onClick={() => saveAnswers(question.field)}
-                                disabled={savingField === question.field}
-                              >
-                                {savingField === question.field ? (
-                                  <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Saving...
-                                  </>
-                                ) : (
-                                  <>
-                                    <Save className="h-3.5 w-3.5" />
-                                    Save
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
-                                onClick={cancelEdit}
-                              >
-                                <X className="h-3.5 w-3.5" />
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">
-                            {formatAnswer(question.field)}
-                          </p>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
               )}
     
               {/* Resume Profile Content */}
-                            {activeTab === 'resume' && (
-                <section className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                  <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-muted/5">
+              {activeTab === 'resume' && (
+                <section className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                  <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200 bg-gray-50/50">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-primary/10">
-                        <FileText className="h-5 w-5 text-primary" />
+                      <div className="p-2.5 rounded-xl bg-blue-100">
+                        <FileText className="h-5 w-5 text-blue-600" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-semibold text-foreground">
+                        <h2 className="text-lg font-semibold text-gray-900">
                           Resume Profile
                         </h2>
-                        <p className="text-sm text-muted-foreground">
-                          Edit section details extracted from your latest resume.
+                        <p className="text-sm text-gray-600">
+                          Manage your professional details
                         </p>
                       </div>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg transition-colors border border-blue-200"
+                        onClick={expandAll}
+                      >
+                        Expand All
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg transition-colors border border-gray-200"
+                        onClick={collapseAll}
+                      >
+                        Collapse All
+                      </button>
+                    </div>
                   </div>
         
-                  <div className="divide-y divide-border">
+                  <div className="divide-y divide-gray-200">
                     {profileSections.map((section) => {
+                      const SectionIcon = section.icon;
                       const isEditing = editingProfileSection === section.key;
                       const displayValue = formatProfileValue(section.key);
-                      const isExpanded = expandedSection === section.key;
+                      const isExpanded = expandedSections.has(section.key);
 
                       return (
-                        <div key={section.key} className="transition-all duration-200 ease-in-out">
+                        <div key={section.key} className="transition-all duration-200">
                           {/* Accordion Header */}
                           <div 
-                            className={`flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-muted/5 select-none ${isExpanded ? 'bg-muted/5' : ''}`}
+                            className={`flex items-center justify-between px-6 py-4 cursor-pointer hover:bg-gray-50 transition-colors ${isExpanded ? 'bg-gray-50/70' : ''}`}
                             onClick={() => toggleSection(section.key)}
                           >
-                            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                {isExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground rotate-90" />}
-                                {section.title}
-                            </h3>
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg transition-colors ${isExpanded ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-600'}`}>
+                                <SectionIcon className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <h3 className="text-sm font-semibold text-gray-900">
+                                  {section.title}
+                                </h3>
+                                <p className="text-xs text-gray-600 mt-0.5">
+                                  {section.description}
+                                </p>
+                              </div>
+                            </div>
                             
                             <div className="flex items-center gap-3">
                                 {section.type === "cards" && !isExpanded && (
-                                   <span className="text-xs text-muted-foreground">
+                                   <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2.5 py-1 rounded-full">
                                       {(() => {
                                          const currentText = userProfileSections?.[section.key] || "";
                                           const normalizedCardText = stripSectionHeader(
@@ -954,7 +1087,7 @@ function Profile() {
                                 {!isEditing && section.type !== "cards" && isExpanded && (
                                 <button
                                     type="button"
-                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         startProfileEdit(section.key);
@@ -964,6 +1097,9 @@ function Profile() {
                                     Edit
                                 </button>
                                 )}
+                                <div className={`p-1 rounded-lg transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                                </div>
                             </div>
                           </div>
         
@@ -979,21 +1115,21 @@ function Profile() {
                                             draftSkills.map((skill) => (
                                                 <span
                                                 key={skill}
-                                                className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                                                className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-800 px-3 py-1.5 text-sm font-medium border border-blue-200"
                                                 >
                                                 {skill}
                                                 <button
                                                     type="button"
                                                     onClick={() => removeSkill(skill)}
-                                                    className="text-primary/70 hover:text-primary"
+                                                    className="text-blue-600 hover:text-blue-800 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                                                 >
                                                     <X className="h-3 w-3" />
                                                 </button>
                                                 </span>
                                             ))
                                             ) : (
-                                            <p className="text-xs text-muted-foreground">
-                                                No skills added yet.
+                                            <p className="text-sm text-gray-600 italic">
+                                                No skills added yet. Start typing below...
                                             </p>
                                             )}
                                         </div>
@@ -1001,13 +1137,14 @@ function Profile() {
                                             <input
                                             value={skillInput}
                                             onChange={(e) => setSkillInput(e.target.value)}
-                                            placeholder="Add a skill"
-                                            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
+                                            placeholder="Add a skill (e.g., React, Python)..."
+                                            className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                             />
                                             <button
                                             type="button"
                                             onClick={addSkill}
-                                            className="px-3 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                                            className="px-4 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                                             >
                                             Add
                                             </button>
@@ -1026,8 +1163,8 @@ function Profile() {
                                                     updated[index] = e.target.value;
                                                     setDraftEducationLines(updated);
                                                   }}
-                                                  className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                                                  placeholder="Add an education line"
+                                                  placeholder="Institution - Degree - Year"
+                                                  className="flex-1 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                                 />
                                                 <button
                                                   type="button"
@@ -1035,7 +1172,7 @@ function Profile() {
                                                     const updated = draftEducationLines.filter((_, i) => i !== index);
                                                     setDraftEducationLines(updated.length ? updated : [""]);
                                                   }}
-                                                  className="p-2 rounded-lg border border-border text-muted-foreground hover:bg-muted"
+                                                  className="p-2.5 rounded-xl border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-red-600 transition-colors"
                                                 >
                                                   <X className="h-4 w-4" />
                                                 </button>
@@ -1045,63 +1182,67 @@ function Profile() {
                                           <button
                                             type="button"
                                             onClick={() => setDraftEducationLines([...draftEducationLines, ""])}
-                                            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted"
+                                            className="inline-flex items-center gap-2 rounded-xl border-2 border-dashed border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:border-blue-400 transition-all"
                                           >
-                                            <Plus className="h-3.5 w-3.5" />
-                                            Add line
+                                            <Plus className="h-4 w-4" />
+                                            Add Education Entry
                                           </button>
                                         </div>
                                     ) : (
                                         <textarea
                                         value={draftProfileText}
                                         onChange={(e) => setDraftProfileText(e.target.value)}
-                                        rows={5}
-                                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                        rows={6}
+                                        placeholder={`Enter your ${section.title.toLowerCase()}...`}
+                                        className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none"
                                         />
                                     )}
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-3 pt-2">
                                         <button
                                         type="button"
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-all shadow-sm hover:shadow-md disabled:opacity-50"
                                         onClick={() => saveProfileSection(section.key)}
                                         disabled={savingProfileSection === section.key}
                                         >
                                         {savingProfileSection === section.key ? (
                                             <>
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                            <Loader2 className="h-4 w-4 animate-spin" />
                                             Saving...
                                             </>
                                         ) : (
                                             <>
-                                            <Save className="h-3.5 w-3.5" />
-                                            Save
+                                            <Save className="h-4 w-4" />
+                                            Save Changes
                                             </>
                                         )}
                                         </button>
                                         <button
                                         type="button"
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-border text-muted-foreground hover:bg-muted transition-colors"
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-xl border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-all"
                                         onClick={cancelProfileEdit}
                                         >
-                                        <X className="h-3.5 w-3.5" />
+                                        <X className="h-4 w-4" />
                                         Cancel
                                         </button>
                                     </div>
                                     </div>
                                 ) : section.type === "skills" ? (
                                     displayValue ? (
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="flex flex-wrap gap-2 pt-2">
                                         {displayValue.map((skill) => (
                                         <span
                                             key={skill}
-                                            className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2.5 py-1 text-xs font-medium"
+                                            className="inline-flex items-center rounded-full bg-gray-100 text-gray-800 px-3 py-1.5 text-sm font-medium border border-gray-200"
                                         >
                                             {skill}
                                         </span>
                                         ))}
                                     </div>
                                     ) : (
-                                    <p className="text-sm text-muted-foreground">Not set</p>
+                                    <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-xl p-4 border border-dashed border-gray-300">
+                                      <AlertCircle className="h-4 w-4 text-gray-500" />
+                                      Not set. Click edit to add your skills.
+                                    </div>
                                     )
                                 ) : section.type === "cards" ? (
                                     (() => {
@@ -1138,7 +1279,7 @@ function Profile() {
                                             };
                 
                                     return (
-                                        <div className="space-y-3 mt-3">
+                                        <div className="space-y-3 pt-2">
                                         {items.length > 0 &&
                                             items.map((item, index) => (
                                             <ProfileItemCard
@@ -1191,35 +1332,50 @@ function Profile() {
                                       const cards = formatEducationCards();
                                       if (!cards.length) {
                                         return (
-                                          <p className="text-sm text-muted-foreground">Not set</p>
+                                          <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-xl p-4 border border-dashed border-gray-300">
+                                            <AlertCircle className="h-4 w-4 text-gray-500" />
+                                            No education details added yet.
+                                          </div>
                                         );
                                       }
                                       return (
-                                        <div className="space-y-3 mt-3">
+                                        <div className="space-y-3 pt-2">
                                           {cards.map((card, index) => (
                                             <div
                                               key={`${card.title}-${index}`}
-                                              className="bg-card border border-border rounded-lg p-4"
+                                              className="bg-gray-50 border border-gray-200 rounded-xl p-4 hover:border-blue-300 transition-colors"
                                             >
-                                              <h4 className="text-sm font-semibold text-foreground">
-                                                {card.title}
-                                              </h4>
-                                              {card.subtitle && (
-                                                <p className="text-sm text-muted-foreground mt-1">
-                                                  {card.subtitle}
-                                                </p>
-                                              )}
+                                              <div className="flex items-start gap-3">
+                                                <div className="p-2 rounded-lg bg-blue-100 mt-0.5">
+                                                  <GraduationCap className="h-4 w-4 text-blue-600" />
+                                                </div>
+                                                <div>
+                                                  <h4 className="text-sm font-semibold text-gray-900">
+                                                    {card.title}
+                                                  </h4>
+                                                  {card.subtitle && (
+                                                    <p className="text-sm text-gray-600 mt-0.5">
+                                                      {card.subtitle}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </div>
                                             </div>
                                           ))}
                                         </div>
                                       );
                                     })()
                                 ) : displayValue ? (
-                                    <p className="text-sm text-muted-foreground whitespace-pre-line">
-                                    {displayValue}
-                                    </p>
+                                    <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                      <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-line">
+                                        {displayValue}
+                                      </p>
+                                    </div>
                                 ) : (
-                                    <p className="text-sm text-muted-foreground">Not set</p>
+                                    <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-xl p-4 border border-dashed border-gray-300">
+                                      <AlertCircle className="h-4 w-4 text-gray-500" />
+                                      Not set. Click edit to add details.
+                                    </div>
                                 )}
                             </div>
                           )}

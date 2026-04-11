@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -12,6 +12,10 @@ import {
   Copy,
   Code2,
   Lightbulb,
+  FileText,
+  Briefcase,
+  ChevronRight,
+  Eye,
 } from "lucide-react";
 import SuggestionPanel from "./SuggestionPanel";
 
@@ -179,6 +183,16 @@ function RewriteCard({ item, index }) {
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function ResumeResultsView({ resumeData, onUploadAnother }) {
   const navigate = useNavigate();
+  const [isSourcePanelOpen, setIsSourcePanelOpen] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState(null);
+
+  useEffect(() => {
+    if (resumeData?.file && resumeData.file.type === "application/pdf") {
+      const url = URL.createObjectURL(resumeData.file);
+      setPdfUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [resumeData?.file]);
 
   if (!resumeData) {
     return (
@@ -273,8 +287,15 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
               Your profile has been benchmarked against high-growth tech standards. Precision optimizations suggested below.
             </p>
           </div>
-          {/* AI Expert Badge */}
-          <div className="flex-shrink-0">
+          {/* AI Expert Badge & Source Button */}
+          <div className="flex-shrink-0 flex items-center gap-3">
+            <button
+              onClick={() => setIsSourcePanelOpen(true)}
+              className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-indigo-600"
+            >
+              <Eye className="h-4 w-4" />
+              View Original
+            </button>
             <div className="flex items-center gap-3 rounded-full bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 px-4 py-3 shadow-sm">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600">
                 <Sparkles className="h-4 w-4 text-white" />
@@ -430,6 +451,95 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
         </button>
       </div>
+
+      {/* ── Source Content Drawer (Right Side) ── */}
+      {isSourcePanelOpen && (
+        <div className="fixed inset-0 z-[9999] flex justify-end">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" 
+            onClick={() => setIsSourcePanelOpen(false)}
+          />
+          
+          {/* Drawer */}
+          <div className="relative w-full max-w-xl h-full bg-white shadow-2xl border-l border-slate-200 flex flex-col animate-in slide-in-from-right duration-300">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/80">
+              <div>
+                <h3 className="font-bold text-slate-900 text-lg">Source Documents</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">What we analyzed</p>
+              </div>
+              <button
+                onClick={() => setIsSourcePanelOpen(false)}
+                className="p-2 rounded-full hover:bg-slate-200 text-slate-500 transition"
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 bg-slate-50/50">
+              
+              {/* Job Description block */}
+              {resumeData.jobDescription && (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-indigo-100 text-indigo-600 p-1.5 rounded-lg">
+                      <Briefcase className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-semibold text-slate-800">Target Job Description</h4>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-sm text-slate-700 whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto">
+                    {resumeData.jobDescription}
+                  </div>
+                </div>
+              )}
+
+              {/* Resume Text/PDF block */}
+              <div className="space-y-3 h-full pb-8">
+                <div className="flex items-center gap-2">
+                  <div className="bg-emerald-100 text-emerald-600 p-1.5 rounded-lg">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <h4 className="font-semibold text-slate-800">
+                    Uploaded Resume
+                    <span className="text-slate-400 font-normal text-xs ml-2">from {resumeData.filename || "upload"}</span>
+                  </h4>
+                </div>
+                
+                {pdfUrl ? (
+                  <div className="w-full h-[600px] bg-slate-100 border border-slate-200 rounded-xl overflow-hidden shadow-inner">
+                    <object
+                      data={pdfUrl}
+                      type="application/pdf"
+                      width="100%"
+                      height="100%"
+                    >
+                      <div className="flex flex-col items-center justify-center p-8 h-full bg-slate-100">
+                        <FileText className="h-10 w-10 text-slate-400 mb-3" />
+                        <p className="text-sm font-medium">PDF preview not available</p>
+                      </div>
+                    </object>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    {resumeData.resumeText && resumeData.resumeText !== "Original resume text not available in history."
+                      ? resumeData.resumeText
+                      : (
+                        <div className="flex flex-col items-center justify-center py-6 text-center text-slate-500 space-y-2">
+                          <FileText className="w-8 h-8 opacity-50" />
+                          <p>Source file is not available for this historical analysis.<br/>Try uploading a new resume to view the preview here.</p>
+                        </div>
+                      )
+                    }
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

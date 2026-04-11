@@ -4,7 +4,7 @@ API routes for cold email generation
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 from app.api.routes_user import get_current_user
 from app.services.cold_email_generator import generate_cold_email
 from app.services.resume_parser import get_parser
@@ -38,9 +38,16 @@ class SaveColdEmailRequest(BaseModel):
     body: str
 
 
-def _clean_extracted_value(value: Optional[str]) -> str:
+def _clean_extracted_value(value: Any) -> str:
     if not value:
         return ""
+    
+    # Handle LLM occasionally returning a list for a field
+    if isinstance(value, list):
+        value = " ".join([str(v) for v in value])
+    elif not isinstance(value, str):
+        value = str(value)
+
     cleaned = value.strip().strip("-:;,")
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned[:120]
@@ -108,7 +115,20 @@ Job Description:
         HumanMessage(content=prompt),
     ])
 
-    content = response.content.strip()
+    # Robustly extract content as string
+    content = ""
+    if hasattr(response, 'content'):
+        if isinstance(response.content, list):
+            content = "".join([
+                (block.get("text", "") if isinstance(block, dict) else getattr(block, 'text', str(block)))
+                for block in response.content
+            ])
+        else:
+            content = str(response.content)
+    else:
+        content = str(response)
+
+    content = content.strip()
     json_match = re.search(r"\{.*\}", content, re.DOTALL)
     if not json_match:
         return {"company": "", "role": ""}
@@ -173,6 +193,7 @@ async def create_cold_email(
         parser = get_parser()
         user_name = ""
         user_profile = {}
+        version_data = {}
 
         try:
             profile_result = (
@@ -194,6 +215,12 @@ async def create_cold_email(
             user_name = ""
             user_profile = {}
 
+        # Robust string casting for all retrieved data
+        def force_string(val):
+            if val is None: return ""
+            if isinstance(val, list): return "\n".join([str(v) for v in val if v])
+            return str(val)
+
         if not user_name:
             user_name = user.email.split("@")[0].replace(".", " ").title()
 
@@ -202,12 +229,17 @@ async def create_cold_email(
         projects_section = sections.get("projects", "") if isinstance(sections, dict) else ""
         experience_section = sections.get("experience", "") if isinstance(sections, dict) else ""
 
+        resume_text = force_string(resume_text)
+        projects_section = force_string(projects_section)
+        experience_section = force_string(experience_section)
+
         skills_text = ""
         if isinstance(user_profile, dict):
             skills_text = user_profile.get("skills") or ""
         if not skills_text and isinstance(sections, dict):
             skills_text = sections.get("skills", "")
 
+        skills_text = force_string(skills_text)
         user_skills = parser.parse_skills_list(skills_text) if skills_text else []
 
         if not resume_text and not sections and not user_skills:
@@ -245,7 +277,12 @@ async def create_cold_email(
             projects_section = sections.get("projects", "") if isinstance(sections, dict) else ""
             experience_section = sections.get("experience", "") if isinstance(sections, dict) else ""
 
+            resume_text = force_string(resume_text)
+            projects_section = force_string(projects_section)
+            experience_section = force_string(experience_section)
+
             skills_text = sections.get("skills", "") if isinstance(sections, dict) else ""
+            skills_text = force_string(skills_text)
             user_skills = parser.parse_skills_list(skills_text) if skills_text else []
 
         logger.info(f"Found resume with {len(user_skills)} skills and {len(projects_section)} chars of projects")
@@ -278,7 +315,7 @@ async def create_cold_email(
             "success": True,
             "email": result.get("email", {}),
             "research_notes": result.get("research_notes"),
-            "resume_used": version_data.get("raw_file_path", "Latest resume")
+            "resume_used": version_data.get("raw_file_path", "Latest resume") if version_data else "Profile data"
         }
         
     except HTTPException:

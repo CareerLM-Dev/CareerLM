@@ -109,6 +109,35 @@ class BulletRewriteRequest(TypedDict, total=False):
     waiting_for_user: bool
 
 
+class RecommendedAction(TypedDict, total=False):
+    """A single recommended action for the user."""
+    action_id: str          # e.g., "tailor_resume", "cold_email", "mock_interview"
+    label: str              # e.g., "Tailor Resume to JD"
+    description: str        # e.g., "Paste a job description to match your resume to it"
+    page: str               # Frontend route key, e.g., "resume_optimizer"
+    priority: str           # "primary" | "secondary"
+    estimated_time: str     # e.g., "5 min", "10 min", "Ongoing"
+    track: str              # Which status track this belongs to
+
+
+class TrackRecommendations(TypedDict, total=False):
+    """
+    Dynamic recommendations computed by the supervisor for the user's current track.
+    
+    Rather than forcing the user into a single path, the supervisor computes
+    a primary action (the highest-value next step) and a list of parallel
+    secondary actions they can pick from freely.
+    
+    The frontend Floating Helper consumes this directly.
+    """
+    track: str                              # "applying" | "building" | "exploring" | "interview_upcoming"
+    primary: RecommendedAction              # The most impactful next step for this track
+    secondary: List[RecommendedAction]      # Side-by-side alternatives the user can pick freely
+    reasoning: str                          # Human-readable explanation of why (shown in Helper UI)
+    loop_key: str                           # What to suggest after each action completes (e.g., "next_application")
+    computed_at: Optional[str]              # ISO timestamp so frontend can cache-check
+
+
 class CareerLMState(TypedDict, total=False):
     """
     Central state object that flows through the entire supervisor-driven system.
@@ -120,7 +149,7 @@ class CareerLMState(TypedDict, total=False):
     - User Profile: Identity, preferences, history
     - Active Job: What they're analyzing for
     - Work Completed: Results from each specialist
-    - Routing: Metadata for the supervisor
+    - Recommendations: Dynamic next-step suggestions (replaces rigid current_phase routing)
     - Human-in-loop: Data for pause/resume flows
     """
     
@@ -139,12 +168,16 @@ class CareerLMState(TypedDict, total=False):
     # ===== HUMAN-IN-LOOP =====
     bullet_rewrite: BulletRewriteRequest
     
+    # ===== DYNAMIC RECOMMENDATIONS (replaces rigid current_phase routing) =====
+    recommendations: TrackRecommendations
+    
     # ===== ROUTING & CONTROL =====
-    current_phase: Optional[str]  # Which specialist should run next
-    prev_phase: Optional[str]     # Where we came from
+    # current_phase is now ONLY used internally during graph execution to route
+    # between nodes. It is not the "final answer" to the user.
+    current_phase: Optional[str]
+    prev_phase: Optional[str]
     
-    supervisor_decision: Optional[str]  # Why supervisor chose this phase
-    
+    # Completion flags — used by supervisor to avoid re-triggering completed work
     resume_analysis_complete: bool
     resume_analysis_failed: bool
     fix_resume_complete: bool
@@ -153,6 +186,13 @@ class CareerLMState(TypedDict, total=False):
     study_plan_complete: bool
     skill_gap_complete: bool
     bullet_rewrite_complete: bool
+    
+    # Track completion counters — prevent infinite loops
+    # Each time a node runs, increment its counter. If counter > max_runs, skip.
+    resume_analysis_runs: int
+    interview_prep_runs: int
+    cold_email_runs: int
+    study_plan_runs: int
     
     waiting_for_user: bool  # True if paused for human input
     waiting_for_input_type: Optional[str]  # "bullet_answers" | etc

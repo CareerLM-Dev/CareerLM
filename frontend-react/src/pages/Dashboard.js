@@ -163,6 +163,7 @@ function Dashboard() {
           jobDescription:
             content.analysis?.prompt || mostRecent.job_description || "",
           filename: mostRecent.filename || detailData.raw_file_path || "Resume",
+          resumeText: content.resume_text || mostRecent.resume_text || content.raw_text || "Original resume text not available in history.",
         };
 
         setResumeData(transformedData);
@@ -383,8 +384,30 @@ function Dashboard() {
           setCurrentPage("upload_resume");
         }
         
+        if (loading) {
+          return (
+            <div className="w-full flex-1 flex flex-col pt-6 gap-6">
+              <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 shadow-sm animate-pulse">
+                <div className="h-4 w-32 bg-muted rounded-md mb-2"></div>
+                <div className="h-8 w-24 bg-muted rounded-lg"></div>
+              </div>
+              <div className="w-full h-[500px] animate-pulse rounded-2xl border border-border bg-card shadow-lg flex flex-col p-6">
+                <div className="h-8 bg-muted rounded-md w-1/3 mb-6"></div>
+                <div className="flex gap-6 h-full">
+                  <div className="w-1/2 h-full bg-muted rounded-xl"></div>
+                  <div className="w-1/2 h-full bg-muted rounded-xl space-y-4">
+                    <div className="h-6 bg-muted-foreground/20 rounded-md w-full"></div>
+                    <div className="h-6 bg-muted-foreground/20 rounded-md w-3/4"></div>
+                    <div className="h-6 bg-muted-foreground/20 rounded-md w-5/6"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         return (
-          <div className="space-y-5">
+          <div className="space-y-5 pt-6">
             {/* Toggle banner */}
             <div className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
               <div>

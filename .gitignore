@@ -61,3 +61,5 @@ MOCK_INTERVIEW_IMPLEMENTATION.md
 supabase/
 
 schema.sql
+
+orchestrator_graph.*

@@ -1,192 +1,175 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../api/supabaseClient";
 import axios from "axios";
 import FloatingHelper from "./FloatingHelper";
 
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
+// How long to wait before re-fetching orchestrator state after a route change (ms)
+const DEBOUNCE_MS = 800;
+// How long before a cached recommendations result expires (ms)
+const CACHE_TTL_MS = 60_000; // 1 minute
+
 /**
- * GlobalFloatingHelper - Wraps FloatingHelper with global state management
- * Shows on all authenticated pages, tracks workflow state
+ * GlobalFloatingHelper
+ *
+ * Shows a smart "Next Step" bubble on all authenticated pages.
+ *
+ * Lag fixes applied:
+ * 1. Profile data comes from UserContext (already fetched) — NO extra Supabase call.
+ * 2. Orchestrator state is fetched once on mount, then debounced on route change.
+ * 3. A 60-second TTL cache prevents redundant API hits when the user just navigates tabs.
+ * 4. All state updates are guarded with a mounted-ref to prevent setState on unmount.
  */
 function GlobalFloatingHelper() {
   const { session, isAuthenticated } = useUser();
   const navigate = useNavigate();
   const location = useLocation();
-  const [userProfile, setUserProfile] = useState(null);
-  const [workflowState, setWorkflowState] = useState(null);
+
+  const [profileRow, setProfileRow] = useState(null);
+  const [recommendations, setRecommendations] = useState(null);
+  const [userStatus, setUserStatus] = useState("exploring");
   const [loading, setLoading] = useState(true);
 
-  // Don't show on public routes, auth pages, or onboarding
+  const mountedRef = useRef(true);
+  const debounceTimer = useRef(null);
+  const cacheRef = useRef({ data: null, fetchedAt: 0 });
+
+  // ── Visibility guard ──────────────────────────────────────────────────────
   const publicRoutes = ["/", "/auth", "/auth/callback"];
-  const isOnboardingPage = location.pathname.startsWith("/onboarding/") || 
-                          location.pathname.startsWith("/skip-complete/");
-  const shouldShow = isAuthenticated && 
-                    !publicRoutes.includes(location.pathname) && 
-                    !isOnboardingPage;
+  const isOnboardingPage =
+    location.pathname.startsWith("/onboarding/") ||
+    location.pathname.startsWith("/skip-complete/");
+  const shouldShow =
+    isAuthenticated && !publicRoutes.includes(location.pathname) && !isOnboardingPage;
 
-  // Fetch user profile and workflow state
+  // ── Fetch profile row once on mount (single Supabase call, not per-route) ──
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!session) {
-        console.log("[FloatingHelper] No session found");
-        setLoading(false);
-        return;
-      }
+    if (!session?.user?.id) return;
+    supabase
+      .from("user")
+      .select("questionnaire_answers")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) setProfileRow(data);
+      })
+      .catch(() => {});
+  }, [session?.user?.id]);
 
-      try {
-        setLoading(true);
-        console.log("[FloatingHelper] Fetching user profile for:", session.user.id);
+  // ── Derive user status from profile row ──────────────────────────────────
+  useEffect(() => {
+    const answers = profileRow?.questionnaire_answers;
+    const status = answers?.status;
+    const normalized =
+      status === "interview_upcoming" ? "interview_upcoming"
+      : status === "applying" ? "applying"
+      : status === "building" ? "building"
+      : "exploring";
+    setUserStatus(normalized);
+  }, [profileRow]);
 
-        // Get user profile from Supabase
-        const { data: profileData, error } = await supabase
-          .from("user")
-          .select("questionnaire_answers, questionnaire_answered")
-          .eq("id", session.user.id)
-          .single();
+  // ── Fetch orchestrator recommendations (with cache) ───────────────────────
+  const fetchRecommendations = useCallback(async (force = false) => {
+    if (!session?.access_token) return;
 
-        if (error) {
-          console.error("[FloatingHelper] Error fetching profile:", error);
-          throw error;
-        }
-        
-        console.log("[FloatingHelper] Profile data fetched:", profileData);
-        setUserProfile(profileData);
-
-        // Get workflow state from orchestrator
-        try {
-          const workflowResponse = await axios.get(
-            "http://localhost:8000/api/v1/orchestrator/state",
-            {
-              headers: {
-                Authorization: `Bearer ${session.access_token}`,
-              },
-            }
-          );
-
-          if (workflowResponse.data.success) {
-            setWorkflowState(workflowResponse.data.data);
-            console.log("[FloatingHelper] Workflow state:", workflowResponse.data.data);
-          }
-        } catch (err) {
-          console.log("[FloatingHelper] No workflow state yet:", err.message);
-        }
-      } catch (error) {
-        console.error("[FloatingHelper] Error fetching user data:", error);
-      } finally {
+    // Use cache if fresh enough and not forcing
+    const now = Date.now();
+    if (!force && cacheRef.current.data && now - cacheRef.current.fetchedAt < CACHE_TTL_MS) {
+      if (mountedRef.current) {
+        setRecommendations(cacheRef.current.data);
         setLoading(false);
       }
-    };
+      return;
+    }
 
-    fetchUserData();
+    try {
+      const response = await axios.get(`${API_BASE}/api/v1/orchestrator/state`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        timeout: 5000,
+      });
+
+      if (response.data?.success && mountedRef.current) {
+        const recs = response.data.data?.recommendations || null;
+        cacheRef.current = { data: recs, fetchedAt: Date.now() };
+        setRecommendations(recs);
+      }
+    } catch (err) {
+      // Silently fail — helper is non-critical UI
+      console.log("[FloatingHelper] Could not fetch recommendations:", err.message);
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
   }, [session]);
 
-  // Refresh user profile and workflow state on route change (user might have completed an action)
+  // ── Initial fetch on mount ────────────────────────────────────────────────
   useEffect(() => {
-    const refreshData = async () => {
-      if (!session) return;
+    mountedRef.current = true;
+    if (session) fetchRecommendations();
+    return () => { mountedRef.current = false; };
+  }, [session, fetchRecommendations]);
 
-      try {
-        console.log("[FloatingHelper] Refreshing data on route change:", location.pathname);
-        
-        // Refresh user profile (to get latest questionnaire answers)
-        const { data: profileData, error: profileError } = await supabase
-          .from("user")
-          .select("questionnaire_answers")
-          .eq("id", session.user.id)
-          .single();
+  // ── Debounced re-fetch on route change (non-blocking) ────────────────────
+  useEffect(() => {
+    if (!session || !shouldShow) return;
 
-        if (profileError) {
-          console.error("[FloatingHelper] Error refreshing profile:", profileError);
-        } else if (profileData) {
-          setUserProfile(profileData);
-          console.log("[FloatingHelper] Refreshed user profile:", profileData);
-        } else {
-          console.warn("[FloatingHelper] No profile data returned");
-        }
+    // Clear any pending debounce
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-        // Refresh workflow state
-        const workflowResponse = await axios.get(
-          "http://localhost:8000/api/v1/orchestrator/state",
-          {
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-            },
-          }
-        );
+    // Schedule background update — does NOT block navigation or rendering
+    debounceTimer.current = setTimeout(() => {
+      fetchRecommendations();
+    }, DEBOUNCE_MS);
 
-        if (workflowResponse.data.success) {
-          setWorkflowState(workflowResponse.data.data);
-          console.log("[FloatingHelper] Refreshed workflow state:", workflowResponse.data.data);
-        }
-      } catch (err) {
-        console.log("[FloatingHelper] Could not refresh data:", err.message);
-      }
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [location.pathname, session, shouldShow, fetchRecommendations]);
+
+  // ── Navigation handler ────────────────────────────────────────────────────
+  const handleNavigate = useCallback((page) => {
+    // Map of internal page IDs to their actual URL routes in the dashboard
+    const dashboardPageRouteMap = {
+      dashboard: "/dashboard",
+      resume_optimizer: "/dashboard/resume-analyzer",
+      skill_gap: "/dashboard/skill-gap",
+      mock_interview: "/dashboard/mock-interview",
+      cold_email: "/dashboard/cold-email",
+      study_planner: "/dashboard/study-planner",
+      job_matcher: "/dashboard/job-matcher",
+      resume_editor: "/dashboard/resume-editor",
+      upload_resume: "/dashboard/upload-resume",
+      history: "/dashboard/history",
     };
 
-    refreshData();
-  }, [location.pathname, session]);
+    const targetRoute = dashboardPageRouteMap[page];
 
-  const getUserStatus = () => {
-    console.log("[GlobalFloatingHelper] Getting user status from:", userProfile);
-    const answers = userProfile?.questionnaire_answers;
-    console.log("[GlobalFloatingHelper] Questionnaire answers:", answers);
-    console.log("[GlobalFloatingHelper] Status value:", answers?.status);
-    
-    if (!answers) {
-      console.log("[GlobalFloatingHelper] No answers found, defaulting to exploring");
-      return "exploring";
-    }
-    
-    // Map from onboarding answers to status
-    if (answers.status === "interview_upcoming") {
-      console.log("[GlobalFloatingHelper] Status matched: interview_upcoming");
-      return "interview_upcoming";
-    }
-    if (answers.status === "applying") {
-      console.log("[GlobalFloatingHelper] Status matched: applying");
-      return "applying";
-    }
-    if (answers.status === "building") {
-      console.log("[GlobalFloatingHelper] Status matched: building");
-      return "building";
-    }
-    
-    console.log("[GlobalFloatingHelper] No status match, defaulting to exploring");
-    return "exploring";
-  };
-
-  const handleNavigate = (page) => {
-    // If it's a dashboard sub-page, navigate with state
-    if (["resume_optimizer", "skill_gap", "mock_interview", "cold_email", "study_planner", "job_matcher", "history"].includes(page)) {
-      navigate("/dashboard", { state: { initialPage: page } });
+    if (targetRoute) {
+      navigate(targetRoute);
     } else {
-      // Otherwise navigate to the route directly
+      // Fallback for non-dashboard pages or custom IDs
       navigate(`/${page}`);
     }
-  };
+  }, [navigate]);
 
-  // Don't show if on wrong page, still loading, or no profile data yet
-  if (!shouldShow || loading || !userProfile) {
-    console.log("[FloatingHelper] Not showing:", { shouldShow, loading, hasProfile: !!userProfile });
-    return null;
-  }
+  // ── Invalidate cache after a resume upload completes ─────────────────────
+  // Listen for a custom event dispatched by ResumeUpload on success
+  useEffect(() => {
+    const handleResumeComplete = () => {
+      cacheRef.current = { data: null, fetchedAt: 0 };
+      fetchRecommendations(true);
+    };
+    window.addEventListener("careerlm:resume_analyzed", handleResumeComplete);
+    return () => window.removeEventListener("careerlm:resume_analyzed", handleResumeComplete);
+  }, [fetchRecommendations]);
 
-  const status = getUserStatus();
-  const currentPhaseValue = workflowState?.current_phase;
-  const supervisorDecisionValue = workflowState?.supervisor_decision;
-  
-  console.log("[GlobalFloatingHelper] Rendering with:", {
-    currentPhase: currentPhaseValue,
-    supervisorDecision: supervisorDecisionValue,
-    userStatus: status
-  });
+  if (!shouldShow || loading || !profileRow) return null;
 
   return (
     <FloatingHelper
-      currentPhase={currentPhaseValue}
-      supervisorDecision={supervisorDecisionValue}
-      userStatus={status}
+      recommendations={recommendations}
+      userStatus={userStatus}
       onNavigate={handleNavigate}
     />
   );
