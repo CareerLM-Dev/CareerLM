@@ -35,6 +35,7 @@ const NAV_GROUPS = [
       { label: "Upload Resume", icon: Upload, route: "/dashboard/upload-resume" },
       { label: "Resume Analyzer", icon: FileText, route: "/dashboard/resume-analyzer" },
       { label: "Resume Editor", icon: Edit3, route: "/dashboard/resume-editor" },
+      { label: "Resume Builder", icon: Edit3, route: "/resume-builder" },
     ],
   },
   {

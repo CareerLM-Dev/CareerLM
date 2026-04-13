@@ -207,6 +207,48 @@ function ImprovementCard({ item, onDismiss }) {
   );
 }
 
+function ResumeEditorSkeleton() {
+  return (
+    <div className="h-full flex flex-col overflow-hidden bg-background animate-pulse">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-card gap-4">
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-16 bg-muted rounded" />
+          <div className="h-4 w-px bg-border" />
+          <div>
+            <div className="h-4 w-32 bg-muted rounded" />
+            <div className="h-3 w-40 bg-muted rounded mt-2" />
+          </div>
+        </div>
+        <div className="h-9 w-28 bg-muted rounded" />
+      </div>
+
+      <div className="flex-1 overflow-hidden flex">
+        <div className="w-[420px] flex-shrink-0 border-r border-border flex flex-col overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card">
+            <div className="h-8 w-32 bg-muted rounded" />
+            <div className="h-8 w-24 bg-muted rounded" />
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {[...Array(3)].map((_, idx) => (
+              <div key={idx} className="h-36 bg-muted rounded-xl" />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="h-5 w-40 bg-muted rounded" />
+            <div className="h-4 w-48 bg-muted rounded" />
+          </div>
+          {[...Array(4)].map((_, idx) => (
+            <div key={idx} className="h-20 bg-muted rounded-xl" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function ResumeEditorPage() {
   const { session } = useUser();
@@ -287,12 +329,18 @@ export default function ResumeEditorPage() {
   }, [user?.id, loadEditorData]);
 
   useEffect(() => {
+    if (!user?.id) {
+      setLoading(false);
+      setError("Please sign in to load your resume.");
+      return;
+    }
+
     if (versionIdParam) {
       loadEditorData(parseInt(versionIdParam));
     } else {
       loadLatestVersion();
     }
-  }, [versionIdParam, loadEditorData, loadLatestVersion]);
+  }, [versionIdParam, loadEditorData, loadLatestVersion, user?.id]);
 
   // ── Apply callback ────────────────────────────────────────────────────────
   const handleApplied = useCallback((appliedId, newVersionId, updatedSections) => {
@@ -361,14 +409,7 @@ export default function ResumeEditorPage() {
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading resume…</p>
-        </div>
-      </div>
-    );
+    return <ResumeEditorSkeleton />;
   }
 
   // ── Error (no sections loaded) ────────────────────────────────────────────
