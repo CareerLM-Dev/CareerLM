@@ -346,3 +346,29 @@ async def update_user_profile(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update user profile: {str(e)}")
+
+
+@router.post("/reset-uploaded-data")
+async def reset_uploaded_data(user = Depends(get_current_user)):
+    """Delete resume uploads and clear resume-derived profile data."""
+    try:
+        resume_rows = (
+            supabase.table("resumes")
+            .select("resume_id")
+            .eq("user_id", user.id)
+            .execute()
+        )
+
+        resume_ids = [row["resume_id"] for row in (resume_rows.data or [])]
+        if resume_ids:
+            supabase.table("resume_versions").delete().in_("resume_id", resume_ids).execute()
+            supabase.table("resumes").delete().eq("user_id", user.id).execute()
+
+        supabase.table("user").update({"user_profile": {}}).eq("id", user.id).execute()
+
+        return {
+            "success": True,
+            "message": "Uploaded resume data cleared."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset uploaded data: {str(e)}")

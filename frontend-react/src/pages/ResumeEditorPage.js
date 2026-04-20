@@ -77,7 +77,7 @@ function BulletRewriteCard({ item, versionId, onApplied, onDismiss }) {
   if (applied) return null; // Remove card after successful apply
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+    <div className="rounded-xl border border-border bg-card/95 overflow-hidden shadow-sm hover:shadow-md transition-shadow ring-1 ring-border/40">
       {/* Section badge */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-0">
         <span className="inline-flex items-center gap-1 text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full">
@@ -266,6 +266,7 @@ export default function ResumeEditorPage() {
   const [bulletRewrites, setBulletRewrites] = useState([]);
   const [improvements, setImprovements] = useState([]);
   const [atsScore, setAtsScore] = useState(null);
+  const [scoreDelta, setScoreDelta] = useState(null);
   const [appliedCount, setAppliedCount] = useState(0);
   const [isRescoring, setIsRescoring] = useState(false);
   const [rescoreError, setRescoreError] = useState(null);
@@ -280,6 +281,20 @@ export default function ResumeEditorPage() {
       const res = await fetch(`${RESUME_API}/editor/${vid}`);
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Failed to load resume");
+
+      const resolvedSections = (() => {
+        const raw = data.sections;
+        if (!raw) return {};
+        if (typeof raw === "string") {
+          try {
+            const parsed = JSON.parse(raw);
+            return typeof parsed === "object" && parsed ? parsed : {};
+          } catch (_) {
+            return {};
+          }
+        }
+        return typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      })();
 
       const applied = Array.isArray(data.applied_suggestion_ids)
         ? data.applied_suggestion_ids
@@ -296,8 +311,9 @@ export default function ResumeEditorPage() {
           (s) => !applied.includes(s.suggestion_id)
         )
       );
-      setSections(data.sections || {});
+      setSections(resolvedSections);
       setAtsScore(data.ats_score ?? null);
+      setScoreDelta(data.score_delta ?? null);
       setVersionId(vid);
 
       // Expand all resume sections by default
@@ -371,6 +387,7 @@ export default function ResumeEditorPage() {
       if (!data.success) throw new Error(data.error || "Failed to rescore");
       
       setAtsScore(data.ats_score ?? null);
+      setScoreDelta(data.score_delta ?? null);
 
       if (data.new_analysis && data.new_analysis.suggestions) {
         // Reset applied count because these are fresh suggestions based on the new resume state
@@ -406,6 +423,16 @@ export default function ResumeEditorPage() {
       : atsScore >= 65
       ? "text-amber-500"
       : "text-red-500";
+
+  const previousScore =
+    scoreDelta !== null && atsScore !== null
+      ? atsScore - scoreDelta
+      : null;
+
+  const deltaBadgeClass =
+    scoreDelta !== null && scoreDelta >= 0
+      ? "bg-emerald-500/10 text-emerald-600"
+      : "bg-rose-500/10 text-rose-600";
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -470,15 +497,28 @@ export default function ResumeEditorPage() {
         {/* Score + Rescore */}
         <div className="flex items-center gap-3">
           {atsScore !== null && (
-            <div className="text-right">
-              <p className={`text-2xl font-bold ${scoreColor}`}>{atsScore}</p>
-              <p className="text-xs text-muted-foreground">ATS Score</p>
+            <div className="flex items-center gap-3 rounded-xl border border-border bg-background/80 px-3 py-2 shadow-sm">
+              <div className="text-right">
+                <p className={`text-2xl font-bold ${scoreColor}`}>{atsScore}</p>
+                <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Current ATS</p>
+              </div>
+              {scoreDelta !== null && (
+                <div className="border-l border-border pl-3">
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Before</p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {previousScore ?? "—"}
+                  </p>
+                  <span className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${deltaBadgeClass}`}>
+                    {scoreDelta >= 0 ? `+${scoreDelta}` : scoreDelta} delta
+                  </span>
+                </div>
+              )}
             </div>
           )}
           <button
             onClick={handleRescore}
             disabled={isRescoring || appliedCount === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-all shadow-sm"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-primary-foreground bg-gradient-to-r from-primary to-primary/80 hover:shadow-lg hover:shadow-primary/25 disabled:opacity-50 transition-all"
           >
             {isRescoring ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -606,9 +646,9 @@ export default function ResumeEditorPage() {
               if (!text || !text.trim()) return null;
               const isExpanded = expandedSections[key] !== false;
               return (
-                <div key={key} className="bg-card border border-border rounded-xl overflow-hidden">
+                <div key={key} className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
                   <button
-                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-3 border-l-4 border-primary/30 hover:bg-muted/30 transition-colors"
                     onClick={() =>
                       setExpandedSections((prev) => ({ ...prev, [key]: !isExpanded }))
                     }

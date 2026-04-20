@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useUser } from "../context/UserContext";
 import { Button } from "../components/ui/button";
@@ -10,6 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { parseExperience, parseProjects } from "../utils/profileParser";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
@@ -54,6 +55,36 @@ const emptyForm = {
   coursework: "",
 };
 
+const parseSkillsText = (raw) => {
+  if (!raw || typeof raw !== "string") return [];
+  return raw
+    .split(/[\n,;•]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((token) => {
+      if (token.includes(":")) return token.split(":").pop().trim();
+      return token.replace(/^[-*–—]\s*/, "").trim();
+    })
+    .filter(Boolean);
+};
+
+const parseEducationSection = (raw) => {
+  if (!raw || typeof raw !== "string") return [];
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [];
+  return [
+    {
+      institution: lines[0] || "",
+      degree: lines.slice(1).join(" "),
+      date_range: "",
+      grade: "",
+    },
+  ];
+};
+
 function ResumeBuilderPage() {
   const { session, loading: authLoading } = useUser();
   const [formData, setFormData] = useState(emptyForm);
@@ -65,6 +96,12 @@ function ResumeBuilderPage() {
   const [lastSaved, setLastSaved] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [skillInput, setSkillInput] = useState("");
+  const [hasResumeSections, setHasResumeSections] = useState(false);
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
+  const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const savedSnapshotRef = useRef(null);
+  const hydrationDoneRef = useRef(false);
 
   const formattedLastSaved = useMemo(() => {
     if (!lastSaved) return "";
@@ -101,6 +138,19 @@ function ResumeBuilderPage() {
           }
         }
 
+        let resumeSections = profile.resume_parsed_sections || {};
+        if (typeof resumeSections === "string") {
+          try {
+            resumeSections = JSON.parse(resumeSections);
+          } catch (parseError) {
+            resumeSections = {};
+          }
+        }
+        const normalizedSections =
+          resumeSections && typeof resumeSections === "object"
+            ? resumeSections
+            : {};
+
         const skillsRaw = profile.skills;
         const skills = Array.isArray(skillsRaw)
           ? skillsRaw
@@ -121,7 +171,30 @@ function ResumeBuilderPage() {
           ? profile.project_entries
           : [];
 
-        setFormData({
+        const fallbackExperience = parseExperience(normalizedSections.experience || "")
+          .map((entry) => ({
+            title: entry.title || "",
+            company: entry.company || "",
+            location: entry.location || "",
+            date_range: entry.dateRange || "",
+            bullets: Array.isArray(entry.bullets) && entry.bullets.length > 0 ? entry.bullets : [""],
+          }));
+        const fallbackProjects = parseProjects(normalizedSections.projects || "")
+          .map((project) => ({
+            name: project.title || "",
+            tech_stack: project.techStack || "",
+            date_range: project.date || "",
+            links: "",
+            bullets: Array.isArray(project.bullets) && project.bullets.length > 0 ? project.bullets : [""],
+          }));
+
+        const fallbackEducation = parseEducationSection(normalizedSections.education || "");
+        const fallbackSkills = parseSkillsText(normalizedSections.skills || "");
+
+        const resumeDetected = Object.keys(normalizedSections || {}).length > 0;
+        setHasResumeSections(resumeDetected);
+
+        const nextFormData = {
           contact: {
             name: profile.name || "",
             email: profile.email || "",
@@ -130,14 +203,30 @@ function ResumeBuilderPage() {
             linkedin: profile.linkedin || "",
             github: profile.github || "",
           },
-          summary: profile.intro || "",
-          education: education.length > 0 ? education : [emptyEducation()],
-          experience: experience.length > 0 ? experience : [emptyExperience()],
-          projects: projects.length > 0 ? projects : [emptyProject()],
-          skills,
-          certifications: profile.certifications || "",
-          coursework: profile.coursework || "",
-        });
+          summary: profile.intro || normalizedSections.summary || "",
+          education: education.length > 0
+            ? education
+            : fallbackEducation.length > 0
+              ? fallbackEducation
+              : [emptyEducation()],
+          experience: experience.length > 0
+            ? experience
+            : fallbackExperience.length > 0
+              ? fallbackExperience
+              : [emptyExperience()],
+          projects: projects.length > 0
+            ? projects
+            : fallbackProjects.length > 0
+              ? fallbackProjects
+              : [emptyProject()],
+          skills: skills.length > 0 ? skills : fallbackSkills,
+          certifications: profile.certifications || normalizedSections.certifications || "",
+          coursework: profile.coursework || normalizedSections.coursework || "",
+        };
+        setFormData(nextFormData);
+        savedSnapshotRef.current = nextFormData;
+        setHasUnsavedChanges(false);
+        hydrationDoneRef.current = true;
       } catch (err) {
         console.error("Failed to fetch profile details:", err);
         setError("Unable to load your profile. Please try again.");
@@ -161,6 +250,13 @@ function ResumeBuilderPage() {
       return () => clearTimeout(timer);
     }
   }, [loading, error, formData.contact.name]);
+
+  useEffect(() => {
+    if (!hydrationDoneRef.current) return;
+    const saved = JSON.stringify(savedSnapshotRef.current || {});
+    const current = JSON.stringify(formData || {});
+    setHasUnsavedChanges(saved !== current);
+  }, [formData]);
 
   const handleContactChange = (field, value) => {
     setFormData((prev) => ({
@@ -345,7 +441,7 @@ function ResumeBuilderPage() {
     }));
   };
 
-  const handleSave = async () => {
+  const performSave = async () => {
     if (!session) return;
     setSaving(true);
     setActionError("");
@@ -377,6 +473,8 @@ function ResumeBuilderPage() {
       );
 
       setLastSaved(new Date());
+      savedSnapshotRef.current = formData;
+      setHasUnsavedChanges(false);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 3000);
     } catch (err) {
@@ -386,6 +484,14 @@ function ResumeBuilderPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = () => {
+    if (hasResumeSections && !overwriteConfirmed) {
+      setShowOverwriteConfirm(true);
+      return;
+    }
+    performSave();
   };
 
   const handleDownload = async () => {
@@ -473,6 +579,46 @@ function ResumeBuilderPage() {
 
   return (
     <div className="flex h-full bg-slate-50">
+      {showOverwriteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Overwrite existing data?</h3>
+              <button
+                onClick={() => setShowOverwriteConfirm(false)}
+                className="rounded-full p-2 text-slate-500 hover:bg-slate-100"
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-3 text-sm text-slate-600">
+              Saving from Resume Builder will overwrite your existing profile data
+              that was extracted from the uploaded resume. Continue only if you
+              want these edits to replace the current profile content.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setShowOverwriteConfirm(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setOverwriteConfirmed(true);
+                  setShowOverwriteConfirm(false);
+                  performSave();
+                }}
+              >
+                Continue and overwrite
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="flex-1 overflow-auto no-scrollbar">
         <div className="mx-auto w-full max-w-4xl px-4 pt-6">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -494,6 +640,15 @@ function ResumeBuilderPage() {
           {actionError && (
             <Alert variant="destructive">
               <AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
+
+          {hasResumeSections && (
+            <Alert>
+              <AlertDescription>
+                Resume data was detected. Editing in Resume Builder will rewrite
+                your existing saved profile data.
+              </AlertDescription>
             </Alert>
           )}
 
@@ -1061,21 +1216,26 @@ function ResumeBuilderPage() {
                   "Save Profile"
                 )}
               </Button>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={handleDownload}
-                disabled={downloading}
-                className="min-w-[140px]"
+              <span
+                className="inline-flex"
+                title={hasUnsavedChanges ? "Click save first" : ""}
               >
-                {downloading ? (
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-4 w-4" /> Generating
-                  </span>
-                ) : (
-                  "Download PDF"
-                )}
-              </Button>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={handleDownload}
+                  disabled={downloading || hasUnsavedChanges}
+                  className="min-w-[140px]"
+                >
+                  {downloading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4" /> Generating
+                    </span>
+                  ) : (
+                    "Download PDF"
+                  )}
+                </Button>
+              </span>
               {savedFlash && (
                 <span className="inline-flex items-center gap-2 text-sm text-emerald-600">
                   <CheckCircle className="h-4 w-4" /> Saved

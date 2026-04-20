@@ -62,11 +62,11 @@ function Home() {
     }
   ];
 
-  const stats = [
-    { value: "10K+", label: "Active Users", suffix: "" },
-    { value: "95", label: "Success Rate", suffix: "%" },
-    { value: "24/7", label: "AI Support", suffix: "" }
-  ];
+  // const stats = [
+  //   { value: "10K+", label: "Active Users", suffix: "" },
+  //   { value: "95", label: "Success Rate", suffix: "%" },
+  //   { value: "24/7", label: "AI Support", suffix: "" }
+  // ];
 
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
@@ -134,7 +134,7 @@ function Home() {
             </div>
 
             {/* Stats */}
-            <div className="flex flex-wrap gap-12 pt-8 border-t border-border/50">
+            {/* <div className="flex flex-wrap gap-12 pt-8 border-t border-border/50">
               {stats.map((stat, index) => (
                 <div key={index} className="space-y-1">
                   <div className="text-4xl font-bold bg-gradient-to-br from-primary to-primary/60 bg-clip-text text-transparent">
@@ -143,7 +143,7 @@ function Home() {
                   <div className="text-sm text-muted-foreground font-medium">{stat.label}</div>
                 </div>
               ))}
-            </div>
+            </div> */}
           </div>
 
           {/* Hero Visual */}

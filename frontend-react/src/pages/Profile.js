@@ -5,26 +5,20 @@ import { useUser } from "../context/UserContext";
 import {
   User,
   FileText,
-  ClipboardList,
   Pencil,
   Save,
   X,
   Loader2,
   ChevronDown,
-  ChevronUp,
   Plus,
   Briefcase,
   GraduationCap,
   Target,
   Mail,
   Building2,
-  Calendar,
   Sparkles,
   CheckCircle2,
   AlertCircle,
-  MoreHorizontal,
-  Download,
-  Upload,
   BookOpen,
 } from "lucide-react";
 import { ProfileItemCard, AddItemButton } from "../components/ProfileItemCard";
@@ -203,6 +197,8 @@ function Profile() {
   const [skillInput, setSkillInput] = useState("");
   const [savingProfileSection, setSavingProfileSection] = useState(null);
   const [activeTab, setActiveTab] = useState("basic");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   // New state for accordion: multiple sections can be open at once
   const [expandedSections, setExpandedSections] = useState(new Set(["intro"])); 
   const [addingNewItem, setAddingNewItem] = useState({
@@ -652,6 +648,30 @@ function Profile() {
   const expandAll = () => setExpandedSections(new Set(profileSections.map((s) => s.key)));
   const collapseAll = () => setExpandedSections(new Set());
 
+  const handleResetUploadedData = async () => {
+    if (!session?.access_token) return;
+    try {
+      setIsResetting(true);
+      await axios.post(
+        "http://localhost:8000/api/v1/user/reset-uploaded-data",
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+      setUserProfileSections({});
+      setLatestResume(null);
+      setShowResetConfirm(false);
+    } catch (err) {
+      console.error("Failed to reset uploaded data:", err);
+      setError("Unable to reset your uploaded data right now.");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -665,6 +685,43 @@ function Profile() {
 
   return (
     <div ref={scrollRef} className="h-full overflow-y-auto bg-gray-50 pb-12">
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm px-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Start fresh?</h3>
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="rounded-full p-2 text-gray-500 hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-3 text-sm text-gray-600">
+              This will delete your uploaded resume data and clear the resume
+              profile sections. This cannot be undone.
+            </p>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                className="inline-flex items-center justify-center rounded-xl border-2 border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetUploadedData}
+                disabled={isResetting}
+                className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {isResetting ? "Clearing..." : "Delete resume data"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top Banner Cover */}
       <div className="h-48 w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 relative overflow-hidden">
         <div className="absolute inset-0 bg-black/10" />
@@ -745,9 +802,9 @@ function Profile() {
                   <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-xs font-semibold uppercase text-gray-600 tracking-wider">Latest Resume</p>
-                      <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                      {/* <button className="text-xs text-blue-600 hover:text-blue-700 font-medium">
                         Upload New
-                      </button>
+                      </button> */}
                     </div>
                     <div className="flex items-start gap-3">
                        <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
@@ -761,11 +818,11 @@ function Profile() {
                             {latestResume ? formatDate(latestResume.created_at) : "Upload to get started"}
                           </p>
                        </div>
-                       {latestResume && (
+                       {/* {latestResume && (
                          <button className="p-2 hover:bg-gray-200 rounded-lg transition-colors">
                            <Download className="h-4 w-4 text-gray-600" />
                          </button>
-                       )}
+                       )} */}
                     </div>
                   </div>
                </div>
@@ -1024,6 +1081,13 @@ function Profile() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg transition-colors border border-red-200"
+                        onClick={() => setShowResetConfirm(true)}
+                      >
+                        Start fresh
+                      </button>
                       <button
                         type="button"
                         className="text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg transition-colors border border-blue-200"
