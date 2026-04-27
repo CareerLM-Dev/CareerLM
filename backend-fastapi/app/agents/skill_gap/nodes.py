@@ -11,7 +11,7 @@ import logging
 from enum import Enum
 from datetime import datetime
 from dotenv import load_dotenv
-from .state import SkillGapState, CareerMatch
+from .state import SkillGapState, CareerMatch, SkillConfidenceItem, AnalysisSummary
 from app.agents.llm_config import GROQ_CLIENT as client, GROQ_SKILLGAP_MODEL
 
 # Setup logging
@@ -560,7 +560,7 @@ def _extract_json_payload(raw: str) -> dict | list | None:
     return None
 
 
-def _default_score_summary(match: CareerMatch) -> str:
+def _default_score_summary(match: dict) -> str:
     matched_count = int(match.get("matched_skills_count", 0) or 0)
     total_required = int(match.get("total_required_skills", 0) or 0)
     missing_count = len(match.get("missing_skills", []) or [])
@@ -767,13 +767,12 @@ def _build_gap_reason(
     bucket: str,
     matched_skills: list[str],
     required: bool,
-    evidence_item: dict | None = None,
+    evidence_item: SkillConfidenceItem | None = None,
 ) -> str:
     """Generate a concise, evidence-grounded rationale for why a skill matters."""
     matched_preview = ", ".join(matched_skills[:3]) if matched_skills else "your current skills"
-    evidence_item = evidence_item if isinstance(evidence_item, dict) else {}
-    evidence_list = evidence_item.get("evidence") if isinstance(evidence_item.get("evidence"), list) else []
-    confidence_level = str(evidence_item.get("level") or "").strip()
+    evidence_list = evidence_item.get("evidence") if evidence_item and isinstance(evidence_item.get("evidence"), list) else []
+    confidence_level = str(evidence_item.get("level") or "").strip() if evidence_item else ""
 
     evidence_text = ""
     if evidence_list:
@@ -905,6 +904,8 @@ def _analyze_career_path(
     ]:
         for item in buckets.get(bucket_key, []):
             skill = item.get("skill")
+            if not isinstance(skill, str) or not skill.strip():
+                continue
             missing_metadata.append(
                 {
                     "skill": skill,
@@ -1082,15 +1083,288 @@ def get_career_skills_for_stack(career: str, stack: str) -> list[str]:
     return filtered
 
 
+_NON_SKILL_MARKERS = {
+    "leadership",
+    "extracurricular",
+    "society",
+    "institute",
+    "university",
+    "college",
+    "creative joint",
+    "annual magazine",
+    "contributed to",
+    "supported",
+    "designed event",
+    "improving engagement",
+}
+
+_SOFT_COMPETENCIES = {
+    "agile",
+    "scrum",
+    "kanban",
+    "stakeholder management",
+    "communication",
+    "problem solving",
+    "leadership",
+}
+
+_DOMAIN_COMPETENCIES = {
+    "system design",
+    "cloud architecture",
+    "machine learning",
+    "deep learning",
+    "data science",
+    "data engineering",
+    "business intelligence",
+    "product strategy",
+    "network security",
+    "cloud security",
+    "microservices",
+}
+
+
+def _build_skill_ontology() -> dict[str, str]:
+    """Build normalized-skill -> canonical-skill mapping from configured competencies."""
+    ontology: dict[str, str] = {}
+
+    sources: list[list[str]] = [
+        list(SKILL_LEARNING_TIME.keys()),
+    ]
+    for cluster in CAREER_CLUSTERS.values():
+        skills = cluster.get("skills")
+        if isinstance(skills, list):
+            sources.append([s for s in skills if isinstance(s, str)])
+    for stack_skills in TECH_STACKS.values():
+        sources.append([s for s in stack_skills if isinstance(s, str)])
+
+    for source in sources:
+        for skill in source:
+            norm = _normalize_skill(skill)
+            if norm and norm not in ontology:
+                ontology[norm] = skill
+
+    # Common aliases that appear in resumes.
+    ontology.setdefault("rest apis", "REST API")
+    ontology.setdefault("restful api", "REST API")
+    ontology.setdefault("restful apis", "REST API")
+    ontology.setdefault("scikit learn", "Scikit-learn")
+    ontology.setdefault("ci cd", "CI/CD")
+    ontology.setdefault("github actions", "GitHub Actions")
+    return ontology
+
+
+_SKILL_ONTOLOGY = _build_skill_ontology()
+
+_TOOLS_FRAMEWORK_HINTS = {
+    "framework",
+    "library",
+    "api",
+    "sdk",
+    "studio",
+    "git",
+    "docker",
+    "kubernetes",
+    "redis",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "react",
+    "django",
+    "fastapi",
+    "flask",
+    "supabase",
+}
+
+
+def _closest_ontology_skill(candidate: str) -> str | None:
+    """Map noisy extracted candidate to closest known competency when possible."""
+    norm = _normalize_skill(candidate)
+    if not norm:
+        return None
+
+    if norm in _SKILL_ONTOLOGY:
+        return _SKILL_ONTOLOGY[norm]
+
+    compact = norm.replace(" ", "")
+    for known_norm, canonical in _SKILL_ONTOLOGY.items():
+        if compact == known_norm.replace(" ", ""):
+            return canonical
+
+    cand_tokens = set(norm.split())
+    if not cand_tokens:
+        return None
+
+    best_score = 0.0
+    best_match = None
+    for known_norm, canonical in _SKILL_ONTOLOGY.items():
+        known_tokens = set(known_norm.split())
+        if not known_tokens:
+            continue
+        overlap = len(cand_tokens.intersection(known_tokens))
+        if overlap == 0:
+            continue
+        score = overlap / max(len(cand_tokens), len(known_tokens))
+        if score > best_score:
+            best_score = score
+            best_match = canonical
+
+    if best_score >= 0.8:
+        return best_match
+    return None
+
+
+def _is_non_skill_phrase(value: str) -> bool:
+    """Reject phrases that look like resume metadata, organizations, or sentence fragments."""
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return True
+
+    norm = _normalize_skill(cleaned)
+    if not norm:
+        return True
+
+    word_count = len(norm.split())
+    if word_count > 5 and norm not in _SKILL_ONTOLOGY:
+        return True
+
+    if re.search(r"\b(20\d{2}|january|february|march|april|may|june|july|august|september|october|november|december)\b", norm):
+        return True
+
+    if any(marker in norm for marker in _NON_SKILL_MARKERS):
+        return True
+
+    # Sentence-like entries are generally descriptions, not competencies.
+    if re.search(r"\b(contributed|designed|supported|improved|implemented|developed|built)\b", norm) and word_count >= 4:
+        return True
+
+    return False
+
+
+def _skill_evidence_sources(
+    skill: str,
+    skills_text: str | None,
+    projects_text: str | None,
+    experience_text: str | None,
+    resume_text: str | None,
+    profile_blocks: dict | None = None,
+) -> list[str]:
+    """Return concrete locations that ground a skill in user-provided context."""
+    sources: list[str] = []
+
+    if _contains_skill(skills_text or "", skill):
+        sources.append("skills_section")
+    if _contains_skill(projects_text or "", skill):
+        sources.append("projects_section")
+    if _contains_skill(experience_text or "", skill):
+        sources.append("experience_section")
+    if _contains_skill(resume_text or "", skill):
+        sources.append("resume_text")
+
+    profile = profile_blocks if isinstance(profile_blocks, dict) else {}
+    profile_skill_values = profile.get("skills")
+    if not isinstance(profile_skill_values, list):
+        profile_skill_values = []
+    profile_skill_norm = {_normalize_skill(str(v)) for v in profile_skill_values}
+    if _normalize_skill(skill) in profile_skill_norm:
+        sources.append("profile_skills")
+
+    for key, source_name in [
+        ("projects", "profile_projects"),
+        ("experience", "profile_experience"),
+        ("expertise", "profile_expertise"),
+        ("areas_of_interest", "profile_areas_of_interest"),
+    ]:
+        raw = profile.get(key)
+        if isinstance(raw, str) and _contains_skill(raw, skill):
+            sources.append(source_name)
+
+    return list(dict.fromkeys(sources))
+
+
+def _infer_competency_type(skill: str) -> str:
+    """Classify canonical skill into broad competency families for explainability."""
+    norm = _normalize_skill(skill)
+    if not norm:
+        return "technical_skill"
+
+    if norm in _PRIMARY_LANGUAGE_SKILLS:
+        return "technical_skill"
+    if norm in _SOFT_COMPETENCIES:
+        return "soft_skill"
+    if norm in _DOMAIN_COMPETENCIES:
+        return "domain_knowledge"
+
+    token_set = set(norm.split())
+    if token_set.intersection(_TOOLS_FRAMEWORK_HINTS) or any(hint in norm for hint in _TOOLS_FRAMEWORK_HINTS):
+        return "tools_frameworks"
+
+    return "technical_skill"
+
+
+def _validate_and_ground_skills(
+    candidates: list[str],
+    skills_text: str | None,
+    projects_text: str | None,
+    experience_text: str | None,
+    resume_text: str | None,
+    profile_blocks: dict | None,
+) -> list[str]:
+    """
+    Precision-focused filtering pass:
+    1) remove non-skill phrases,
+    2) canonicalize with ontology matching,
+    3) require contextual grounding to prevent hallucinated competencies.
+    """
+    filtered: list[str] = []
+    seen: set[str] = set()
+
+    for raw in candidates:
+        if not isinstance(raw, str):
+            continue
+        item = raw.strip()
+        if not item or _is_non_skill_phrase(item):
+            continue
+
+        canonical = _closest_ontology_skill(item) or item
+        sources = _skill_evidence_sources(
+            skill=canonical,
+            skills_text=skills_text,
+            projects_text=projects_text,
+            experience_text=experience_text,
+            resume_text=resume_text,
+            profile_blocks=profile_blocks,
+        )
+
+        # Accept only grounded skills or ontology-aligned entries with explicit context.
+        if not sources:
+            continue
+
+        # Unknown skills need stronger grounding across multiple contexts.
+        canonical_norm = _normalize_skill(canonical)
+        if canonical_norm not in _SKILL_ONTOLOGY and len(sources) < 2:
+            continue
+
+        if canonical_norm and canonical_norm not in seen:
+            seen.add(canonical_norm)
+            filtered.append(canonical)
+
+    return filtered
+
+
 def _skills_from_profile(user_profile: dict | None) -> dict[str, str | list[str]]:
     """Extract profile-backed evidence blocks used by skill extraction."""
     up = user_profile if isinstance(user_profile, dict) else {}
+    skills = up.get("skills")
+    projects = up.get("projects")
+    experience = up.get("experience")
+    expertise = up.get("expertise")
+    areas_of_interest = up.get("areas_of_interest")
     return {
-        "skills": up.get("skills") if isinstance(up.get("skills"), list) else [],
-        "projects": up.get("projects") if isinstance(up.get("projects"), str) else "",
-        "experience": up.get("experience") if isinstance(up.get("experience"), str) else "",
-        "expertise": up.get("expertise") if isinstance(up.get("expertise"), str) else "",
-        "areas_of_interest": up.get("areas_of_interest") if isinstance(up.get("areas_of_interest"), str) else "",
+        "skills": skills if isinstance(skills, list) else [],
+        "projects": projects if isinstance(projects, str) else "",
+        "experience": experience if isinstance(experience, str) else "",
+        "expertise": expertise if isinstance(expertise, str) else "",
+        "areas_of_interest": areas_of_interest if isinstance(areas_of_interest, str) else "",
     }
 
 
@@ -1135,6 +1409,7 @@ def _normalize_extracted_skill_tokens(skills: list[str]) -> list[str]:
 def extract_skills_from_resume(
     skills_text: str | None = None,
     projects_text: str | None = None,
+    experience_text: str | None = None,
     resume_text: str | None = None,
     profile_context: dict | None = None,
 ) -> list[str]:
@@ -1228,8 +1503,17 @@ def extract_skills_from_resume(
             if profile_blocks.get("skills"):
                 unique = _normalize_extracted_skill_tokens(unique + [str(s) for s in profile_blocks.get("skills", [])])
 
-            logger.info(f"LLM extracted {len(unique)} skills from resume")
-            return unique
+            validated = _validate_and_ground_skills(
+                candidates=unique,
+                skills_text=skills_text,
+                projects_text=projects_text,
+                experience_text=experience_text,
+                resume_text=resume_text,
+                profile_blocks=profile_blocks,
+            )
+
+            logger.info(f"LLM extracted {len(validated)} grounded competencies from resume")
+            return validated
 
     except Exception as e:
         logger.warning(f"LLM skill extraction failed, falling back to regex: {e}")
@@ -1239,7 +1523,16 @@ def extract_skills_from_resume(
     fallback = _regex_extract_skills(fallback_text)
     if profile_blocks.get("skills"):
         fallback = _normalize_extracted_skill_tokens(fallback + [str(s) for s in profile_blocks.get("skills", [])])
-    return fallback
+
+    validated_fallback = _validate_and_ground_skills(
+        candidates=fallback,
+        skills_text=skills_text,
+        projects_text=projects_text,
+        experience_text=experience_text,
+        resume_text=resume_text,
+        profile_blocks=profile_blocks,
+    )
+    return validated_fallback
 
 
 # Short skill names (≤2 chars) that need stricter matching context
@@ -1411,13 +1704,13 @@ def _classify_skill_confidence(
     projects_text: str | None,
     experience_text: str | None,
     resume_text: str | None,
-) -> tuple[dict[str, list[str]], list[dict]]:
+) -> tuple[dict[str, list[str]], list[SkillConfidenceItem]]:
     levels = {
         "high_confidence": [],
         "medium_confidence": [],
         "low_confidence": [],
     }
-    details: list[dict] = []
+    details: list[SkillConfidenceItem] = []
 
     skills_text_l = (skills_text or "").lower()
     projects_text_l = (projects_text or "").lower()
@@ -1431,6 +1724,14 @@ def _classify_skill_confidence(
             projects_text=projects_text_l,
             experience_text=experience_text_l,
             resume_text=resume_text_l,
+        )
+        evidence_sources = _skill_evidence_sources(
+            skill=skill,
+            skills_text=skills_text_l,
+            projects_text=projects_text_l,
+            experience_text=experience_text_l,
+            resume_text=resume_text_l,
+            profile_blocks=None,
         )
 
         if score >= 6:
@@ -1447,6 +1748,8 @@ def _classify_skill_confidence(
                 "level": level,
                 "score": score,
                 "evidence": evidence,
+                "competency_type": _infer_competency_type(skill),
+                "evidence_sources": evidence_sources,
             }
         )
 
@@ -1465,6 +1768,7 @@ def extract_skills_node(state: SkillGapState) -> SkillGapState:
         user_skills = extract_skills_from_resume(
             skills_text=state.get("skills_text"),
             projects_text=state.get("projects_text"),
+            experience_text=state.get("experience_text"),
             resume_text=state.get("resume_text"),
             profile_context=user_profile,
         )
@@ -1485,6 +1789,7 @@ def extract_skills_node(state: SkillGapState) -> SkillGapState:
                     "normalized": _normalize_role(item.get("skill", "")),
                     "proficiency": proficiency,
                     "confidence_level": level,
+                    "competency_type": item.get("competency_type", "technical_skill"),
                 }
             )
         logger.info(f"Extracted {len(user_skills)} skills from resume")
@@ -1531,7 +1836,7 @@ def calculate_career_probabilities_node(state: SkillGapState) -> SkillGapState:
         career_reference = _build_career_reference(effective_stack)
         timeline_weeks = _extract_timeline_weeks(questionnaire_answers)
         proficiency_map = _build_proficiency_map(state, questionnaire_answers)
-        confidence_by_skill: dict[str, dict] = {}
+        confidence_by_skill: dict[str, SkillConfidenceItem] = {}
         for item in state.get("skill_confidence_details", []) or []:
             skill_key = _normalize_skill(item.get("skill"))
             if skill_key:
@@ -1946,7 +2251,7 @@ Keep the response structured and practical."""
             ],
         )
 
-        ai_recommendations = completion.choices[0].message.content
+        ai_recommendations = completion.choices[0].message.content or ""
         logger.info("AI recommendations generated successfully")
         
         return {
@@ -1977,7 +2282,7 @@ def compile_results_node(state: SkillGapState) -> SkillGapState:
         
         if not career_matches:
             logger.warning("No career matches to compile")
-            analysis_summary = {
+            analysis_summary: AnalysisSummary = {
                 "best_match": None,
                 "best_match_probability": 0,
                 "skills_to_focus": []

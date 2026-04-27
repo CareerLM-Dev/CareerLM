@@ -44,6 +44,8 @@ class SkillConfidenceItem(TypedDict):
     level: str
     score: int
     evidence: list[str]
+    competency_type: NotRequired[str]
+    evidence_sources: NotRequired[list[str]]
 
 
 class NormalizedSkill(TypedDict):
@@ -52,6 +54,7 @@ class NormalizedSkill(TypedDict):
     normalized: str
     proficiency: int
     confidence_level: str
+    competency_type: NotRequired[str]
 
 
 class SkillGapState(TypedDict):
@@ -81,4 +84,5 @@ class SkillGapState(TypedDict):
     study_planner_skills: NotRequired[list[str]]
     out_of_scope_skills: NotRequired[list[dict]]
     timeline_note: NotRequired[Optional[str]]
+    selected_target_career_match: NotRequired[CareerMatch]
     error: NotRequired[Optional[str]]
