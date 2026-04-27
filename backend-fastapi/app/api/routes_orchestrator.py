@@ -664,7 +664,14 @@ async def get_editor_data(version_id: int):
                     except Exception:
                         profile_data = {}
                 if isinstance(profile_data, dict):
-                    sections = profile_data.get("resume_parsed_sections") or {}
+                    profile_sections = profile_data.get("resume_parsed_sections") or {}
+                    if isinstance(profile_sections, str):
+                        try:
+                            profile_sections = json.loads(profile_sections)
+                        except Exception:
+                            profile_sections = {}
+                    if isinstance(profile_sections, dict):
+                        sections = profile_sections
 
         if not sections:
             sections = content.get("sections") or {}

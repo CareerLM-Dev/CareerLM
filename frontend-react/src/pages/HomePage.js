@@ -153,11 +153,14 @@ function HomePage() {
     fetchUserData();
   }, [session]);
 
-  const track =
+  const rawTrack =
     userProfile?.questionnaire_answers?.status ||
     userProfile?.questionnaire_answers?.track ||
-    "exploring";
-  const normalizedTrack = TRACK_SUMMARIES[track] ? track : "exploring";
+    "";
+  const hasCareerPhase = Boolean(rawTrack) && rawTrack !== "not_answered";
+  const normalizedTrack = hasCareerPhase && TRACK_SUMMARIES[rawTrack]
+    ? rawTrack
+    : "exploring";
   const targetRole = userProfile?.questionnaire_answers?.target_role;
   const targetRoleLabel = useMemo(() => {
     if (!targetRole) return "";
@@ -356,7 +359,9 @@ function HomePage() {
   }
 
   const firstName = getFirstName();
-  const summaryLine = TRACK_SUMMARIES[normalizedTrack];
+  const summaryLine = hasCareerPhase
+    ? TRACK_SUMMARIES[normalizedTrack]
+    : "Complete your onboarding to unlock tailored recommendations.";
 
   return (
     <div className="flex h-full bg-background">
@@ -375,8 +380,19 @@ function HomePage() {
                   </h1>
                   <p className="text-foreground">
                     {summaryLine}
-                    {targetRoleLabel ? ` Target role: ${targetRoleLabel}.` : ""}
+                    {hasCareerPhase && targetRoleLabel
+                      ? ` Target role: ${targetRoleLabel}.`
+                      : ""}
                   </p>
+                  {!hasCareerPhase && session?.user?.id && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(`/onboarding/${session.user.id}`)}
+                    >
+                      Complete onboarding
+                    </Button>
+                  )}
                   {orchestratorState?.supervisor_decision && (
                     <p className="text-sm text-muted-foreground">
                       {orchestratorState.supervisor_decision}
@@ -399,6 +415,34 @@ function HomePage() {
           {/* Section 2 - Choose How to Start (if no resume) OR Primary action (if resume exists) */}
           {!hasResumeUploaded ? (
             <ChooseHowToStart />
+          ) : !hasCareerPhase ? (
+            <section className="mb-8">
+              <div className="bg-card border-2 border-primary/30 rounded-xl p-6 md:p-7">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-wide font-semibold text-primary">
+                      Action needed
+                    </p>
+                    <h2 className="text-2xl md:text-3xl font-bold text-foreground">
+                      Tell us where you are in your career journey
+                    </h2>
+                    <p className="text-muted-foreground max-w-2xl">
+                      We only show tailored recommendations after your onboarding answers are complete.
+                    </p>
+                  </div>
+                  {session?.user?.id && (
+                    <Button
+                      onClick={() => navigate(`/onboarding/${session.user.id}`)}
+                      className="w-full md:w-auto"
+                      size="lg"
+                    >
+                      Complete onboarding
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </section>
           ) : (
             <section className="mb-8">
               <div className="bg-card border-2 border-primary/30 rounded-xl p-6 md:p-7">
@@ -462,45 +506,47 @@ function HomePage() {
           )}
 
           {/* Section 3 - Secondary modules */}
-          <section className="mb-10">
-            <div className="mb-3">
-              <h3 className="text-xl font-bold text-foreground">Other relevant modules</h3>
-              <p className="text-sm text-muted-foreground">
-                Keep moving with these supporting actions based on your current track.
-              </p>
-            </div>
+          {hasCareerPhase && (
+            <section className="mb-10">
+              <div className="mb-3">
+                <h3 className="text-xl font-bold text-foreground">Other relevant modules</h3>
+                <p className="text-sm text-muted-foreground">
+                  Keep moving with these supporting actions based on your current track.
+                </p>
+              </div>
 
-            <div className="grid md:grid-cols-3 gap-4">
-              {secondaryModules.map((module) => {
-                const Icon = module.icon;
-                return (
-                  <div
-                    key={module.id}
-                    className="bg-card border border-border rounded-xl p-5 flex flex-col justify-between"
-                  >
-                    <div className="space-y-3">
-                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                        <Icon className="w-5 h-5 text-primary" />
-                      </div>
-                      <h4 className="text-lg font-semibold text-foreground">{module.title}</h4>
-                      <p className="text-sm text-muted-foreground">{module.description}</p>
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      className="mt-5 w-full"
-                      onClick={() => handleModuleNavigate(module)}
+              <div className="grid md:grid-cols-3 gap-4">
+                {secondaryModules.map((module) => {
+                  const Icon = module.icon;
+                  return (
+                    <div
+                      key={module.id}
+                      className="bg-card border border-border rounded-xl p-5 flex flex-col justify-between"
                     >
-                      {module.cta}
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                      <div className="space-y-3">
+                        <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                          <Icon className="w-5 h-5 text-primary" />
+                        </div>
+                        <h4 className="text-lg font-semibold text-foreground">{module.title}</h4>
+                        <p className="text-sm text-muted-foreground">{module.description}</p>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        className="mt-5 w-full"
+                        onClick={() => handleModuleNavigate(module)}
+                      >
+                        {module.cta}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           {/* Section 4 - Progress indicator */}
-          <section>
+          {/* <section>
             <div className="bg-card border border-border rounded-xl p-4">
               <p className="text-sm font-semibold text-foreground mb-4">Your module progress</p>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -521,7 +567,7 @@ function HomePage() {
                 ))}
               </div>
             </div>
-          </section>
+          </section> */}
         </div>
       </main>
     </div>

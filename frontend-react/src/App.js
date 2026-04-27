@@ -15,6 +15,7 @@ import Profile from "./pages/Profile";
 import AuthCallback from "./pages/AuthCallback";
 import SkipComplete from "./pages/SkipComplete";
 import ResumeEditorPage from "./pages/ResumeEditorPage";
+import ResumeBuilderPage from "./pages/ResumeBuilderPage";
 
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="/resume-editor" element={<ProtectedRoute><ResumeEditorPage /></ProtectedRoute>} />
+            <Route path="/resume-builder" element={<ProtectedRoute><ResumeBuilderPage /></ProtectedRoute>} />
           </Routes>
         </div>
         

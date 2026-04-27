@@ -13,6 +13,7 @@ import {
   Moon,
   FileText,
   Edit3,
+  FilePenLine,
   BarChart3,
   Mail,
   Briefcase,
@@ -35,6 +36,7 @@ const NAV_GROUPS = [
       { label: "Upload Resume", icon: Upload, route: "/dashboard/upload-resume" },
       { label: "Resume Analyzer", icon: FileText, route: "/dashboard/resume-analyzer" },
       { label: "Resume Editor", icon: Edit3, route: "/dashboard/resume-editor" },
+      { label: "Resume Builder", icon: FilePenLine, route: "/resume-builder" },
     ],
   },
   {
