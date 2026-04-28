@@ -176,6 +176,8 @@ def generate_quick_plan(
     target_career: str,
     deadline_days: int,
     specific_requirements: str = "",
+    learning_profile: dict | None = None,
+    feedback_signals: dict | None = None,
 ) -> dict:
     """
     Entry-point: generate a deadline-driven day-by-day quick prep plan.
@@ -197,6 +199,8 @@ def generate_quick_plan(
             "quick_goal": quick_goal,
             "deadline_days": deadline_days,
             "specific_requirements": specific_requirements,
+            "learning_profile": learning_profile or {},
+            "feedback_signals": feedback_signals or {},
         }
 
         result = quick_plan_workflow.invoke(initial_state)
@@ -207,6 +211,7 @@ def generate_quick_plan(
             "deadline_days": result.get("deadline_days", deadline_days),
             "detected_skills": result.get("detected_skills", []),
             "quick_plan_days": result.get("quick_plan_days", []),
+            "quick_context": result.get("quick_context", {}),
             "error": result.get("error"),
         }
 

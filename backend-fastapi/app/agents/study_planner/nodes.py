@@ -750,72 +750,267 @@ def _get_curated_skill_entry(skill: str) -> dict:
 
 def fetch_live_resources_node(state: StudyPlannerState) -> dict:
     """
-    Call Gemini 2.0 Flash with Google Search grounding to get
-    live learning resources — ONE call per skill for better quality.
+    Intent-driven resource discovery and ranking pipeline.
     
-    Leverages roadmap.sh as the authoritative learning structure,
-    then finds curated resources aligned with that roadmap.
-
-    Each skill gets up to 2 attempts (full prompt → simplified retry).
-    Skills that exhaust both attempts fall through to curated resources.
+    For each skill, the system now:
+    1. Extracts the specific learning objective (skill + career + user goal)
+    2. Searches the curated high-value resource database first
+    3. Personalizes resource selection by user's learning style from questionnaire
+    4. Ranks resources by relevance, depth, credibility, usability, and time fit
+    5. Creates a curated learning stack (Learn + Practice + Revise)
+    6. Falls back to Gemini only for skills not in the curated database
+    
+    This approach eliminates generic topic linking (e.g., roadmap.sh directories)
+    in favor of specific, actionable, immediately usable resources.
+    
+    Returns:
+      {
+        "skill_gap_report": [
+          {
+            "skill": "React",
+            "learning_path": [
+              {
+                "step": 1,
+                "label": "Learn Foundations",
+                "type": "tutorial_video",
+                "title": "React Course - Beginner's Tutorial",
+                "url": "https://...",
+                "platform": "freeCodeCamp",
+                "est_time": "12 hours",
+                "cost": "Free",
+                "difficulty": "beginner",
+                "relevance_score": 0.98,
+                "depth_score": 0.92,
+                "credibility_score": 0.95,
+                "usability_score": 0.92,
+                "overall_rank": 0.94
+              },
+              ...
+            ]
+          },
+          ...
+        ]
+      }
     """
     if state.get("error"):
         return {}
 
-    from google.genai import types
-
-    if not GEMINI_CLIENT:
-        return {"error": "GEMINI_API_KEY not configured"}
-
-    gemini_client = GEMINI_CLIENT
-    missing_skills = state["missing_skills"]
-    target_career = state["target_career"]
-
-    # Build personalisation block once (shared across skills)
-    qa = state.get("questionnaire_answers") or {}
-    personalisation = _build_personalisation_block(qa)
-
-    # Fetch each skill sequentially (Gemini rate limits make parallel risky)
-    skill_gap_report: list[dict] = []
-    study_plan: list[dict] = []
-    gemini_successes = 0
-    curated_fallbacks = 0
-
-    for skill in missing_skills:
-        # Get the roadmap.sh URL for this skill
-        roadmap_url = _get_roadmap_sh_url(skill)
-        logger.info(f"[Roadmap.sh] Skill '{skill}' → {roadmap_url}")
-        
-        result = _fetch_single_skill(skill, target_career, personalisation, roadmap_url, gemini_client, types)
-
-        if result:
-            skill_gap_report.append(result)
-            study_plan.append({"skill": result["skill"], "roadmap": result.get("learning_path", [])})
-            gemini_successes += 1
-        else:
-            # Both attempts failed — use curated fallback for this skill
-            curated_entry = _get_curated_skill_entry(skill)
-            skill_gap_report.append(curated_entry)
-            study_plan.append({"skill": curated_entry["skill"], "roadmap": curated_entry["learning_path"]})
-            curated_fallbacks += 1
-            logger.info(f"[Study Planner] Skill '{skill}' fell through to curated resources")
-
-    logger.info(
-        f"[Study Planner] Completed: {gemini_successes} from Gemini, "
-        f"{curated_fallbacks} from curated fallback"
+    from app.services.resource_discovery import (
+        extract_learning_objective,
+        find_high_value_resources,
+        get_learning_stack_template,
+        get_platform_credibility,
+        calculate_overall_rank,
+        resource_metadata_to_dict,
+        ResourceMetadata,
     )
 
-    # If at least some results came back, don't set error
+    missing_skills = state["missing_skills"]
+    target_career = state["target_career"]
+    
+    # Extract user's learning style and profile from questionnaire
+    qa = state.get("questionnaire_answers") or {}
+    personalisation = _build_personalisation_block(qa)
+    learning_style_val = (qa.get("learning_preference") or ["mixed"])[0]  # First preference or default
+    allowed_learning_styles = ["video_tutorials", "hands_on", "reading", "interactive", "mentor", "mixed"]
+    if learning_style_val not in allowed_learning_styles:
+        learning_style_val = "mixed"
+    learning_style = learning_style_val
+    
+    # Infer user's goal from questionnaire (for objective extraction)
+    user_goals = qa.get("primary_goal", [])
+    primary_user_goal = user_goals[0] if user_goals else "learn_technology"
+    
+    # Extract user's stated skill levels (if available)
+    user_skill_levels = {}  # Will be populated from profile data if available
+    
+    logger.info(
+        f"[Resource Discovery] Using learning style: {learning_style}, "
+        f"user goal: {primary_user_goal}"
+    )
+
+    # Build skill recommendations using intent-driven pipeline
+    skill_gap_report: list[dict] = []
+    curated_count = 0
+    gemini_count = 0
+    docs_fallback_count = 0
+
+    for skill in missing_skills:
+        logger.info(f"[Resource Discovery] Processing skill: {skill}")
+        
+        # Step 1: Extract learning objective
+        objective = extract_learning_objective(
+            skill=skill,
+            career_goal=target_career,
+            user_goal=primary_user_goal,
+            user_skill_levels=user_skill_levels,
+            context=None,  # Could include day's task context in Quick Prep flow
+        )
+        logger.info(
+            f"[Resource Discovery] Objective: {objective.specific_objective} "
+            f"(Level: {objective.skill_level})"
+        )
+        
+        # Step 2: Get ideal learning stack template for this skill level + learning style
+        learning_stack_template = get_learning_stack_template(objective, learning_style)  # type: ignore[arg-type]
+        
+        # Step 3: Search for high-value curated resources
+        resource_types = [step["type"] for step in learning_stack_template]
+        curated_resources = find_high_value_resources(skill, resource_types, count_per_type=2)
+        
+        learning_path = []
+        used_curated = False
+        
+        # Step 4: Build learning stack from curated resources
+        for stack_step in learning_stack_template:
+            step_num = stack_step["step"]
+            step_label = stack_step["label"]
+            target_type = stack_step["type"]
+            
+            # Find the best resource of this type
+            candidates = curated_resources.get(target_type, [])
+            
+            if candidates:
+                # Use first candidate (already prioritized in curated DB)
+                title, url, platform, est_time, difficulty = candidates[0]
+                used_curated = True
+                
+                # Calculate ranking scores
+                credibility, usability = get_platform_credibility(platform)
+                relevance = 0.95 if target_type == "tutorial_video" and learning_style == "video_tutorials" else 0.90
+                depth = 0.88 if difficulty == "beginner" else 0.92
+                time_fit = 0.85  # User can customize, so default moderate fit
+                
+                overall_rank = calculate_overall_rank(relevance, depth, credibility, usability, time_fit)
+                
+                resource_meta = ResourceMetadata(
+                    step=step_num,
+                    label=step_label,
+                    type=target_type,
+                    title=title,
+                    url=url,
+                    platform=platform,
+                    est_time=est_time,
+                    cost="Free",
+                    difficulty=difficulty,
+                    relevance_score=relevance,
+                    depth_score=depth,
+                    credibility_score=credibility,
+                    usability_score=usability,
+                    overall_rank=overall_rank,
+                    alt_platforms=[],
+                    feedback_signals={"clicks": 0, "completions": 0, "avg_rating": 0.0},
+                )
+                
+                learning_path.append(resource_metadata_to_dict(resource_meta))
+                logger.info(
+                    f"[Resource Discovery] Skill '{skill}' step {step_num}: "
+                    f"'{title}' (platform={platform}, rank={overall_rank:.3f})"
+                )
+            else:
+                logger.warning(
+                    f"[Resource Discovery] No curated resource found for {skill} "
+                    f"type {target_type}, will use generic fallback"
+                )
+                # Fallback to direct docs link (avoid generic roadmap directory pages)
+                docs_url = _get_doc_url(skill)
+                resource_meta = ResourceMetadata(
+                    step=step_num,
+                    label=step_label,
+                    type="documentation",
+                    title=f"Official {skill} Documentation",
+                    url=docs_url,
+                    platform="Official Docs",
+                    est_time="2-3 hours",
+                    cost="Free",
+                    difficulty="beginner",
+                    relevance_score=0.70,
+                    depth_score=0.80,
+                    credibility_score=0.85,
+                    usability_score=0.75,
+                    overall_rank=0.77,
+                )
+                learning_path.append(resource_metadata_to_dict(resource_meta))
+        
+        if not used_curated and GEMINI_CLIENT:
+            # Dynamic fallback: use Gemini search-grounded retrieval for uncovered skills
+            from google.genai import types
+
+            roadmap_url = _get_roadmap_sh_url(skill)
+            gemini_result = _fetch_single_skill(
+                skill,
+                target_career,
+                personalisation,
+                roadmap_url,
+                GEMINI_CLIENT,
+                types,
+            )
+            if gemini_result and gemini_result.get("learning_path"):
+                learning_path = []
+                for step in gemini_result.get("learning_path", []):
+                    platform = step.get("platform") or step.get("type") or "General"
+                    credibility, usability = get_platform_credibility(platform)
+                    relevance = 0.86
+                    depth = 0.84
+                    overall_rank = calculate_overall_rank(relevance, depth, credibility, usability, 0.82)
+                    resource_meta = ResourceMetadata(
+                        step=step.get("step") or 1,
+                        label=step.get("label") or "Learn",
+                        type="documentation",
+                        title=step.get("title") or f"{skill} Resource",
+                        url=step.get("url") or _get_doc_url(skill),
+                        platform=platform,
+                        est_time=step.get("est_time") or "2-3 hours",
+                        cost=step.get("cost") or "Free",
+                        difficulty="beginner",
+                        relevance_score=relevance,
+                        depth_score=depth,
+                        credibility_score=credibility,
+                        usability_score=usability,
+                        overall_rank=overall_rank,
+                        alt_platforms=step.get("alt_platforms") or [],
+                        feedback_signals={"clicks": 0, "completions": 0, "avg_rating": 0.0},
+                    )
+                    learning_path.append(resource_metadata_to_dict(resource_meta))
+                gemini_count += 1
+            else:
+                docs_fallback_count += 1
+        elif used_curated:
+            curated_count += 1
+        else:
+            docs_fallback_count += 1
+
+        # Build the skill gap report entry
+        skill_entry = {
+            "skill": skill,
+            "learning_objective": {
+                "objective": objective.specific_objective,
+                "expected_outcome": objective.expected_outcome,
+                "skill_level": objective.skill_level,
+                "prerequisites": objective.prerequisite_skills,
+            },
+            "learning_path": learning_path,
+        }
+        skill_gap_report.append(skill_entry)
+
+    logger.info(
+        f"[Resource Discovery] Completed: {curated_count} curated, "
+        f"{gemini_count} Gemini-dynamic, {docs_fallback_count} docs fallback"
+    )
+
     if skill_gap_report:
         return {
-            "study_plan": study_plan,
             "skill_gap_report": skill_gap_report,
+            "study_plan": [
+                {"skill": entry["skill"], "roadmap": entry.get("learning_path", [])}
+                for entry in skill_gap_report
+            ],
         }
 
     return {
-        "study_plan": [],
         "skill_gap_report": [],
-        "error": "All Gemini calls failed and no curated resources available",
+        "study_plan": [],
+        "error": "No resources found for any skill",
     }
 
 
@@ -1253,8 +1448,11 @@ def build_schedule_node(state: StudyPlannerState) -> dict:
         return {}
     from app.services.google_calendar import compute_schedule_summary
 
+    # Keep schedule service input strongly typed as list[dict]
+    schedule_input: list[dict] = [dict(item) for item in skill_gap_report]
+
     schedule_summary = compute_schedule_summary(
-        skill_gap_report,
+        schedule_input,
         state.get("questionnaire_answers"),
     )
     logger.info(
@@ -1345,16 +1543,7 @@ def fallback_resources_node(state: StudyPlannerState) -> dict:
 # ────────────────────────────────────────────────────────
 
 def validate_quick_plan_input_node(state: StudyPlannerState) -> dict:
-    """
-    Validate and sanitise inputs for a Quick Prep plan.
-
-    Ensures:
-    - quick_goal is non-empty
-    - deadline_days is between 1 and 31
-    - target_career is provided
-
-    Sets error on the state if any validation fails.
-    """
+    """Validate and sanitise inputs for a Quick Prep plan."""
     quick_goal = (state.get("quick_goal") or "").strip()
     deadline_days = state.get("deadline_days")
     target_career = (state.get("target_career") or "").strip()
@@ -1390,6 +1579,194 @@ def validate_quick_plan_input_node(state: StudyPlannerState) -> dict:
     }
 
 
+def _normalize_quick_text(value: object) -> str:
+    text = str(value or "").strip().lower()
+    text = _re.sub(r"[^a-z0-9+#.\-/ ]+", " ", text)
+    return _re.sub(r"\s+", " ", text).strip()
+
+
+def _coalesce_text(*values: object) -> str:
+    parts = [str(value).strip() for value in values if value is not None and str(value).strip()]
+    return " ".join(parts)
+
+
+def _build_quick_context(
+    quick_goal: str,
+    target_career: str,
+    learning_profile: Optional[dict],
+) -> dict:
+    profile = learning_profile or {}
+    goal = str(profile.get("preparation_goal") or quick_goal or "").strip()
+    topic_name = str(profile.get("topic_name") or target_career or "General Topic").strip()
+    subtopic = str(profile.get("subtopic") or "").strip()
+    proficiency = _normalize_quick_text(profile.get("current_proficiency") or "")
+    if proficiency not in ["beginner", "intermediate", "advanced"]:
+        proficiency = "beginner"
+    preferred_resource_type = _normalize_quick_text(profile.get("preferred_resource_type") or "")
+    available_hours = profile.get("available_study_time_hours")
+    if not isinstance(available_hours, (int, float)):
+        available_hours = profile.get("available_study_hours") if isinstance(profile.get("available_study_hours"), (int, float)) else None
+
+    return {
+        "topic_name": topic_name,
+        "subtopic": subtopic,
+        "preparation_goal": goal,
+        "deadline_days": profile.get("timeline_days"),
+        "current_proficiency": proficiency,
+        "available_study_time_hours": available_hours,
+        "preferred_resource_type": preferred_resource_type,
+        "notes": str(profile.get("quick_notes") or profile.get("custom_notes") or "").strip(),
+        "strict_context_isolation": bool(profile.get("strict_context_isolation", True)),
+    }
+
+
+def _infer_quick_bucket(topic: str, subtopic: str, quick_context: dict) -> str:
+    text = _normalize_quick_text(
+        _coalesce_text(
+            topic,
+            subtopic,
+            quick_context.get("topic_name"),
+            quick_context.get("subtopic"),
+            quick_context.get("preparation_goal"),
+        )
+    )
+    if any(word in text for word in ["system design", "architecture", "distributed", "microservice"]):
+        return "system_design"
+    if any(word in text for word in ["sql", "database", "query", "joins", "index", "postgres", "mysql"]):
+        return "sql"
+    if any(word in text for word in ["frontend", "react", "javascript", "typescript", "ui", "css", "web"]):
+        return "frontend"
+    if any(word in text for word in ["backend", "api", "rest", "node", "fastapi", "spring", "django", "express"]):
+        return "backend"
+    if any(word in text for word in ["algorithm", "data structure", "dsa", "coding", "problem"]):
+        return "coding"
+    return "general"
+
+
+def _quick_resource_bundle(bucket: str, topic: str, subtopic: str, proficiency: str, preferred_resource_type: str = "") -> dict[str, dict[str, str]]:
+    topic_key = _normalise_topic_key(topic or subtopic)
+    focus = (subtopic or topic or "quick prep").strip()
+
+    video_map = {
+        "sql": ("SQL One-shot Revision", "https://www.youtube.com/watch?v=HXV3zeQKqGY"),
+        "system_design": ("System Design One-shot", "https://www.youtube.com/watch?v=bUHFg8CZFws"),
+        "frontend": ("Frontend One-shot Revision", "https://www.youtube.com/watch?v=bMknfKXIFA8"),
+        "backend": ("Backend One-shot Revision", "https://www.youtube.com/watch?v=Oe421EPjeBE"),
+        "coding": ("Coding Concepts One-shot", "https://www.youtube.com/watch?v=PkZNo7MFNFg"),
+        "general": ("Quick Prep One-shot", "https://www.youtube.com/watch?v=_uQrJ0TkZlc"),
+    }
+
+    docs_map = {
+        "sql": ("SQL Notes and Cheat Sheet", "https://www.w3schools.com/sql/"),
+        "system_design": ("System Design Notes", "https://github.com/donnemartin/system-design-primer"),
+        "frontend": ("Frontend Notes and Concepts", "https://react.dev/learn"),
+        "backend": ("Backend API Design Notes", "https://roadmap.sh/backend"),
+        "coding": ("Coding Patterns Notes", "https://neetcode.io/roadmap"),
+        "general": ("Topic Quick Notes", "https://roadmap.sh/computer-science"),
+    }
+
+    practice_map = {
+        "sql": ("SQL Query Practice", "https://leetcode.com/problemset/database/"),
+        "system_design": ("Design Exercise", "https://github.com/donnemartin/system-design-primer#system-design-topics-start-here"),
+        "frontend": ("Frontend Exercise Set", "https://www.frontendmentor.io/challenges"),
+        "backend": ("Backend API Exercise", "https://exercism.org/tracks/python"),
+        "coding": ("Timed Coding Practice", "https://neetcode.io/practice"),
+        "general": ("Hands-on Practice", "https://exercism.org/"),
+    }
+
+    checklist_map = {
+        "sql": ("SQL Revision Summary", "https://www.w3schools.com/sql/sql_quickref.asp"),
+        "system_design": ("System Design Revision Summary", "https://github.com/donnemartin/system-design-primer"),
+        "frontend": ("Frontend Revision Summary", "https://react.dev/learn"),
+        "backend": ("Backend Revision Summary", "https://roadmap.sh/backend"),
+        "coding": ("Coding Revision Summary", "https://neetcode.io/roadmap"),
+        "general": ("Quick Revision Summary", "https://roadmap.sh/computer-science"),
+    }
+
+    _, video_url = video_map.get(bucket, video_map["general"])
+    docs_title, docs_url = docs_map.get(bucket, docs_map["general"])
+    practice_title, practice_url = practice_map.get(bucket, practice_map["general"])
+    _, checklist_url = checklist_map.get(bucket, checklist_map["general"])
+
+    if topic_key in CURATED_RESOURCES:
+        topical_video = next((item for item in CURATED_RESOURCES[topic_key] if str(item.get("type", "")).lower() == "youtube"), None)
+        topical_docs = next((item for item in CURATED_RESOURCES[topic_key] if str(item.get("type", "")).lower() == "documentation"), None)
+        topical_practice = next((item for item in CURATED_RESOURCES[topic_key] if str(item.get("type", "")).lower() in ["interactive", "course"]), None)
+        if topical_video and topical_video.get("url"):
+            video_url = str(topical_video["url"])
+        if topical_docs and topical_docs.get("url"):
+            docs_url = str(topical_docs["url"])
+        if topical_practice and topical_practice.get("url"):
+            practice_url = str(topical_practice["url"])
+
+    video_est = "45-90 minutes" if proficiency == "beginner" else "60-120 minutes"
+    practice_est = "45-90 minutes" if bucket != "system_design" else "60-120 minutes"
+
+    if preferred_resource_type in ["notes", "docs", "documentation"]:
+        docs_title = f"{focus} Notes (Preferred)"
+    if preferred_resource_type in ["exercise", "practice", "hands_on"]:
+        practice_title = f"{focus} Practice (Preferred)"
+    if preferred_resource_type in ["video", "youtube", "one_shot_video"]:
+        video_est = "60-120 minutes"
+
+    return {
+        "video": {
+            "title": f"{focus} - One-shot prep",
+            "url": video_url,
+            "est_time": video_est,
+            "why_this": "High-signal one-shot overview aligned to your Quick Prep goal.",
+        },
+        "docs_notes": {
+            "title": docs_title,
+            "url": docs_url,
+            "est_time": "20-40 minutes",
+            "why_this": "Concise notes for rapid revision and concept recall.",
+        },
+        "practice": {
+            "title": practice_title,
+            "url": practice_url,
+            "est_time": practice_est,
+            "why_this": "Practical exercise mapped to today's topic and subtopic.",
+        },
+        "checklist_summary": {
+            "title": f"{focus} Revision Summary",
+            "url": checklist_url,
+            "est_time": "10-20 minutes",
+            "why_this": "End-of-day checklist and summary to lock in what you prepared.",
+        },
+    }
+
+
+def _build_follow_up_recommendations(quick_context: dict, checklist: list[str], feedback_signals: Optional[dict]) -> list[str]:
+    bucket = _infer_quick_bucket(
+        str(quick_context.get("topic_name") or ""),
+        str(quick_context.get("subtopic") or ""),
+        quick_context,
+    )
+    recommendations = []
+
+    if bucket == "system_design":
+        recommendations.append("Do one more architecture sketch and validate trade-offs.")
+    elif bucket == "sql":
+        recommendations.append("Re-run the query practice and compare with an optimized solution.")
+    elif bucket == "frontend":
+        recommendations.append("Review state flow and component behavior before moving to the next topic.")
+    elif bucket == "backend":
+        recommendations.append("Revisit API contracts and error handling assumptions.")
+    else:
+        recommendations.append("Repeat the mini practice challenge once under a tighter time limit.")
+
+    if checklist:
+        recommendations.append(f"Use the checklist to verify: {checklist[0]}")
+
+    signals = feedback_signals or {}
+    avg_rating = signals.get("avg_rating") if isinstance(signals, dict) else None
+    if isinstance(avg_rating, (int, float)) and avg_rating < 4:
+        recommendations.append("Reduce scope and focus on core concepts before moving on.")
+
+    return recommendations[:3]
+
+
 # ────────────────────────────────────────────────────────
 # Node Q2: Build the day-by-day Quick Prep plan via Gemini
 # ────────────────────────────────────────────────────────
@@ -1399,52 +1776,86 @@ def _build_quick_plan_prompt(
     target_career: str,
     deadline_days: int,
     specific_requirements: str,
+    learning_profile: Optional[dict],
+    feedback_signals: Optional[dict],
+    quick_context: Optional[dict],
 ) -> str:
     """
     Build the Gemini prompt for Quick Prep plan generation.
 
-    The LLM is asked to return both detected_skills and day_by_day_schedule
-    in a single pass to avoid a costly two-step chain.
+    The LLM returns detected_skills and day_by_day entries in a single pass,
+    grounded with user context + historical feedback signals.
     """
     req_block = (
         f"\nExtra requirements from the user: {specific_requirements}"
         if specific_requirements and specific_requirements.strip()
         else ""
     )
+    profile_block = json.dumps(learning_profile or {}, ensure_ascii=True, indent=2)
+    feedback_block = json.dumps(feedback_signals or {}, ensure_ascii=True, indent=2)
+    quick_context_block = json.dumps(quick_context or {}, ensure_ascii=True, indent=2)
 
-    return f"""You are an expert career coach and curriculum designer.
+    return f"""You are an expert preparation planner.
 
 A user has the following SHORT-TERM goal:
   Goal: "{quick_goal}"
-  Career context: {target_career}
+    Topic context: {target_career}
   Deadline: {deadline_days} days from today
 {req_block}
 
-Your task is to generate a hyper-focused, day-by-day study plan to help the user hit this goal before the deadline.
+Quick Prep profile (must be used to personalize daily tasks and resources):
+{profile_block}
+
+Quick Prep context boundary (must be respected):
+{quick_context_block}
+
+Historical Quick Prep feedback signals (use only when provided):
+{feedback_block}
+
+Your task is to generate a self-contained day-by-day Quick Prep plan.
+Use only the Quick Prep inputs. Do not infer role, company, interview metadata, or cross-module context unless explicitly provided in quick_context.
 
 Rules:
 1. First, extract the 3-7 most important skills or topics implied by the goal.
-2. Then create EXACTLY {deadline_days} day entries — one per day, numbered 1 to {deadline_days}.
-3. Each day must have a clear, actionable focus and a concrete deliverable (something the user can check off).
-4. Include AT LEAST ONE high-quality, real resource per day (direct URL, no search links).
-5. Distribute skills logically: build foundations early, practice and simulate towards the end.
-6. If deadline_days >= 7, include at least one mock-test or practice-project day in the last quarter.
-7. Keep each task completable in 1-3 hours of focused study.
-8. Use Google Search to find the best real resource URLs for each topic.
+2. Then create EXACTLY {deadline_days} day entries, one per day, numbered 1 to {deadline_days}.
+3. Each day must have a clear, actionable focus and a concrete deliverable.
+4. Every day must include a topic-relevant 4-part micro-learning stack with direct URLs (no search pages):
+        - one_shot_video: one concise YouTube one-shot for the day's topic
+        - docs_notes: concise notes or documentation for revision
+        - practice: one practical exercise directly tied to the day's topic
+        - checklist_summary: compact end-of-day revision summary
+5. Do not reuse the same one_shot_video URL across unrelated topics.
+6. Ensure resource-topic mapping is precise: SQL topics get SQL resources, React topics get React resources, system design topics get system design resources, etc.
+7. Personalize depth and pace from quick_context fields: current_proficiency, available_study_time_hours, preferred_resource_type, notes, and preparation_goal.
+8. Respect strict context isolation: only optimize for what the user asked in Quick Prep.
+9. Respect deadline and timeline pressure; prioritize high-impact preparation outcomes for the provided goal.
+10. Include at least one simulation/mixed practice day in the final quarter when deadline_days >= 7.
+11. Include follow_up_recommendations for each day based on likely gaps, skipped work, or low ratings.
+12. Rank each resource using: topic_alignment, clarity, credibility, recency, completion_time_fit, practical_usefulness.
 
 Output ONLY valid JSON (no preamble, no markdown fences):
 {{
-  "detected_skills": ["skill1", "skill2", ...],
+  "detected_skills": ["skill1", "skill2"],
   "day_by_day": [
     {{
       "day": 1,
-      "focus": "Short topic name (e.g. React Hooks Basics)",
+      "topic": "Main topic",
+      "subtopic": "Narrow concept",
+      "learning_objective": "Exact objective for today",
+      "proficiency_level": "beginner",
+      "focus": "Short topic name",
       "task": "One sentence describing what to do today",
-      "resource": {{
-        "title": "Resource name",
-        "url": "https://direct-url-here.com",
-        "est_time": "X hours"
-      }},
+      "resource_stack": [
+        {{"type": "one_shot_video", "title": "...", "url": "https://...", "est_time": "...", "why_this": "...", "rank": {{"topic_alignment": 0.0, "clarity": 0.0, "credibility": 0.0, "recency": 0.0, "completion_time_fit": 0.0, "practical_usefulness": 0.0, "overall": 0.0}}}},
+        {{"type": "docs_notes", "title": "...", "url": "https://...", "est_time": "...", "why_this": "...", "rank": {{"topic_alignment": 0.0, "clarity": 0.0, "credibility": 0.0, "recency": 0.0, "completion_time_fit": 0.0, "practical_usefulness": 0.0, "overall": 0.0}}}},
+        {{"type": "practice", "title": "...", "url": "https://...", "est_time": "...", "why_this": "...", "rank": {{"topic_alignment": 0.0, "clarity": 0.0, "credibility": 0.0, "recency": 0.0, "completion_time_fit": 0.0, "practical_usefulness": 0.0, "overall": 0.0}}}},
+        {{"type": "checklist_summary", "title": "...", "url": "https://...", "est_time": "10-20 minutes", "why_this": "...", "rank": {{"topic_alignment": 0.0, "clarity": 0.0, "credibility": 0.0, "recency": 0.0, "completion_time_fit": 0.0, "practical_usefulness": 0.0, "overall": 0.0}}}}
+      ],
+      "resource": {{"title": "Primary resource title", "url": "https://direct-url-here.com", "est_time": "X hours"}},
+      "takeaway_summary": "2-3 lines on what to remember today",
+      "checklist": ["bullet 1", "bullet 2", "bullet 3"],
+            "follow_up_recommendations": ["next step 1", "next step 2"],
+                        "quick_context": {{"topic_name": "SQL", "subtopic": "Joins", "preparation_goal": "Revise query writing"}},
       "deliverable": "What the user should have completed by end of day",
       "skill_tag": "which detected_skill this maps to"
     }}
@@ -1452,7 +1863,161 @@ Output ONLY valid JSON (no preamble, no markdown fences):
 }}"""
 
 
-def _parse_quick_plan_response(raw: str) -> dict | None:
+def _quick_proficiency_from_goal(goal_text: str, day_num: int, deadline_days: int) -> str:
+        """Infer proficiency target using user goal text and progression across days."""
+        text = (goal_text or "").lower()
+        if any(k in text for k in ["advanced", "senior", "system design", "deep dive", "expert"]):
+                base = "advanced"
+        elif any(k in text for k in ["interview", "revision", "switch", "upskill"]):
+                base = "intermediate"
+        else:
+                base = "beginner"
+
+        # Progression ramp by timeline so late days become more applied.
+        if base == "beginner" and deadline_days >= 4 and day_num > max(2, int(deadline_days * 0.6)):
+                return "intermediate"
+        if base == "intermediate" and deadline_days >= 7 and day_num > int(deadline_days * 0.75):
+                return "advanced"
+        return base
+
+
+def _score_quick_resource(url: str, resource_type: str) -> dict:
+    """Heuristic ranking factors for Quick Prep resources."""
+    domain = (url or "").lower()
+    credibility = 0.86
+    recency = 0.78
+    if any(d in domain for d in ["react.dev", "developer.mozilla.org", "docs.", "kubernetes.io", "python.org", "typescriptlang.org", "fastapi.tiangolo.com"]):
+        credibility = max(credibility, 0.97)
+    if any(d in domain for d in ["react.dev", "developer.mozilla.org", "docs.", "kubernetes.io", "python.org", "typescriptlang.org", "fastapi.tiangolo.com"]):
+        credibility = 0.98
+    if any(d in domain for d in ["youtube.com", "exercism.org", "leetcode.com", "hackerrank.com", "codecademy.com", "freecodecamp.org", "scrimba.com"]):
+        credibility = max(credibility, 0.9)
+
+    topic_alignment = 0.92
+    clarity = 0.9 if resource_type in ["one_shot_video", "docs_notes"] else 0.86
+    completion_time_fit = 0.9 if resource_type in ["checklist_summary", "docs_notes"] else 0.84
+    practical_usefulness = 0.93 if resource_type == "practice" else 0.88
+    overall = (
+        0.28 * topic_alignment
+        + 0.16 * clarity
+        + 0.22 * credibility
+        + 0.10 * recency
+        + 0.12 * completion_time_fit
+        + 0.12 * practical_usefulness
+    )
+    return {
+        "topic_alignment": round(topic_alignment, 3),
+        "clarity": round(clarity, 3),
+        "credibility": round(credibility, 3),
+        "recency": round(recency, 3),
+        "completion_time_fit": round(completion_time_fit, 3),
+        "practical_usefulness": round(practical_usefulness, 3),
+        "overall": round(overall, 3),
+    }
+
+
+def _normalise_topic_key(text: str) -> str:
+        """Normalize topic text for matching against curated resource keys."""
+        t = (text or "").strip().lower()
+        t = _re.sub(r"[^a-z0-9+#.\- ]+", " ", t)
+        t = _re.sub(r"\s+", " ", t).strip()
+        aliases = {
+                "reactjs": "react",
+                "react.js": "react",
+                "node": "node.js",
+                "nodejs": "node.js",
+                "js": "javascript",
+                "ts": "typescript",
+                "postgres": "sql",
+                "postgresql": "sql",
+                "mysql": "sql",
+                "sqlite": "sql",
+                "system design": "system design",
+                "oop": "software design",
+        }
+        return aliases.get(t, t)
+
+
+
+def _pick_curated_resources(topic: str, subtopic: str) -> list[dict]:
+        """Pick the best curated resource bundle for a topic/subtopic pair."""
+        candidates: list[str] = []
+        for raw in [topic, subtopic]:
+                normalized = _normalise_topic_key(raw)
+                if normalized:
+                        candidates.append(normalized)
+                        candidates.extend(normalized.split())
+
+        for key in candidates:
+                if key in CURATED_RESOURCES:
+                        return CURATED_RESOURCES[key]
+
+        for candidate in candidates:
+                for key in CURATED_RESOURCES:
+                        if candidate and (candidate in key or key in candidate):
+                                return CURATED_RESOURCES[key]
+
+        return []
+
+
+
+def _build_default_quick_resource_stack(topic: str, subtopic: str, proficiency: str, quick_context: Optional[dict] = None) -> list[dict]:
+    """Build a direct-link actionable 4-part stack optimized for the Quick Prep request."""
+    quick_context = quick_context or {}
+    bucket = _infer_quick_bucket(topic, subtopic, quick_context)
+    preferred_resource_type = str(quick_context.get("preferred_resource_type") or "")
+    bundle = _quick_resource_bundle(bucket, topic, subtopic, proficiency, preferred_resource_type)
+
+    focus = (subtopic or topic or quick_context.get("topic_name") or "Quick Prep").strip()
+    video = bundle["video"]
+    docs = bundle["docs_notes"]
+    practice = bundle["practice"]
+    checklist = bundle["checklist_summary"]
+
+    stack = [
+        {
+            "type": "one_shot_video",
+            "title": video["title"],
+            "url": video["url"],
+            "est_time": video["est_time"],
+            "why_this": video["why_this"],
+            "rank": _score_quick_resource(video["url"], "one_shot_video"),
+        },
+        {
+            "type": "docs_notes",
+            "title": docs["title"],
+            "url": docs["url"],
+            "est_time": docs["est_time"],
+            "why_this": docs["why_this"],
+            "rank": _score_quick_resource(docs["url"], "docs_notes"),
+        },
+        {
+            "type": "practice",
+            "title": f"{focus} - practical exercise",
+            "url": practice["url"],
+            "est_time": practice["est_time"],
+            "why_this": practice["why_this"],
+            "rank": _score_quick_resource(practice["url"], "practice"),
+        },
+        {
+            "type": "checklist_summary",
+            "title": f"{focus} - revision summary",
+            "url": checklist["url"],
+            "est_time": checklist["est_time"],
+            "why_this": checklist["why_this"],
+            "rank": _score_quick_resource(checklist["url"], "checklist_summary"),
+        },
+    ]
+    return stack
+
+
+def _parse_quick_plan_response(
+    raw: str,
+    learning_profile: Optional[dict] = None,
+    quick_goal: str = "",
+    target_career: str = "",
+    feedback_signals: Optional[dict] = None,
+) -> dict | None:
     """
     Parse the Gemini JSON response for a quick plan.
     Returns dict with detected_skills and day_by_day, or None on failure.
@@ -1479,49 +2044,162 @@ def _parse_quick_plan_response(raw: str) -> dict | None:
     if not days:
         return None
 
+    quick_context = _build_quick_context(quick_goal, target_career, learning_profile)
+
     # Normalise each day entry to the QuickPlanDay shape
     normalised = []
     for d in days:
         if not isinstance(d, dict):
             continue
+        day_num = int(d.get("day", len(normalised) + 1) or (len(normalised) + 1))
+        topic = (d.get("topic") or d.get("skill_tag") or d.get("focus") or "").strip()
+        subtopic = (d.get("subtopic") or d.get("focus") or topic or "Study Session").strip()
+        proficiency = (d.get("proficiency_level") or "").strip().lower()
+        if proficiency not in ["beginner", "intermediate", "advanced"]:
+            proficiency = _quick_proficiency_from_goal(str(d.get("task") or ""), day_num, len(days))
+
+        stack = d.get("resource_stack")
+        if not isinstance(stack, list) or len(stack) == 0:
+            stack = _build_default_quick_resource_stack(topic, subtopic, proficiency, quick_context)
+
+        # Keep exactly the expected 4 resource types in stable order.
+        stack_by_type = {}
+        for item in stack:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type") or "").strip().lower()
+            if item_type in ["one_shot_video", "docs_notes", "practice", "checklist_summary"]:
+                if "rank" not in item:
+                    item["rank"] = _score_quick_resource(str(item.get("url") or ""), item_type)
+                stack_by_type[item_type] = {
+                    "type": item_type,
+                    "title": item.get("title") or "Learning Resource",
+                    "url": item.get("url") or _get_doc_url(topic or "software-engineering"),
+                    "est_time": item.get("est_time") or "20-60 minutes",
+                    "why_this": item.get("why_this") or "Directly supports today's objective.",
+                    "rank": item.get("rank") or _score_quick_resource(str(item.get("url") or ""), item_type),
+                }
+
+        if len(stack_by_type) < 4:
+            for fallback_item in _build_default_quick_resource_stack(topic, subtopic, proficiency, quick_context):
+                if fallback_item["type"] not in stack_by_type:
+                    stack_by_type[fallback_item["type"]] = fallback_item
+
+        ordered_stack = [
+            stack_by_type["one_shot_video"],
+            stack_by_type["docs_notes"],
+            stack_by_type["practice"],
+            stack_by_type["checklist_summary"],
+        ]
+
+        primary_resource_raw = d.get("resource")
+        if not isinstance(primary_resource_raw, dict):
+            primary_resource_raw = {}
+        primary_resource = {
+            "title": primary_resource_raw.get("title") or ordered_stack[0]["title"],
+            "url": primary_resource_raw.get("url") or ordered_stack[0]["url"],
+            "est_time": primary_resource_raw.get("est_time") or ordered_stack[0]["est_time"],
+        }
+
+        checklist_raw = d.get("checklist")
+        if not isinstance(checklist_raw, list):
+            checklist_raw = []
+        checklist = [str(x).strip() for x in checklist_raw if str(x).strip()]
+        if len(checklist) < 3:
+            checklist = [
+                f"Explain {subtopic} in your own words.",
+                "Complete the practice resource and save your solution.",
+                "Review checklist_summary notes before ending the session.",
+            ]
+
+        takeaway_summary = str(d.get("takeaway_summary") or "").strip()
+        if not takeaway_summary:
+            takeaway_summary = (
+                f"Today you focused on {subtopic}. "
+                "Use the one-shot video, complete the practice task, then finish with revision summary and checklist."
+            )
+
+        recommendations_raw = d.get("follow_up_recommendations")
+        if isinstance(recommendations_raw, list):
+            follow_up_recommendations = [str(x).strip() for x in recommendations_raw if str(x).strip()]
+        else:
+            follow_up_recommendations = []
+        if not follow_up_recommendations:
+            follow_up_recommendations = _build_follow_up_recommendations(quick_context, checklist, feedback_signals)
+
         normalised.append({
-            "day": d.get("day", len(normalised) + 1),
-            "focus": d.get("focus", "Study Session"),
-            "task": d.get("task", "Focused study"),
-            "resource": d.get("resource") or {},
+            "day": day_num,
+            "topic": topic or "Core Topic",
+            "subtopic": subtopic,
+            "learning_objective": d.get("learning_objective") or f"Be able to apply {subtopic} in one practical task.",
+            "proficiency_level": proficiency,
+            "focus": d.get("focus", subtopic or "Study Session"),
+            "task": d.get("task", "Focused quick prep session"),
+            "resource": primary_resource,
+            "resource_stack": ordered_stack,
+            "takeaway_summary": takeaway_summary,
+            "checklist": checklist,
+            "follow_up_recommendations": follow_up_recommendations,
+            "quick_context": quick_context,
             "deliverable": d.get("deliverable", "Complete today's study task"),
-            "skill_tag": d.get("skill_tag", ""),
+            "skill_tag": d.get("skill_tag") or topic,
         })
 
     return {
         "detected_skills": [s for s in skills if isinstance(s, str)],
         "day_by_day": normalised,
+        "quick_context": quick_context,
     }
 
 
-def _build_quick_plan_fallback(quick_goal: str, deadline_days: int) -> dict:
+def _build_quick_plan_fallback(
+    quick_goal: str,
+    deadline_days: int,
+    learning_profile: Optional[dict] = None,
+    target_career: str = "",
+    feedback_signals: Optional[dict] = None,
+) -> dict:
     """
     Generate a simple generic fallback quick plan when Gemini fails.
     Phases: Learn → Practice → Review → Simulate.
     """
     days = []
-    phases = ["Learn Fundamentals", "Deepen Understanding", "Practice & Apply", "Simulate & Review"]
+    quick_context = _build_quick_context(quick_goal, target_career or str((learning_profile or {}).get("target_role") or ""), learning_profile)
+    phases = ["Foundations", "Deepen Understanding", "Practice and Apply", "Review and Consolidate"]
     for day_num in range(1, deadline_days + 1):
         phase_idx = min(int((day_num - 1) / max(1, deadline_days) * len(phases)), len(phases) - 1)
         phase = phases[phase_idx]
+        proficiency = _quick_proficiency_from_goal(quick_goal, day_num, deadline_days)
+        topic = str(quick_context.get("topic_name") or "Quick Prep")
+        subtopic = f"{phase}"
+        stack = _build_default_quick_resource_stack(topic, subtopic, proficiency, quick_context)
+        checklist = [
+            f"Finish the {phase.lower()} work without skipping the practice task.",
+            "Track missed concepts and add them to tomorrow's review.",
+            "Close with a short summary and next-step note.",
+        ]
         days.append({
             "day": day_num,
+            "topic": topic,
+            "subtopic": subtopic,
+            "learning_objective": f"Complete a focused {phase.lower()} session aligned to your Quick Prep goal: '{quick_goal[:50]}'.",
+            "proficiency_level": proficiency,
             "focus": f"Day {day_num}: {phase}",
-            "task": f"Study key concepts related to your goal: '{quick_goal[:50]}'. Use the resource link.",
+            "task": f"Work through topic resources and the mini practice challenge for '{quick_goal[:50]}'.",
             "resource": {
-                "title": "roadmap.sh — Learning Roadmaps",
-                "url": "https://roadmap.sh",
-                "est_time": "1-2 hours",
+                "title": stack[0]["title"],
+                "url": stack[0]["url"],
+                "est_time": stack[0]["est_time"],
             },
-            "deliverable": f"Complete {phase.lower()} tasks and take notes",
+            "resource_stack": stack,
+            "takeaway_summary": "Use the quick-prep stack to learn fast, practice immediately, and capture weak spots.",
+            "checklist": checklist,
+            "follow_up_recommendations": _build_follow_up_recommendations(quick_context, checklist, feedback_signals),
+            "quick_context": quick_context,
+            "deliverable": f"Complete {phase.lower()} tasks and record preparation gaps",
             "skill_tag": "",
         })
-    return {"detected_skills": [], "day_by_day": days}
+    return {"detected_skills": [], "day_by_day": days, "quick_context": quick_context}
 
 
 def build_quick_plan_node(state: StudyPlannerState) -> dict:
@@ -1545,8 +2223,19 @@ def build_quick_plan_node(state: StudyPlannerState) -> dict:
     target_career = state.get("target_career", "")
     deadline_days = state.get("deadline_days", 7)
     specific_requirements = state.get("specific_requirements", "")
+    learning_profile = state.get("learning_profile") or {}
+    feedback_signals = state.get("feedback_signals") or {}
+    quick_context = _build_quick_context(quick_goal, target_career, learning_profile)
 
-    prompt = _build_quick_plan_prompt(quick_goal, target_career, deadline_days, specific_requirements)
+    prompt = _build_quick_plan_prompt(
+        quick_goal,
+        target_career,
+        deadline_days,
+        specific_requirements,
+        learning_profile,
+        feedback_signals,
+        quick_context,
+    )
 
     parsed = None
     for attempt in range(1, 3):
@@ -1561,7 +2250,7 @@ def build_quick_plan_node(state: StudyPlannerState) -> dict:
             )
             raw = response.text or ""
             if raw:
-                parsed = _parse_quick_plan_response(raw)
+                parsed = _parse_quick_plan_response(raw, learning_profile, quick_goal, target_career, feedback_signals)
             if parsed:
                 logger.info(
                     f"[Quick Plan] Generated {len(parsed['day_by_day'])} days "
@@ -1575,9 +2264,10 @@ def build_quick_plan_node(state: StudyPlannerState) -> dict:
 
     if not parsed:
         logger.warning("[Quick Plan] Both Gemini attempts failed — using fallback plan")
-        parsed = _build_quick_plan_fallback(quick_goal, deadline_days)
+        parsed = _build_quick_plan_fallback(quick_goal, deadline_days, learning_profile, target_career, feedback_signals)
 
     return {
         "detected_skills": parsed["detected_skills"],
         "quick_plan_days": parsed["day_by_day"],
+        "quick_context": parsed.get("quick_context", quick_context),
     }

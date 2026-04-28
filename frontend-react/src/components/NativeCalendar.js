@@ -2,7 +2,8 @@
 // Native React monthly calendar with hover popovers and Framer Motion animations.
 // Supports both 'standard' (computed dates from schedule) and 'quick_prep' (explicit dates).
 
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, ExternalLink, Zap, BookOpen, Calendar as CalIcon } from "lucide-react";
 
@@ -60,23 +61,108 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+const POPOVER_PADDING = 12;
+const POPOVER_GAP = 12;
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getPopoverGeometry(anchorRect, popoverRect) {
+  if (!anchorRect) {
+    return {
+      placement: "bottom",
+      style: { top: POPOVER_PADDING, left: POPOVER_PADDING },
+    };
+  }
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const popoverWidth = popoverRect?.width || 320;
+  const popoverHeight = popoverRect?.height || 220;
+
+  const spaces = {
+    top: anchorRect.top - POPOVER_GAP - POPOVER_PADDING,
+    bottom: viewportHeight - anchorRect.bottom - POPOVER_GAP - POPOVER_PADDING,
+    left: anchorRect.left - POPOVER_GAP - POPOVER_PADDING,
+    right: viewportWidth - anchorRect.right - POPOVER_GAP - POPOVER_PADDING,
+  };
+
+  let placement = "bottom";
+  if (spaces.bottom >= popoverHeight || spaces.bottom >= spaces.top) {
+    placement = "bottom";
+  } else if (spaces.top >= popoverHeight || spaces.top >= spaces.bottom) {
+    placement = "top";
+  } else if (spaces.right >= popoverWidth || spaces.right >= spaces.left) {
+    placement = "right";
+  } else {
+    placement = "left";
+  }
+
+  let top = anchorRect.bottom + POPOVER_GAP;
+  let left = anchorRect.left + anchorRect.width / 2 - popoverWidth / 2;
+
+  if (placement === "top") {
+    top = anchorRect.top - POPOVER_GAP - popoverHeight;
+  } else if (placement === "right") {
+    top = anchorRect.top + anchorRect.height / 2 - popoverHeight / 2;
+    left = anchorRect.right + POPOVER_GAP;
+  } else if (placement === "left") {
+    top = anchorRect.top + anchorRect.height / 2 - popoverHeight / 2;
+    left = anchorRect.left - POPOVER_GAP - popoverWidth;
+  }
+
+  const boundedLeft = clamp(left, POPOVER_PADDING, Math.max(POPOVER_PADDING, viewportWidth - popoverWidth - POPOVER_PADDING));
+  const boundedTop = clamp(top, POPOVER_PADDING, Math.max(POPOVER_PADDING, viewportHeight - popoverHeight - POPOVER_PADDING));
+
+  return {
+    placement,
+    style: {
+      top: `${boundedTop}px`,
+      left: `${boundedLeft}px`,
+    },
+  };
+}
+
 // ── Popover ────────────────────────────────────────────────────────────────
 
-function DayPopover({ entries, planType }) {
+const DayPopover = React.forwardRef(function DayPopover(
+  { entries, planType, placement = "bottom", position, onMouseEnter, onMouseLeave },
+  ref,
+) {
   return (
     <motion.div
+      ref={ref}
+      role="dialog"
+      aria-label="Calendar preview"
       initial={{ opacity: 0, y: 6, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 4, scale: 0.96 }}
       transition={{ type: "spring", stiffness: 420, damping: 28 }}
-      className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 
+      className="fixed z-[70] w-[min(20rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1rem)] 
                  bg-popover border border-border rounded-xl shadow-2xl p-3 space-y-2
-                 pointer-events-none"
-      style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.18))" }}
+                 pointer-events-auto overflow-y-auto overscroll-contain"
+      style={{
+        ...position,
+        maxHeight: "min(24rem, calc(100vh - 1.5rem))",
+        filter: "drop-shadow(0 10px 28px rgba(0,0,0,0.2))",
+      }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       {/* Arrow */}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 w-3 h-1.5 overflow-hidden">
-        <div className="w-3 h-3 bg-popover border-r border-b border-border rotate-45 -translate-y-1.5 mx-auto" />
+      <div
+        className={`absolute w-3 h-3 overflow-hidden ${
+          placement === "top"
+            ? "top-full left-1/2 -translate-x-1/2"
+            : placement === "bottom"
+              ? "bottom-full left-1/2 -translate-x-1/2"
+              : placement === "left"
+                ? "left-full top-1/2 -translate-y-1/2"
+                : "right-full top-1/2 -translate-y-1/2"
+        }`}
+      >
+        <div className="w-3 h-3 bg-popover border border-border rotate-45 -translate-y-1.5 mx-auto" />
       </div>
 
       {entries.map((entry, idx) => (
@@ -141,26 +227,15 @@ function DayPopover({ entries, planType }) {
       ))}
     </motion.div>
   );
-}
+});
 
 // ── Calendar Cell ──────────────────────────────────────────────────────────
 
-function CalendarCell({ dateObj, isCurrentMonth, entries, planType, isToday, isDeadline }) {
-  const [showPopover, setShowPopover] = useState(false);
-  const timerRef = useRef(null);
-
+const CalendarCell = React.forwardRef(function CalendarCell(
+  { dateObj, isCurrentMonth, entries, planType, isToday, isDeadline, isPopoverActive, onHoverEnter, onHoverLeave, onTogglePopover },
+  ref,
+) {
   const hasEntries = entries && entries.length > 0;
-
-  const handleMouseEnter = useCallback(() => {
-    if (!hasEntries) return;
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setShowPopover(true), 80);
-  }, [hasEntries]);
-
-  const handleMouseLeave = useCallback(() => {
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setShowPopover(false), 120);
-  }, []);
 
   // Colour dot per entry
   const dotColors = planType === "quick_prep"
@@ -174,11 +249,19 @@ function CalendarCell({ dateObj, isCurrentMonth, entries, planType, isToday, isD
         transition-colors duration-150 group
         ${isCurrentMonth ? "text-foreground" : "text-muted-foreground/40"}
         ${hasEntries ? "cursor-pointer hover:bg-muted/50" : ""}
+        ${isPopoverActive ? "bg-muted/60 ring-2 ring-primary/35" : ""}
         ${isToday ? "ring-2 ring-primary ring-offset-1 ring-offset-background font-bold" : ""}
         ${isDeadline ? "bg-red-500/8 ring-1 ring-red-500/40" : ""}
       `}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={(e) => hasEntries && onHoverEnter?.(e.currentTarget, entries, dateObj)}
+      onMouseLeave={() => hasEntries && onHoverLeave?.()}
+      onClick={(e) => hasEntries && onTogglePopover?.(e.currentTarget, entries, dateObj)}
+      onFocus={(e) => hasEntries && onHoverEnter?.(e.currentTarget, entries, dateObj)}
+      onBlur={() => hasEntries && onHoverLeave?.()}
+      ref={ref}
+      tabIndex={hasEntries ? 0 : undefined}
+      aria-haspopup={hasEntries ? "dialog" : undefined}
+      aria-expanded={isPopoverActive ? true : undefined}
     >
       {/* Day number */}
       <span
@@ -210,15 +293,9 @@ function CalendarCell({ dateObj, isCurrentMonth, entries, planType, isToday, isD
         </span>
       )}
 
-      {/* Popover */}
-      <AnimatePresence>
-        {showPopover && hasEntries && (
-          <DayPopover entries={entries} planType={planType} />
-        )}
-      </AnimatePresence>
     </div>
   );
-}
+});
 
 // ── Progress Bar (Quick Prep) ──────────────────────────────────────────────
 
@@ -292,22 +369,6 @@ export default function NativeCalendar({ dayEntries = [], planType = "standard",
 
   const dateMap = useMemo(() => buildDateMap(dayEntries), [dayEntries]);
 
-  const goToPrev = useCallback(() => {
-    setSlideDirection(-1);
-    setViewMonth((m) => {
-      if (m === 0) { setViewYear((y) => y - 1); return 11; }
-      return m - 1;
-    });
-  }, []);
-
-  const goToNext = useCallback(() => {
-    setSlideDirection(1);
-    setViewMonth((m) => {
-      if (m === 11) { setViewYear((y) => y + 1); return 0; }
-      return m + 1;
-    });
-  }, []);
-
   const gridDays = useMemo(
     () => getMonthGrid(viewYear, viewMonth),
     [viewYear, viewMonth]
@@ -315,18 +376,148 @@ export default function NativeCalendar({ dayEntries = [], planType = "standard",
 
   const deadlineIso = deadline ? deadline.split("T")[0] : null;
 
+  const [popoverState, setPopoverState] = useState(null);
+  const popoverRef = useRef(null);
+  const anchorElRef = useRef(null);
+  const closeTimerRef = useRef(null);
+
+  const clearPopoverTimer = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  }, []);
+
+  const closePopover = useCallback(() => {
+    clearPopoverTimer();
+    anchorElRef.current = null;
+    setPopoverState(null);
+  }, [clearPopoverTimer]);
+
+  const openPopover = useCallback((anchorEl, entries, dateObj, pinned = false) => {
+    if (!anchorEl || !entries?.length) return;
+    clearPopoverTimer();
+    anchorElRef.current = anchorEl;
+    const anchorKey = toISODate(dateObj);
+    setPopoverState((prev) => {
+      const next = {
+        anchorKey,
+        entries,
+        pinned,
+        placement: prev?.anchorKey === anchorKey ? prev.placement : "bottom",
+        position: prev?.anchorKey === anchorKey ? prev.position : { top: POPOVER_PADDING, left: POPOVER_PADDING },
+      };
+      return next;
+    });
+  }, [clearPopoverTimer]);
+
+  const scheduleClose = useCallback(() => {
+    clearPopoverTimer();
+    if (popoverState?.pinned) return;
+    closeTimerRef.current = setTimeout(() => {
+      closePopover();
+    }, 120);
+  }, [clearPopoverTimer, closePopover, popoverState?.pinned]);
+
+  const togglePinnedPopover = useCallback((anchorEl, entries, dateObj) => {
+    const anchorKey = toISODate(dateObj);
+    if (popoverState?.anchorKey === anchorKey && popoverState?.pinned) {
+      closePopover();
+      return;
+    }
+    openPopover(anchorEl, entries, dateObj, true);
+  }, [closePopover, openPopover, popoverState?.anchorKey, popoverState?.pinned]);
+
+  const syncPopoverPosition = useCallback(() => {
+    const anchorEl = anchorElRef.current;
+    const popoverEl = popoverRef.current;
+    if (!anchorEl || !popoverEl) return;
+
+    const anchorRect = anchorEl.getBoundingClientRect();
+    const popoverRect = popoverEl.getBoundingClientRect();
+    const next = getPopoverGeometry(anchorRect, popoverRect);
+
+    setPopoverState((prev) => {
+      if (!prev) return prev;
+      const nextTop = next.style.top;
+      const nextLeft = next.style.left;
+      const currentTop = prev.position?.top;
+      const currentLeft = prev.position?.left;
+      if (prev.placement === next.placement && currentTop === nextTop && currentLeft === nextLeft) {
+        return prev;
+      }
+      return {
+        ...prev,
+        placement: next.placement,
+        position: next.style,
+      };
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!popoverState) return undefined;
+
+    syncPopoverPosition();
+
+    const onResizeOrScroll = () => syncPopoverPosition();
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        closePopover();
+      }
+    };
+    const onPointerDown = (e) => {
+      const anchorEl = anchorElRef.current;
+      const popoverEl = popoverRef.current;
+      if (anchorEl?.contains(e.target) || popoverEl?.contains(e.target)) return;
+      closePopover();
+    };
+
+    window.addEventListener("resize", onResizeOrScroll);
+    window.addEventListener("scroll", onResizeOrScroll, true);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("resize", onResizeOrScroll);
+      window.removeEventListener("scroll", onResizeOrScroll, true);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [closePopover, popoverState, syncPopoverPosition]);
+
+  useEffect(() => () => clearPopoverTimer(), [clearPopoverTimer]);
+
   const slideVariants = {
     enter: (dir) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
     center: { x: 0, opacity: 1 },
     exit: (dir) => ({ x: dir > 0 ? -40 : 40, opacity: 0 }),
   };
 
+  const goToPrev = useCallback(() => {
+    closePopover();
+    setSlideDirection(-1);
+    setViewMonth((m) => {
+      if (m === 0) { setViewYear((y) => y - 1); return 11; }
+      return m - 1;
+    });
+  }, [closePopover]);
+
+  const goToNext = useCallback(() => {
+    closePopover();
+    setSlideDirection(1);
+    setViewMonth((m) => {
+      if (m === 11) { setViewYear((y) => y + 1); return 0; }
+      return m + 1;
+    });
+  }, [closePopover]);
+
   // Jump-to-today
   const goToToday = useCallback(() => {
+    closePopover();
     setSlideDirection(0);
     setViewYear(today.getFullYear());
     setViewMonth(today.getMonth());
-  }, [today]);
+  }, [closePopover, today]);
 
   if (!dayEntries || dayEntries.length === 0) {
     return (
@@ -403,16 +594,22 @@ export default function NativeCalendar({ dayEntries = [], planType = "standard",
             const entries = dateMap[iso] || [];
             const isToday = iso === toISODate(today);
             const isDeadline = iso === deadlineIso;
+            const isPopoverActive = popoverState?.anchorKey === iso;
 
             return (
               <CalendarCell
                 key={idx}
+                ref={isPopoverActive ? anchorElRef : null}
                 dateObj={date}
                 isCurrentMonth={isCurrentMonth}
                 entries={entries}
                 planType={planType}
                 isToday={isToday}
                 isDeadline={isDeadline}
+                isPopoverActive={isPopoverActive}
+                onHoverEnter={openPopover}
+                onHoverLeave={scheduleClose}
+                onTogglePopover={togglePinnedPopover}
               />
             );
           })}
@@ -437,6 +634,19 @@ export default function NativeCalendar({ dayEntries = [], planType = "standard",
         )}
         <p className="ml-auto text-[10px] text-muted-foreground italic">Hover over a date to see tasks</p>
       </div>
+
+      {typeof window !== "undefined" && popoverState && createPortal(
+        <DayPopover
+          ref={popoverRef}
+          entries={popoverState.entries}
+          planType={planType}
+          placement={popoverState.placement}
+          position={popoverState.position}
+          onMouseEnter={clearPopoverTimer}
+          onMouseLeave={scheduleClose}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

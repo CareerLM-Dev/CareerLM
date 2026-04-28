@@ -2,10 +2,10 @@
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, UploadFile, File, Form, Depends, Header, Query
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Any, Optional
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -123,11 +123,13 @@ async def skill_gap_analysis(
                     .execute()
                 )
                 if profile.data:
-                    row = profile.data[0] or {}
-                    qa = row.get("questionnaire_answers") if isinstance(row.get("questionnaire_answers"), dict) else {}
-                    up = row.get("user_profile") if isinstance(row.get("user_profile"), dict) else None
+                    row = profile.data[0] if isinstance(profile.data[0], dict) else {}
+                    qa_raw = row.get("questionnaire_answers")
+                    up_raw = row.get("user_profile")
+                    qa: dict[str, Any] = qa_raw if isinstance(qa_raw, dict) else {}
+                    up: dict[str, Any] | None = up_raw if isinstance(up_raw, dict) else None
 
-                    merged = dict(qa)
+                    merged: dict[str, Any] = {**qa}
                     if up:
                         merged["user_profile"] = up
 
@@ -146,7 +148,7 @@ async def skill_gap_analysis(
         # Filter to user's interested role(s) when available.
         # Questionnaire can contain either target_role or target_roles.
         interested_roles: list[str] = []
-        if questionnaire_answers:
+        if isinstance(questionnaire_answers, dict):
             raw_roles = questionnaire_answers.get("target_roles") or questionnaire_answers.get("target_role") or []
             if isinstance(raw_roles, str):
                 interested_roles = [raw_roles]
@@ -287,6 +289,11 @@ async def get_study_materials_cache(
                     if sgr and plan_type == "standard"
                     else None
                 )
+                quick_days = _safe_json_list(row.get("quick_plan"))
+                quick_analytics = None
+                if plan_type == "quick_prep":
+                    quick_days, quick_analytics = _hydrate_quick_plan_progress(quick_days, row.get("deadline"))
+
                 plan_obj = {
                     "target_career": row.get("target_career", ""),
                     "plan_type": plan_type,
@@ -297,8 +304,9 @@ async def get_study_materials_cache(
                     # Quick Prep extras (None for standard plans)
                     "goal_description": row.get("goal_description"),
                     "deadline": row.get("deadline"),
-                    "quick_plan_days": row.get("quick_plan") or [],
-                    "detected_skills": [],  # populated from quick_plan skill_tags if needed
+                    "quick_plan_days": quick_days,
+                    "quick_plan_analytics": quick_analytics,
+                    "detected_skills": list({str(d.get("skill_tag")).strip() for d in quick_days if isinstance(d, dict) and d.get("skill_tag")}),
                 }
                 plans.append(plan_obj)
             return JSONResponse({
@@ -651,6 +659,262 @@ async def generate_study_materials_simple(
 
 
 # ────────────────────────────────────────────────────────
+# Quick Prep helpers
+# ────────────────────────────────────────────────────────
+
+QUICK_TASK_TYPES = ["one_shot_video", "docs_notes", "practice", "checklist_summary"]
+
+
+def _safe_json_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _safe_json_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def _compute_streak(completed_dates: list[str]) -> tuple[int, int]:
+    valid_dates = set()
+    for d in completed_dates:
+        try:
+            valid_dates.add(datetime.fromisoformat(d).date())
+        except Exception:
+            continue
+
+    if not valid_dates:
+        return 0, 0
+
+    ordered = sorted(valid_dates)
+    best = 1
+    run = 1
+    for i in range(1, len(ordered)):
+        if (ordered[i] - ordered[i - 1]).days == 1:
+            run += 1
+            best = max(best, run)
+        else:
+            run = 1
+
+    today = datetime.now(timezone.utc).date()
+    current = 0
+    cursor = today
+    while cursor in valid_dates:
+        current += 1
+        cursor = cursor - timedelta(days=1)
+
+    return current, best
+
+
+def _hydrate_quick_plan_progress(quick_plan_days: list[dict[str, Any]], deadline: Optional[str] = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    hydrated: list[dict[str, Any]] = []
+    completed_dates: list[str] = []
+    total_task_slots = 0
+    completed_task_slots = 0
+
+    for day in quick_plan_days:
+        if not isinstance(day, dict):
+            continue
+        day_copy = dict(day)
+        task_status_raw = day_copy.get("task_status")
+        task_status = _safe_json_dict(task_status_raw)
+
+        normalized_status: dict[str, bool] = {}
+        for task_type in QUICK_TASK_TYPES:
+            normalized_status[task_type] = bool(task_status.get(task_type, False))
+
+        completed_count = sum(1 for v in normalized_status.values() if v)
+        completion_ratio = round(completed_count / len(QUICK_TASK_TYPES), 3)
+        completed = bool(day_copy.get("completed", False)) or completion_ratio >= 1.0
+        skipped = bool(day_copy.get("skipped", False))
+
+        if completed:
+            completed_on = str(day_copy.get("completed_on") or day_copy.get("date") or "")
+            if completed_on:
+                completed_dates.append(completed_on)
+                day_copy["completed_on"] = completed_on
+
+        total_task_slots += len(QUICK_TASK_TYPES)
+        completed_task_slots += completed_count
+
+        day_copy["task_status"] = normalized_status
+        day_copy["completed_task_types"] = [k for k, v in normalized_status.items() if v]
+        day_copy["completion_ratio"] = completion_ratio
+        day_copy["completed"] = completed
+        day_copy["skipped"] = skipped
+        if "rating" in day_copy:
+            raw_rating = day_copy.get("rating")
+            try:
+                day_copy["rating"] = int(raw_rating) if raw_rating is not None else None
+            except Exception:
+                day_copy["rating"] = None
+
+        if not day_copy.get("follow_up_recommendations"):
+            if completed:
+                day_copy["follow_up_recommendations"] = [
+                    "Move to the next interview question set and keep the momentum.",
+                    "Revisit the checklist_summary before the next session.",
+                ]
+            else:
+                remaining = [task for task, done in normalized_status.items() if not done]
+                day_copy["follow_up_recommendations"] = [
+                    f"Finish the remaining tasks: {', '.join(remaining[:2])}." if remaining else "Review the day again before moving on.",
+                    "Repeat the practice task as a timed mock round.",
+                ]
+
+        hydrated.append(day_copy)
+
+    completion_pct = round((completed_task_slots / total_task_slots) * 100.0, 1) if total_task_slots else 0.0
+    completed_days = sum(1 for d in hydrated if d.get("completed"))
+    skipped_days = sum(1 for d in hydrated if d.get("skipped"))
+    current_streak, best_streak = _compute_streak(completed_dates)
+
+    analytics = {
+        "completed_days": completed_days,
+        "total_days": len(hydrated),
+        "skipped_days": skipped_days,
+        "completion_percentage": completion_pct,
+        "current_streak": current_streak,
+        "best_streak": best_streak,
+        "remaining_days": max(0, len(hydrated) - completed_days - skipped_days),
+    }
+
+    if deadline:
+        try:
+            deadline_dt = datetime.fromisoformat(str(deadline)).date()
+            analytics["days_until_deadline"] = max(0, (deadline_dt - datetime.now(timezone.utc).date()).days)
+        except Exception:
+            pass
+
+    return hydrated, analytics
+
+
+def _summarize_feedback_from_plan(quick_plan_days: list[dict[str, Any]]) -> dict[str, Any]:
+    total_days = len(quick_plan_days)
+    completed_days = 0
+    skipped_days = 0
+    ratings: list[int] = []
+    task_type_completion = {k: 0 for k in QUICK_TASK_TYPES}
+
+    for day in quick_plan_days:
+        if not isinstance(day, dict):
+            continue
+        if day.get("completed"):
+            completed_days += 1
+        if day.get("skipped"):
+            skipped_days += 1
+
+        rating = day.get("rating")
+        if isinstance(rating, (int, float)):
+            ratings.append(int(rating))
+
+        task_status = _safe_json_dict(day.get("task_status"))
+        for key in QUICK_TASK_TYPES:
+            if bool(task_status.get(key)):
+                task_type_completion[key] += 1
+
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+    return {
+        "total_days": total_days,
+        "completed_days": completed_days,
+        "skipped_days": skipped_days,
+        "completion_rate": round((completed_days / total_days), 3) if total_days else 0.0,
+        "avg_rating": avg_rating,
+        "task_type_completion": task_type_completion,
+    }
+
+
+def _build_learning_profile(
+    user: Any,
+    quick_goal: str,
+    target_career: str,
+    deadline_days: int,
+    specific_requirements: str,
+    quick_topic: Optional[str],
+    quick_subtopic: Optional[str],
+    preparation_goal: Optional[str],
+    preferred_resource_type: Optional[str],
+    current_skill_level: Optional[str],
+    available_study_time_hours: Optional[float],
+    quick_notes: Optional[str],
+    enable_external_context: bool,
+) -> dict[str, Any]:
+    profile: dict[str, Any] = {
+        "topic_name": quick_topic or target_career,
+        "subtopic": quick_subtopic or "",
+        "preparation_goal": preparation_goal or quick_goal,
+        "goal": quick_goal,
+        "timeline_days": deadline_days,
+        "current_skill_level": current_skill_level or "",
+        "current_proficiency": current_skill_level or "",
+        "available_study_time_hours": available_study_time_hours,
+        "available_study_hours": available_study_time_hours,
+        "preferred_resource_type": preferred_resource_type or "",
+        "quick_notes": quick_notes or "",
+        "custom_notes": quick_notes or "",
+        "specific_requirements": specific_requirements or "",
+        "strict_context_isolation": not enable_external_context,
+    }
+
+    if not user or not enable_external_context:
+        return profile
+
+    try:
+        user_profile_result = (
+            supabase.table("user")
+            .select("questionnaire_answers,user_profile")
+            .eq("id", user.id)
+            .limit(1)
+            .execute()
+        )
+        if user_profile_result.data:
+            row = user_profile_result.data[0] if isinstance(user_profile_result.data[0], dict) else {}
+            qa = _safe_json_dict(row.get("questionnaire_answers"))
+            up = _safe_json_dict(row.get("user_profile"))
+
+            # External enrichment is opt-in only.
+            profile["external_questionnaire"] = qa
+            profile["external_user_profile"] = up
+
+            if not profile.get("preferred_resource_type"):
+                raw_pref = qa.get("learning_preference")
+                if isinstance(raw_pref, list) and raw_pref:
+                    profile["preferred_resource_type"] = ", ".join([str(x) for x in raw_pref])
+                elif isinstance(raw_pref, str):
+                    profile["preferred_resource_type"] = raw_pref
+
+            if not profile.get("available_study_time_hours"):
+                tc = qa.get("time_commitment")
+                if isinstance(tc, list) and tc:
+                    first = str(tc[0])
+                    if "20" in first:
+                        profile["available_study_time_hours"] = 20
+                    elif "10" in first:
+                        profile["available_study_time_hours"] = 10
+                    elif "5" in first:
+                        profile["available_study_time_hours"] = 5
+                profile["available_study_hours"] = profile.get("available_study_time_hours")
+    except Exception as e:
+        logger.warning(f"[Quick Plan] Could not enrich learning profile: {e}")
+
+    return profile
+
+
+# ────────────────────────────────────────────────────────
 # Quick Prep Plan endpoint
 # ────────────────────────────────────────────────────────
 
@@ -660,6 +924,15 @@ async def generate_quick_plan_endpoint(
     quick_goal: str = Form(...),
     deadline_days: int = Form(...),
     specific_requirements: Optional[str] = Form(default=""),
+    quick_topic: Optional[str] = Form(default=""),
+    quick_subtopic: Optional[str] = Form(default=""),
+    preparation_goal: Optional[str] = Form(default=""),
+    preferred_resource_type: Optional[str] = Form(default=""),
+    current_skill_level: Optional[str] = Form(default=""),
+    available_study_time_hours: Optional[float] = Form(default=None),
+    quick_notes: Optional[str] = Form(default=""),
+    enable_external_context: Optional[bool] = Form(default=False),
+    enable_feedback_signals: Optional[bool] = Form(default=False),
     user=Depends(get_current_user_optional),
 ):
     """
@@ -681,13 +954,48 @@ async def generate_quick_plan_endpoint(
         )
 
         from app.agents.study_planner import generate_quick_plan
-        from datetime import date, timedelta
+
+        old_feedback_signals: dict[str, Any] = {}
+        if user and bool(enable_feedback_signals):
+            try:
+                previous_row = (
+                    supabase.table("study_materials_cache")
+                    .select("quick_plan")
+                    .eq("user_id", user.id)
+                    .eq("target_career", target_career)
+                    .eq("plan_type", "quick_prep")
+                    .limit(1)
+                    .execute()
+                )
+                if previous_row.data:
+                    previous_days = _safe_json_list(previous_row.data[0].get("quick_plan"))
+                    old_feedback_signals = _summarize_feedback_from_plan(previous_days)
+            except Exception as prev_err:
+                logger.warning(f"[Quick Plan] Could not load previous feedback: {prev_err}")
+
+        learning_profile = _build_learning_profile(
+            user=user,
+            quick_goal=quick_goal,
+            target_career=target_career,
+            deadline_days=deadline_days,
+            specific_requirements=specific_requirements or "",
+            quick_topic=quick_topic,
+            quick_subtopic=quick_subtopic,
+            preparation_goal=preparation_goal,
+            preferred_resource_type=preferred_resource_type,
+            current_skill_level=current_skill_level,
+            available_study_time_hours=available_study_time_hours,
+            quick_notes=quick_notes,
+            enable_external_context=bool(enable_external_context),
+        )
 
         result = generate_quick_plan(
             quick_goal=quick_goal,
             target_career=target_career,
             deadline_days=deadline_days,
             specific_requirements=specific_requirements or "",
+            learning_profile=learning_profile,
+            feedback_signals=old_feedback_signals,
         )
 
         if result.get("error"):
@@ -697,13 +1005,27 @@ async def generate_quick_plan_endpoint(
                 content={"success": False, "error": result["error"]},
             )
 
-        # Compute absolute dates for each day (starting from tomorrow)
+        # Compute absolute dates for each day (starting from tomorrow) and initialize progress fields.
         start = date.today() + timedelta(days=1)
-        for day_entry in result.get("quick_plan_days", []):
-            day_num = day_entry.get("day", 1)
+        generated_days = _safe_json_list(result.get("quick_plan_days", []))
+        for day_entry in generated_days:
+            if not isinstance(day_entry, dict):
+                continue
+            day_num = int(day_entry.get("day", 1) or 1)
             day_entry["date"] = (start + timedelta(days=day_num - 1)).isoformat()
+            status = _safe_json_dict(day_entry.get("task_status"))
+            day_entry["task_status"] = {
+                "one_shot_video": bool(status.get("one_shot_video", False)),
+                "docs_notes": bool(status.get("docs_notes", False)),
+                "practice": bool(status.get("practice", False)),
+                "checklist_summary": bool(status.get("checklist_summary", False)),
+            }
+            day_entry["completed"] = bool(day_entry.get("completed", False))
+            day_entry["skipped"] = bool(day_entry.get("skipped", False))
+            day_entry["rating"] = day_entry.get("rating") if isinstance(day_entry.get("rating"), (int, float)) else None
 
         deadline_date = (date.today() + timedelta(days=deadline_days)).isoformat()
+        hydrated_days, analytics = _hydrate_quick_plan_progress(generated_days, deadline_date)
 
         # Persist to Supabase — upsert per (user, career, plan_type='quick_prep')
         if user:
@@ -721,8 +1043,8 @@ async def generate_quick_plan_endpoint(
                     "plan_type": "quick_prep",
                     "goal_description": quick_goal,
                     "deadline": deadline_date,
-                    "quick_plan": result.get("quick_plan_days", []),
-                    "skill_gap_report": [],  # not used for quick plans
+                    "quick_plan": hydrated_days,
+                    "skill_gap_report": [],
                 }).execute()
                 logger.info(
                     f"[Quick Plan] Cached for user {user.id} / career {target_career} / "
@@ -739,7 +1061,12 @@ async def generate_quick_plan_endpoint(
             "deadline": deadline_date,
             "plan_type": "quick_prep",
             "detected_skills": result.get("detected_skills", []),
-            "quick_plan_days": result.get("quick_plan_days", []),
+            "quick_plan_days": hydrated_days,
+            "quick_plan_analytics": analytics,
+            "learning_profile": learning_profile,
+            "quick_context": result.get("quick_context", {}),
+            "feedback_signals_used": old_feedback_signals if bool(enable_feedback_signals) else {},
+            "strict_context_isolation": not bool(enable_external_context),
         })
 
     except Exception as e:
@@ -748,6 +1075,119 @@ async def generate_quick_plan_endpoint(
             status_code=500,
             content={"success": False, "error": str(e)},
         )
+
+
+@router.post("/quick-plan/progress")
+async def update_quick_plan_progress(
+    target_career: str = Form(...),
+    day: int = Form(...),
+    task_type: Optional[str] = Form(default=None),
+    completed: Optional[bool] = Form(default=None),
+    skipped: Optional[bool] = Form(default=None),
+    rating: Optional[int] = Form(default=None),
+    user=Depends(get_current_user_optional),
+):
+    """Persist quick-plan completion updates and return refreshed analytics."""
+    if not user:
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Authentication required"},
+        )
+
+    if day < 1:
+        return JSONResponse(status_code=400, content={"success": False, "error": "day must be >= 1"})
+
+    normalized_task_type = None
+    if task_type:
+        raw = str(task_type).strip().lower()
+        aliases = {
+            "video": "one_shot_video",
+            "one-shot-video": "one_shot_video",
+            "docs": "docs_notes",
+            "notes": "docs_notes",
+            "practice_task": "practice",
+            "checklist": "checklist_summary",
+        }
+        normalized_task_type = aliases.get(raw, raw)
+        if normalized_task_type not in QUICK_TASK_TYPES:
+            return JSONResponse(status_code=400, content={"success": False, "error": "Invalid task_type"})
+
+    if rating is not None and (rating < 1 or rating > 5):
+        return JSONResponse(status_code=400, content={"success": False, "error": "rating must be 1-5"})
+
+    try:
+        row_result = (
+            supabase.table("study_materials_cache")
+            .select("id,deadline,quick_plan")
+            .eq("user_id", user.id)
+            .eq("target_career", target_career)
+            .eq("plan_type", "quick_prep")
+            .limit(1)
+            .execute()
+        )
+        if not row_result.data:
+            return JSONResponse(status_code=404, content={"success": False, "error": "Quick prep plan not found"})
+
+        row = row_result.data[0]
+        quick_plan = _safe_json_list(row.get("quick_plan"))
+
+        updated = False
+        for entry in quick_plan:
+            if not isinstance(entry, dict):
+                continue
+            if int(entry.get("day", -1) or -1) != day:
+                continue
+
+            status = _safe_json_dict(entry.get("task_status"))
+            for task_name in QUICK_TASK_TYPES:
+                status[task_name] = bool(status.get(task_name, False))
+
+            if normalized_task_type is not None and completed is not None:
+                status[normalized_task_type] = bool(completed)
+                updated = True
+
+            if skipped is not None:
+                entry["skipped"] = bool(skipped)
+                updated = True
+
+            if rating is not None:
+                entry["rating"] = int(rating)
+                updated = True
+
+            completed_count = sum(1 for value in status.values() if value)
+            entry["task_status"] = status
+            entry["completion_ratio"] = round(completed_count / len(QUICK_TASK_TYPES), 3)
+            entry["completed"] = completed_count == len(QUICK_TASK_TYPES)
+            if entry.get("completed"):
+                entry["completed_on"] = str(entry.get("date") or datetime.now(timezone.utc).date().isoformat())
+            elif entry.get("completed_on") and completed_count < len(QUICK_TASK_TYPES):
+                entry.pop("completed_on", None)
+            break
+
+        if not updated:
+            return JSONResponse(status_code=400, content={"success": False, "error": "No update payload provided"})
+
+        hydrated_days, analytics = _hydrate_quick_plan_progress(quick_plan, row.get("deadline"))
+
+        (
+            supabase.table("study_materials_cache")
+            .update({"quick_plan": hydrated_days, "created_at": datetime.now(timezone.utc).isoformat()})
+            .eq("id", row.get("id"))
+            .execute()
+        )
+
+        return JSONResponse(
+            {
+                "success": True,
+                "target_career": target_career,
+                "quick_plan_days": hydrated_days,
+                "quick_plan_analytics": analytics,
+            }
+        )
+
+    except Exception as exc:
+        logger.exception(f"[Quick Plan] Progress update failed: {exc}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
 
 
 # ────────────────────────────────────────────────────────

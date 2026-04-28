@@ -35,13 +35,65 @@ export async function fetchAllStudyPlans(token) {
  * @param {string} opts.quickGoal
  * @param {number} opts.deadlineDays  (1-31)
  * @param {string} [opts.specificRequirements]
+ * @param {string} [opts.quickTopic]
+ * @param {string} [opts.quickSubtopic]
+ * @param {string} [opts.preparationGoal]
+ * @param {string} [opts.preferredResourceType]
+ * @param {string} [opts.currentSkillLevel]
+ * @param {number} [opts.availableStudyTimeHours]
+ * @param {string} [opts.quickNotes]
+ * @param {boolean} [opts.enableExternalContext]
+ * @param {boolean} [opts.enableFeedbackSignals]
  */
-export async function generateQuickPlan(token, { targetCareer, quickGoal, deadlineDays, specificRequirements = "" }) {
+export async function generateQuickPlan(
+  token,
+  {
+    targetCareer,
+    quickGoal,
+    deadlineDays,
+    specificRequirements = "",
+    quickTopic = "",
+    quickSubtopic = "",
+    preparationGoal = "",
+    preferredResourceType = "",
+    currentSkillLevel = "",
+    availableStudyTimeHours = null,
+    quickNotes = "",
+    enableExternalContext = false,
+    enableFeedbackSignals = false,
+  },
+) {
   const formData = new FormData();
   formData.append("target_career", targetCareer);
   formData.append("quick_goal", quickGoal);
   formData.append("deadline_days", String(deadlineDays));
-  if (specificRequirements) formData.append("specific_requirements", specificRequirements);
+  if (specificRequirements)
+    formData.append("specific_requirements", specificRequirements);
+  if (quickTopic) formData.append("quick_topic", quickTopic);
+  if (quickSubtopic) formData.append("quick_subtopic", quickSubtopic);
+  if (preparationGoal) formData.append("preparation_goal", preparationGoal);
+  if (preferredResourceType)
+    formData.append("preferred_resource_type", preferredResourceType);
+  if (currentSkillLevel)
+    formData.append("current_skill_level", currentSkillLevel);
+  if (
+    availableStudyTimeHours !== null &&
+    availableStudyTimeHours !== undefined
+  ) {
+    formData.append(
+      "available_study_time_hours",
+      String(availableStudyTimeHours),
+    );
+  }
+  if (quickNotes) formData.append("quick_notes", quickNotes);
+  formData.append(
+    "enable_external_context",
+    String(Boolean(enableExternalContext)),
+  );
+  formData.append(
+    "enable_feedback_signals",
+    String(Boolean(enableFeedbackSignals)),
+  );
 
   const res = await fetch(`${API_BASE}/generate-quick-plan`, {
     method: "POST",
@@ -64,7 +116,7 @@ export async function deleteStudyPlan(token, targetCareer) {
     {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
-    }
+    },
   );
   return res.json();
 }
@@ -81,7 +133,36 @@ export async function cancelQuickPlan(token, targetCareer) {
     {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
-    }
+    },
   );
+  return res.json();
+}
+
+/**
+ * Update quick-plan progress for a specific day/task.
+ * @param {string} token
+ * @param {{targetCareer:string, day:number, taskType?:string, completed?:boolean, skipped?:boolean, rating?:number}} opts
+ */
+export async function updateQuickPlanProgress(
+  token,
+  { targetCareer, day, taskType, completed, skipped, rating },
+) {
+  const form = new FormData();
+  form.append("target_career", targetCareer);
+  form.append("day", String(day));
+  if (taskType !== undefined && taskType !== null)
+    form.append("task_type", String(taskType));
+  if (completed !== undefined && completed !== null)
+    form.append("completed", String(completed));
+  if (skipped !== undefined && skipped !== null)
+    form.append("skipped", String(skipped));
+  if (rating !== undefined && rating !== null)
+    form.append("rating", String(rating));
+
+  const res = await fetch(`${API_BASE}/quick-plan/progress`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
   return res.json();
 }

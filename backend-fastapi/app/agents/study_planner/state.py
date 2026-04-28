@@ -13,16 +13,35 @@ class AltPlatform(TypedDict):
 
 
 class RoadmapStep(TypedDict):
-    """A single step in a skill learning roadmap."""
+    """
+    A single step in a skill learning roadmap.
+    
+    Enhanced with:
+    - Specific resource type (documentation, tutorial_video, interactive_lab, etc.)
+    - Relevance, depth, credibility, usability scores for ranking
+    - Resource difficulty level
+    - Feedback signals for continuous improvement
+    """
     step: int
     label: str
-    type: str
+    type: str  # Now: "documentation", "tutorial_video", "interactive_lab", "cheat_sheet", etc.
     title: str
     url: str
     platform: NotRequired[str]
     est_time: str
     cost: str
+    difficulty: NotRequired[str]  # "beginner", "intermediate", "advanced"
+    
+    # Ranking scores (0-1)
+    relevance_score: NotRequired[float]  # How directly relevant to learning objective?
+    depth_score: NotRequired[float]      # How comprehensive?
+    credibility_score: NotRequired[float] # How trusted is the source?
+    usability_score: NotRequired[float]  # Can user start immediately?
+    overall_rank: NotRequired[float]     # Composite ranking score
+    
+    # Resource metadata
     alt_platforms: NotRequired[list[AltPlatform]]
+    feedback_signals: NotRequired[dict]  # {clicks, completions, avg_rating}
 
 
 class SkillRoadmap(TypedDict):
@@ -57,11 +76,27 @@ class QuickPlanDay(TypedDict):
     """A single day entry in a Quick Prep plan."""
     day: int                       # 1-indexed day number
     date: NotRequired[str]         # ISO date string (filled in by route handler)
+    topic: NotRequired[str]        # Main topic for the day
+    subtopic: NotRequired[str]     # Narrow concept inside topic
+    learning_objective: NotRequired[str]  # Exact objective for the day
+    proficiency_level: NotRequired[str]   # "beginner" | "intermediate" | "advanced"
     focus: str                     # Short focus area for the day (e.g. "React Hooks")
     task: str                      # Concrete task description
-    resource: NotRequired[dict]    # { title, url, est_time }
+    resource: NotRequired[dict]    # Legacy primary resource for existing UI compatibility
+    resource_stack: NotRequired[list[dict]]  # [one_shot_video, docs, practice, checklist_summary]
+    takeaway_summary: NotRequired[str]       # 2-3 sentence summary for retention
+    checklist: NotRequired[list[str]]        # End-of-day checklist
+    follow_up_recommendations: NotRequired[list[str]]  # Next-step recommendations after completion
+    quick_context: NotRequired[dict]         # Quick Prep-only planning context used for this day
     deliverable: str               # What the user should produce/complete by end of day
     skill_tag: NotRequired[str]    # Which detected_skill this day maps to
+
+    # Completion + analytics metadata (hydrated from persisted progress)
+    completed: NotRequired[bool]
+    skipped: NotRequired[bool]
+    completion_ratio: NotRequired[float]
+    completed_task_types: NotRequired[list[str]]
+    rating: NotRequired[Optional[int]]
 
 
 class StudyPlannerState(TypedDict):
@@ -83,3 +118,6 @@ class StudyPlannerState(TypedDict):
     specific_requirements: NotRequired[str]  # Extra constraints from user
     detected_skills: NotRequired[list[str]]  # Skills extracted by LLM from quick_goal
     quick_plan_days: NotRequired[list[QuickPlanDay]]  # Day-by-day schedule output
+    learning_profile: NotRequired[Optional[dict]]      # Context profile used for personalization
+    feedback_signals: NotRequired[Optional[dict]]      # Historical completion/skip/rating signals
+    quick_context: NotRequired[Optional[dict]]         # Derived Quick Prep-only context for the plan
