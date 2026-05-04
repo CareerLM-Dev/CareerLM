@@ -21,8 +21,6 @@ from app.agents.orchestrator import (
 )
 from app.agents.orchestrator.graph import orchestrator_graph
 from app.services.resume_parser import get_parser
-from app.services.latex_generator import generate_latex
-from app.services.pdf_compiler import compile_latex_with_fallback, PDFCompilationError
 from app.agents.resume.graph import resume_workflow
 from supabase_client import supabase
 
@@ -61,6 +59,23 @@ def _load_user_profile(user_id: str) -> dict:
     return profile_data if isinstance(profile_data, dict) else {}
 
 
+def _profile_fields_from_sections(sections: Dict[str, Any]) -> Dict[str, Any]:
+    """Map parsed resume sections into the flattened profile fields used by the UI."""
+    return {
+        "intro": sections.get("summary") or sections.get("intro") or "",
+        "areas_of_interest": sections.get("areas_of_interest") or "",
+        "expertise": sections.get("expertise") or "",
+        "skills": sections.get("skills") or [],
+        "education": sections.get("education") or "",
+        "projects": sections.get("projects") or "",
+        "experience": sections.get("experience") or "",
+        "certifications": sections.get("certifications") or "",
+        "coursework": sections.get("coursework") or "",
+        "co_curricular_achievements": sections.get("co_curricular_achievements") or sections.get("awards") or "",
+        "resume_parsed_sections": sections,
+    }
+
+
 def _update_user_profile_from_sections(
     user_id: str,
     sections: Dict[str, Any],
@@ -71,6 +86,7 @@ def _update_user_profile_from_sections(
     existing_profile = _load_user_profile(user_id)
     updated_profile = {
         **existing_profile,
+        **_profile_fields_from_sections(sections),
         "resume_parsed_sections": sections,
         "resume_text": normalized_text,
     }
@@ -792,6 +808,7 @@ async def apply_suggestion_for_editor(
         # ── 5. Write back to user_profile only ───────────────────────────
         updated_profile = {
             **existing_profile,
+            **_profile_fields_from_sections(updated_sections),
             "resume_parsed_sections": updated_sections,
             "resume_text": resume_text,
         }
@@ -829,7 +846,7 @@ async def rescore_resume_version(version_id: int):
         parser = get_parser()
         row = (
             supabase.table("resume_versions")
-            .select("version_id, parent_version_id, content, job_description, ats_score")
+            .select("version_id, parent_version_id, content, job_description, ats_score, resumes!inner(user_id)")
             .eq("version_id", version_id)
             .limit(1)
             .execute()
@@ -838,12 +855,48 @@ async def rescore_resume_version(version_id: int):
             raise HTTPException(status_code=404, detail="Resume version not found")
 
         record = row.data[0]
+        owner_id = record["resumes"]["user_id"] if record.get("resumes") else None
         content = record.get("content") or {}
         if isinstance(content, str):
             content = json.loads(content)
 
-        sections = parser.sanitize_sections_for_storage(content.get("sections") or {})
-        resume_text = parser.build_resume_text_from_sections(sections)
+        sections = {}
+        resume_text = ""
+
+        if owner_id:
+            profile_row = (
+                supabase.table("user")
+                .select("user_profile")
+                .eq("id", owner_id)
+                .limit(1)
+                .execute()
+            )
+            if profile_row.data:
+                profile_data = profile_row.data[0].get("user_profile") or {}
+                if isinstance(profile_data, str):
+                    try:
+                        profile_data = json.loads(profile_data)
+                    except Exception:
+                        profile_data = {}
+                if isinstance(profile_data, dict):
+                    profile_sections = profile_data.get("resume_parsed_sections") or {}
+                    if isinstance(profile_sections, str):
+                        try:
+                            profile_sections = json.loads(profile_sections)
+                        except Exception:
+                            profile_sections = {}
+                    if isinstance(profile_sections, dict) and profile_sections:
+                        sections = profile_sections
+                    profile_resume_text = profile_data.get("resume_text")
+                    if isinstance(profile_resume_text, str) and profile_resume_text.strip():
+                        resume_text = profile_resume_text
+
+        if not sections:
+            sections = content.get("sections") or {}
+
+        sections = parser.sanitize_sections_for_storage(sections)
+        if not resume_text:
+            resume_text = parser.build_resume_text_from_sections(sections)
         job_description = record.get("job_description") or ""
 
         resume_input = {
@@ -895,6 +948,10 @@ async def rescore_resume_version(version_id: int):
             except Exception:
                 score_delta = None
 
+        updated_content = dict(content)
+        updated_content["sections"] = sections
+        updated_content["resume_text"] = resume_text
+
         # We must save the ENTIRE updated analysis back to the DB to refresh suggestions
         new_analysis_data = {
             "ats_score": resume_result.get("ats_score"),
@@ -912,9 +969,14 @@ async def rescore_resume_version(version_id: int):
             "ats_score": new_score,
             "score_delta": score_delta,
             "resume_analysis": new_analysis_data,
+            "content": updated_content,
             "applied_suggestion_ids": [], # Reset applied suggestions since these are fresh
             "edit_source": "rescore",
+            "updated_at": datetime.utcnow().isoformat(),
         }).eq("version_id", version_id).execute()
+
+        if owner_id:
+            _update_user_profile_from_sections(owner_id, sections, resume_text)
 
         return {
             "success": True,
@@ -1055,41 +1117,3 @@ async def apply_suggestion(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/generate-latex")
-async def generate_resume_latex(sections: Dict[str, Any] = Body(...)):
-    """Generate LaTeX source from resume sections."""
-    try:
-        parser = get_parser()
-        sanitized_sections = parser.sanitize_sections_for_storage(sections)
-        latex_code = generate_latex(sanitized_sections)
-        return {"success": True, "latex_code": latex_code}
-    except Exception as e:
-        logger.error(f"[GENERATE_LATEX] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/generate-pdf")
-async def generate_resume_pdf(sections: Dict[str, Any] = Body(...)):
-    """Generate PDF from resume sections, returning PDF bytes on success."""
-    try:
-        parser = get_parser()
-        sanitized_sections = parser.sanitize_sections_for_storage(sections)
-        latex_code = generate_latex(sanitized_sections)
-        pdf_bytes = await compile_latex_with_fallback(latex_code)
-        return Response(content=pdf_bytes, media_type="application/pdf")
-    except PDFCompilationError as e:
-        # Frontend expects JSON fallback with latex_code when PDF compilation fails.
-        try:
-            parser = get_parser()
-            latex_code = generate_latex(parser.sanitize_sections_for_storage(sections))
-        except Exception:
-            latex_code = None
-        return {
-            "success": False,
-            "error": str(e),
-            "latex_code": latex_code,
-            "log_output": getattr(e, "log_output", ""),
-        }
-    except Exception as e:
-        logger.error(f"[GENERATE_PDF] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))

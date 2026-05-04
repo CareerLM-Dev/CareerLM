@@ -63,3 +63,12 @@ supabase/
 schema.sql
 
 orchestrator_graph.*
+
+jds/
+resumes/
+*.pdf
+
+bb_test.py
+jd.txt
+metrics_test.py
+performance_metrics_test.py

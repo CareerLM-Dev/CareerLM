@@ -10,7 +10,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { parseExperience, parseProjects } from "../utils/profileParser";
+import {
+  parseExperience,
+  parseProjects,
+  serializeExperience,
+  serializeProjects,
+} from "../utils/profileParser";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
 
@@ -85,6 +90,129 @@ const parseEducationSection = (raw) => {
   ];
 };
 
+const normalizeProfileValue = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return value;
+  if (typeof value === "string") return value.trim();
+  return "";
+};
+
+const serializeEducationEntries = (entries) => {
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return "";
+      const institution = (entry.institution || "").trim();
+      const degree = (entry.degree || "").trim();
+      const dateRange = (entry.date_range || "").trim();
+      const grade = (entry.grade || "").trim();
+
+      const firstLine = [institution, dateRange].filter(Boolean).join(" | ");
+      const secondLine = [degree, grade].filter(Boolean).join(" | ");
+
+      return [firstLine, secondLine].filter(Boolean).join("\n");
+    })
+    .filter(Boolean)
+    .join("\n");
+};
+
+const buildResumeSectionsFromForm = (formData) => ({
+  summary: formData.summary || "",
+  intro: formData.summary || "",
+  skills: Array.isArray(formData.skills) ? formData.skills : [],
+  education: serializeEducationEntries(formData.education),
+  experience: serializeExperience(formData.experience),
+  projects: serializeProjects(formData.projects),
+  certifications: formData.certifications || "",
+  coursework: formData.coursework || "",
+});
+
+const buildBuilderFormFromProfile = (profile, payload = {}) => {
+  const sections = profile.resume_parsed_sections || {};
+
+  const contact = {
+    name: profile.name || payload.name || "",
+    email: profile.email || payload.email || "",
+    phone: profile.phone || "",
+    location: profile.location || "",
+    linkedin: profile.linkedin || "",
+    github: profile.github || "",
+  };
+
+  const summary =
+    profile.intro ||
+    profile.summary ||
+    sections.summary ||
+    sections.intro ||
+    "";
+
+  const skillsRaw = profile.skills || sections.skills || [];
+  const skills = Array.isArray(skillsRaw)
+    ? skillsRaw
+    : typeof skillsRaw === "string"
+      ? skillsRaw.split(",").map((skill) => skill.trim()).filter(Boolean)
+      : [];
+
+  const educationText =
+    typeof profile.education === "string" && profile.education.trim()
+      ? profile.education
+      : typeof sections.education === "string" && sections.education.trim()
+        ? sections.education
+        : Array.isArray(profile.education_entries)
+          ? serializeEducationEntries(profile.education_entries)
+          : "";
+  const experienceText =
+    typeof profile.experience === "string" && profile.experience.trim()
+      ? profile.experience
+      : typeof sections.experience === "string" && sections.experience.trim()
+        ? sections.experience
+        : Array.isArray(profile.experience_entries)
+          ? serializeExperience(profile.experience_entries)
+          : "";
+  const projectsText =
+    typeof profile.projects === "string" && profile.projects.trim()
+      ? profile.projects
+      : typeof sections.projects === "string" && sections.projects.trim()
+        ? sections.projects
+        : Array.isArray(profile.project_entries)
+          ? serializeProjects(profile.project_entries)
+          : "";
+
+  const nextFormData = {
+    contact,
+    summary,
+    education: parseEducationSection(educationText).length > 0
+      ? parseEducationSection(educationText)
+      : [emptyEducation()],
+    experience: parseExperience(experienceText).map((entry) => ({
+      title: entry.title || "",
+      company: entry.company || "",
+      location: entry.location || "",
+      date_range: entry.dateRange || "",
+      bullets:
+        Array.isArray(entry.bullets) && entry.bullets.length > 0
+          ? entry.bullets
+          : [""],
+    })),
+    projects: parseProjects(projectsText).map((project) => ({
+      name: project.title || "",
+      tech_stack: project.techStack || "",
+      date_range: project.date || "",
+      links: "",
+      bullets:
+        Array.isArray(project.bullets) && project.bullets.length > 0
+          ? project.bullets
+          : [""],
+    })),
+    skills,
+    certifications: normalizeProfileValue(profile.certifications || sections.certifications),
+    coursework: normalizeProfileValue(profile.coursework || sections.coursework),
+  };
+
+  return nextFormData;
+};
+
 function ResumeBuilderPage() {
   const { session, loading: authLoading } = useUser();
   const [formData, setFormData] = useState(emptyForm);
@@ -101,6 +229,7 @@ function ResumeBuilderPage() {
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const savedSnapshotRef = useRef(null);
+  const loadedProfileRef = useRef({});
   const hydrationDoneRef = useRef(false);
 
   const formattedLastSaved = useMemo(() => {
@@ -137,7 +266,6 @@ function ResumeBuilderPage() {
             profile = {};
           }
         }
-
         let resumeSections = profile.resume_parsed_sections || {};
         if (typeof resumeSections === "string") {
           try {
@@ -151,78 +279,27 @@ function ResumeBuilderPage() {
             ? resumeSections
             : {};
 
-        const skillsRaw = profile.skills;
-        const skills = Array.isArray(skillsRaw)
-          ? skillsRaw
-          : typeof skillsRaw === "string"
-            ? skillsRaw
-                .split(",")
-                .map((skill) => skill.trim())
-                .filter(Boolean)
-            : [];
+        const nextFormData = buildBuilderFormFromProfile(
+          { ...profile, resume_parsed_sections: normalizedSections },
+          payload
+        );
 
-        const education = Array.isArray(profile.education_entries)
-          ? profile.education_entries
-          : [];
-        const experience = Array.isArray(profile.experience_entries)
-          ? profile.experience_entries
-          : [];
-        const projects = Array.isArray(profile.project_entries)
-          ? profile.project_entries
-          : [];
-
-        const fallbackExperience = parseExperience(normalizedSections.experience || "")
-          .map((entry) => ({
-            title: entry.title || "",
-            company: entry.company || "",
-            location: entry.location || "",
-            date_range: entry.dateRange || "",
-            bullets: Array.isArray(entry.bullets) && entry.bullets.length > 0 ? entry.bullets : [""],
-          }));
-        const fallbackProjects = parseProjects(normalizedSections.projects || "")
-          .map((project) => ({
-            name: project.title || "",
-            tech_stack: project.techStack || "",
-            date_range: project.date || "",
-            links: "",
-            bullets: Array.isArray(project.bullets) && project.bullets.length > 0 ? project.bullets : [""],
-          }));
-
-        const fallbackEducation = parseEducationSection(normalizedSections.education || "");
-        const fallbackSkills = parseSkillsText(normalizedSections.skills || "");
+        loadedProfileRef.current = {
+          ...profile,
+          resume_parsed_sections: normalizedSections,
+          ...nextFormData.contact,
+          intro: nextFormData.summary,
+          summary: nextFormData.summary,
+          education: serializeEducationEntries(nextFormData.education),
+          experience: serializeExperience(nextFormData.experience),
+          projects: serializeProjects(nextFormData.projects),
+          skills: nextFormData.skills,
+          certifications: nextFormData.certifications,
+          coursework: nextFormData.coursework,
+        };
 
         const resumeDetected = Object.keys(normalizedSections || {}).length > 0;
         setHasResumeSections(resumeDetected);
-
-        const nextFormData = {
-          contact: {
-            name: profile.name || "",
-            email: profile.email || "",
-            phone: profile.phone || "",
-            location: profile.location || "",
-            linkedin: profile.linkedin || "",
-            github: profile.github || "",
-          },
-          summary: profile.intro || normalizedSections.summary || "",
-          education: education.length > 0
-            ? education
-            : fallbackEducation.length > 0
-              ? fallbackEducation
-              : [emptyEducation()],
-          experience: experience.length > 0
-            ? experience
-            : fallbackExperience.length > 0
-              ? fallbackExperience
-              : [emptyExperience()],
-          projects: projects.length > 0
-            ? projects
-            : fallbackProjects.length > 0
-              ? fallbackProjects
-              : [emptyProject()],
-          skills: skills.length > 0 ? skills : fallbackSkills,
-          certifications: profile.certifications || normalizedSections.certifications || "",
-          coursework: profile.coursework || normalizedSections.coursework || "",
-        };
         setFormData(nextFormData);
         savedSnapshotRef.current = nextFormData;
         setHasUnsavedChanges(false);
@@ -446,7 +523,9 @@ function ResumeBuilderPage() {
     setSaving(true);
     setActionError("");
     try {
+      const nextResumeSections = buildResumeSectionsFromForm(formData);
       const payload = {
+        ...loadedProfileRef.current,
         name: formData.contact.name,
         email: formData.contact.email,
         phone: formData.contact.phone,
@@ -454,12 +533,25 @@ function ResumeBuilderPage() {
         linkedin: formData.contact.linkedin,
         github: formData.contact.github,
         intro: formData.summary,
+        summary: formData.summary,
+        education: serializeEducationEntries(formData.education),
         education_entries: formData.education,
+        experience: serializeExperience(formData.experience),
         experience_entries: formData.experience,
+        projects: serializeProjects(formData.projects),
         project_entries: formData.projects,
         skills: formData.skills,
         certifications: formData.certifications,
         coursework: formData.coursework,
+        resume_parsed_sections: nextResumeSections,
+        resume_text: [
+          formData.summary,
+          nextResumeSections.education,
+          nextResumeSections.experience,
+          nextResumeSections.projects,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       };
 
       await axios.patch(
@@ -473,6 +565,7 @@ function ResumeBuilderPage() {
       );
 
       setLastSaved(new Date());
+  loadedProfileRef.current = payload;
       savedSnapshotRef.current = formData;
       setHasUnsavedChanges(false);
       setSavedFlash(true);

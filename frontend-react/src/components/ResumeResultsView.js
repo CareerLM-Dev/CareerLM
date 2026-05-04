@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -17,10 +17,6 @@ import {
   ChevronRight,
   Eye,
 } from "lucide-react";
-import SuggestionPanel from "./SuggestionPanel";
-
-const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:8000";
-const RESUME_API = `${API_BASE}/api/v1/orchestrator`;
 
 // ── Circular Score ─────────────────────────────────────────────────────────
 function CircularScore({ score, size = 140 }) {
@@ -296,15 +292,6 @@ export default function ResumeResultsView({ resumeData, onUploadAnother }) {
               <Eye className="h-4 w-4" />
               View Original
             </button>
-            {/* <div className="flex items-center gap-3 rounded-full bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 px-4 py-3 shadow-sm">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600">
-                <Sparkles className="h-4 w-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-900">AI Guide</p>
-                <p className="text-xs text-slate-600">You're in the top 15%!</p>
-              </div>
-            </div> */}
           </div>
         </div>
       </div>

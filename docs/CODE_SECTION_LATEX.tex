@@ -1,0 +1,264 @@
+\section{Code}
+
+\subsection{Orchestrator (streamed analysis)}
+\begin{lstlisting}[style=codebox,language=Python]
+# Stream updates from the orchestrator graph
+async for current_state in orchestrator_graph.astream(
+    state,
+    config={
+        "configurable": {"thread_id": user_id},
+        "recursion_limit": 25,
+    },
+    stream_mode="values"
+):
+    phase = current_state.get("current_phase") or "Analyzing..."
+    msg = current_state.get("messages", [])
+    last_msg = msg[-1] if msg else ""
+    phase_label = _phase_label(phase, last_msg)
+    yield f"data: {json.dumps({'event': 'update', 'phase': phase, 'phase_label': phase_label, 'message': last_msg})}\n\n"
+\end{lstlisting}
+
+\subsection{Orchestrator Graph Definition}
+\begin{lstlisting}[style=codebox,language=Python]
+def create_orchestrator_graph(use_checkpointer: bool = False):
+    workflow = StateGraph(CareerLMState)
+
+    # Nodes
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("increment_resume_runs", _increment_resume_runs)
+    workflow.add_node("resume_analysis_wrapper", resume_analysis_wrapper_node)
+    workflow.add_node("profile_update", profile_update_node)
+
+    workflow.set_entry_point("supervisor")
+
+    # Conditional routing from supervisor
+    def route_from_supervisor(state: CareerLMState) -> str:
+        phase = state.get("current_phase", "ready_for_next_action")
+        return "resume_analysis" if phase == "resume_analysis" else "end"
+
+    workflow.add_conditional_edges(
+        "supervisor",
+        route_from_supervisor,
+        {"resume_analysis": "increment_resume_runs", "end": END}
+    )
+
+    # Resume analysis chain: increment -> analyze -> profile -> supervisor
+    workflow.add_edge("increment_resume_runs", "resume_analysis_wrapper")
+    workflow.add_edge("resume_analysis_wrapper", "profile_update")
+    workflow.add_edge("profile_update", "supervisor")
+
+    if use_checkpointer:
+        checkpointer = SupabaseCheckpointer()
+        return workflow.compile(checkpointer=checkpointer)
+    return workflow.compile()
+\end{lstlisting}
+
+\subsection{Resume Parser (PII scrubbing)}
+\begin{lstlisting}[style=codebox,language=Python]
+def scrub_contact_pii(self, text: str) -> str:
+    if not text:
+        return ""
+    cleaned = text
+    cleaned = re.sub(r'\b[\w.%-]+@[\w.-]+\.[A-Za-z]{2,}\b', '[REDACTED_EMAIL]', cleaned)
+    cleaned = re.sub(r'\b(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}\b', '[REDACTED_PHONE]', cleaned)
+    cleaned = re.sub(r'https?://(?:www\.)?(?:linkedin\.com|github\.com)/[^\s)]+', '[REDACTED_URL]', cleaned, flags=re.IGNORECASE)
+    return cleaned
+\end{lstlisting}
+
+\subsection{Resume Analyzer (final score computation)}
+\begin{lstlisting}[style=codebox,language=Python]
+def _compute_final_score(
+    structure_score: int,
+    completeness_score: int,
+    relevance_score: int,
+    impact_score: int,
+    has_jd: bool,
+) -> int:
+    """
+    Apply JD-conditional weights (0-100 scale).
+    Without JD: S=20%, C=15%, R=30%, I=35%
+    With JD:    S=15%, C=10%, R=40%, I=35%
+    """
+    if has_jd:
+        w = {"s": 0.15, "c": 0.10, "r": 0.40, "i": 0.35}
+    else:
+        w = {"s": 0.20, "c": 0.15, "r": 0.30, "i": 0.35}
+    
+    score = (
+        structure_score * w["s"]
+        + completeness_score * w["c"]
+        + relevance_score * w["r"]
+        + impact_score * w["i"]
+    )
+    return min(100, max(0, int(score)))
+\end{lstlisting}
+
+\subsection{Skill Gap Analyzer (core analysis)}
+\begin{lstlisting}[style=codebox,language=Python]
+def analyze_skill_gap(resume_text: str, filename: str = None) -> dict:
+    user_skills = extract_skills_from_resume(resume_text)
+    if not user_skills:
+        return {"error": "No recognizable skills found in resume. Please ensure your resume includes technical skills."}
+
+    career_matches = calculate_career_probabilities(resume_text, user_skills)
+    ai_recommendations = get_ai_career_recommendations(resume_text, user_skills, career_matches)
+
+    return {
+        "user_skills": user_skills,
+        "total_skills_found": len(user_skills),
+        "career_matches": career_matches,
+        "top_3_careers": career_matches[:3],
+        "ai_recommendations": ai_recommendations,
+    }
+\end{lstlisting}
+
+\subsection{Interview Response Quality (heuristic detection)}
+\begin{lstlisting}[style=codebox,language=Python]
+def _is_low_signal_answer(answer_text: str) -> bool:
+    """Detect gibberish, extremely short, or repeated-pattern answers."""
+    text = (answer_text or "").strip()
+    if not text:
+        return True
+
+    lowered = text.lower()
+    tokens = [t for t in re.split(r"\s+", lowered) if t]
+    alpha_only = "".join(ch for ch in lowered if ch.isalpha())
+    vowel_ratio = (sum(1 for ch in alpha_only if ch in "aeiou") / len(alpha_only)) if alpha_only else 0
+
+    has_single_long_token = len(tokens) == 1 and len(tokens[0]) >= 12
+    has_too_few_tokens = len(tokens) <= 2 and len(text) < 20
+    repeated_pattern = bool(re.search(r"(.)\1{4,}", lowered))
+    random_like_alpha = len(alpha_only) >= 10 and vowel_ratio < 0.2
+
+    return any([has_single_long_token, has_too_few_tokens, repeated_pattern, random_like_alpha])
+\end{lstlisting}
+
+\subsection{Interview Transcript Building (STAR signals)}
+\begin{lstlisting}[style=codebox,language=Python]
+def build_transcript_and_metrics(
+    questions: List[Any],
+    answers: List[Any],
+    anchors: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    """Build Q/A transcript with signal detection (STAR, ownership, metrics)."""
+    transcript_lines: List[str] = []
+    answered = 0
+    skipped = 0
+    low_signal_count = 0
+
+    for i, (q, a) in enumerate(zip_longest(questions or [], answers or [], fillvalue=""), 1):
+        q_data = q if isinstance(q, dict) else {}
+        question_text = str(q_data.get("question", "[No question]"))
+        answer_text = str(a).strip() if isinstance(a, str) else str(a).strip()
+
+        transcript_lines.append(f"**Q{i}:** {question_text}")
+        
+        if answer_text and answer_text != "[Skipped]":
+            transcript_lines.append(f"**A{i}:** {answer_text}")
+            answered += 1
+            if _is_low_signal_answer(answer_text):
+                low_signal_count += 1
+        else:
+            transcript_lines.append("**A{i}:** [Skipped]".replace("{i}", str(i)))
+            skipped += 1
+
+    quality_summary = _build_response_quality_summary(answered, low_signal_count)
+    return {
+        "transcript": "\n".join(transcript_lines).strip(),
+        "total_questions": len(questions or []),
+        "answered_count": answered,
+        "skipped_count": skipped,
+        "response_quality": quality_summary,
+    }
+\end{lstlisting}
+
+\subsection{Cold Email Generator (workflow entry)}
+\begin{lstlisting}[style=codebox,language=Python]
+async def generate_cold_email(...):
+    initial_state: ColdEmailState = {
+        "user_name": user_name,
+        "user_skills": user_skills,
+        "target_company": target_company,
+        "target_role": target_role,
+        "outreach_type": outreach_type,
+        "tone": tone,
+        "format_type": format_type,
+        "form_data": form_data or {},
+        "email_subject": None,
+        "email_body": None,
+    }
+
+    result = await cold_email_workflow.ainvoke(initial_state)
+
+    return {
+        "success": True,
+        "email": {
+            "subject": result.get("email_subject", "Job Application"),
+            "body": result.get("email_body", "")
+        },
+        "research_notes": result.get("personalization_notes")
+    }
+\end{lstlisting}
+
+\subsection{Job Search (pgvector matching)}
+\begin{lstlisting}[style=codebox,language=Python]
+def match_jobs_for_user(
+    user_skills: list[str],
+    role_query: str = "",
+    match_count: int = 10,
+    match_threshold: float = 0.3,
+) -> list[dict]:
+    """Embed user skills, query pgvector, return ranked jobs with skill overlap."""
+    if not user_skills:
+        return []
+
+    # Embed skills for vector search
+    embed_input = ", ".join(user_skills)
+    if role_query:
+        embed_input = f"{role_query}. Skills: {embed_input}"
+    query_embedding = embed_text(embed_input)
+
+    # Fetch via pgvector cosine similarity
+    result = supabase.rpc(
+        "match_jobs",
+        {
+            "query_embedding": query_embedding,
+            "match_threshold": match_threshold,
+            "match_count": match_count * 3,
+        },
+    ).execute()
+
+    matched_jobs = []
+    for job in result.data:
+        job_skills = job.get("required_skills", [])
+        matching = [s for s in job_skills if s.lower() in {sk.lower() for sk in user_skills}]
+        missing = [s for s in job_skills if s.lower() not in {sk.lower() for sk in user_skills}]
+        match_pct = (len(matching) / len(job_skills) * 100) if job_skills else 0
+
+        matched_jobs.append({
+            "id": job["id"],
+            "title": job["title"],
+            "company": job.get("company", ""),
+            "location": job.get("location", ""),
+            "similarity": round(job.get("similarity", 0) * 100, 1),
+            "matching_skills": matching,
+            "missing_skills": missing,
+            "match_percentage": round(match_pct, 1),
+        })
+
+    matched_jobs.sort(key=lambda j: j["similarity"], reverse=True)
+    return matched_jobs[:match_count]
+\end{lstlisting}
+
+\subsection{Interview Module (question workflow graph)}
+\begin{lstlisting}[style=codebox,language=Python]
+workflow = StateGraph(InterviewState)
+workflow.add_node("prepare_context", prepare_context_node)
+workflow.add_node("generate_questions", generate_questions_node)
+workflow.add_node("validate_questions", validate_questions_node)
+
+workflow.set_entry_point("prepare_context")
+workflow.add_edge("prepare_context", "generate_questions")
+workflow.add_edge("generate_questions", "validate_questions")
+workflow.add_edge("validate_questions", END)
+\end{lstlisting}

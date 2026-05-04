@@ -310,7 +310,7 @@ function ColdEmailGenerator({ resumeData }) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="bg-primary/10 border border-border rounded-lg p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
@@ -367,7 +367,7 @@ function ColdEmailGenerator({ resumeData }) {
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-3">
                 {(() => {
-                  const selectedType = OUTREACH_TYPES.find(t => t.id === outreachType);
+                  const selectedType = OUTREACH_TYPES.find((t) => t.id === outreachType);
                   const IconComponent = selectedType?.icon;
                   return (
                     <>
@@ -389,9 +389,8 @@ function ColdEmailGenerator({ resumeData }) {
                   );
                 })()}
               </div>
-              
+
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Format Toggle */}
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Format:</span>
                   <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
@@ -417,8 +416,7 @@ function ColdEmailGenerator({ resumeData }) {
                     </button>
                   </div>
                 </div>
-                
-                {/* Tone Toggle */}
+
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Tone:</span>
                   <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
@@ -448,344 +446,341 @@ function ColdEmailGenerator({ resumeData }) {
             </div>
           </div>
 
-          {/* Info Banner */}
-          {/* <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-900 dark:text-blue-100">
-              <span className="font-medium">Only essentials required.</span> Additional details are optional but make your {format === "email" ? "email" : "message"} more personalized and effective.
-              {format === "message" && <span className="block mt-1 text-xs">💡 Messages are shorter and optimized for LinkedIn/direct messaging platforms</span>}
-            </div>
-          </div> */}
-
-          {/* Dynamic Form Fields */}
-          <div className="bg-card border border-border rounded-lg p-6 space-y-4">
-            {/* Referral Request Fields */}
-            {outreachType === "referral" && (
-              <>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Company Name <span className="text-destructive">*</span></Label>
-                    <Input
-                      placeholder="e.g., Google"
-                      value={formData.companyName || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, companyName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role You Are Targeting <span className="text-destructive">*</span></Label>
-                    <Input
-                      placeholder="e.g., Software Engineer"
-                      value={formData.targetRole || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, targetRole: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                
-                {/* Collapsible Advanced Section */}
-                <div className="border-t pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvanced(prev => ({ ...prev, referral: !prev.referral }))}
-                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
-                  >
-                    <div className={`transform transition-transform ${showAdvanced.referral ? 'rotate-90' : ''}`}>
-                      ➤
-                    </div>
-                    <span>Add recipient details (recommended for personalization)</span>
-                  </button>
-                  
-                  {showAdvanced.referral && (
-                    <div className="space-y-4 pl-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Recipient Name</Label>
-                          <Input
-                            placeholder="e.g., John Smith"
-                            value={formData.recipientName || ""}
-                            onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Their Position</Label>
-                          <Input
-                            placeholder="e.g., Senior Engineer"
-                            value={formData.recipientPosition || ""}
-                            onChange={(e) => setFormData(prev => ({ ...prev, recipientPosition: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Mutual Connection or Common Ground</Label>
-                        <Textarea
-                          placeholder="e.g., We both attended UC Berkeley, or saw their recent talk at..."
-                          rows={2}
-                          value={formData.mutualConnection || ""}
-                          onChange={(e) => setFormData(prev => ({ ...prev, mutualConnection: e.target.value }))}
-                        />
-                        <p className="text-xs text-muted-foreground">Adding this significantly improves response rates</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Direct Outreach Fields */}
-            {outreachType === "recruiter" && (
-              <>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Company Name <span className="text-destructive">*</span></Label>
-                    <Input
-                      placeholder="e.g., Microsoft"
-                      value={formData.companyName || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, companyName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role You Are Targeting <span className="text-destructive">*</span></Label>
-                    <Input
-                      placeholder="e.g., Software Engineer Intern / Data Analyst"
-                      value={formData.targetRole || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, targetRole: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                
-                {/* Collapsible Advanced Section */}
-                <div className="border-t pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvanced(prev => ({ ...prev, recruiter: !prev.recruiter }))}
-                    className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
-                  >
-                    <div className={`transform transition-transform ${showAdvanced.recruiter ? 'rotate-90' : ''}`}>
-                      ▶
-                    </div>
-                    <span>Add more details (makes email more specific)</span>
-                  </button>
-                  
-                  {showAdvanced.recruiter && (
-                    <div className="space-y-4 pl-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Recipient Name</Label>
-                          <Input
-                            placeholder="e.g., Sarah Lee (if you know it)"
-                            value={formData.recipientName || ""}
-                            onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Team or Domain</Label>
-                          <Input
-                            placeholder="e.g., Machine Learning Team"
-                            value={formData.teamDomain || ""}
-                            onChange={(e) => setFormData(prev => ({ ...prev, teamDomain: e.target.value }))}
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Why this company?</Label>
-                        <Textarea
-                          placeholder="e.g., I've been following your work on autonomous vehicles and am impressed by your recent breakthrough..."
-                          rows={2}
-                          value={formData.companyReason || ""}
-                          onChange={(e) => setFormData(prev => ({ ...prev, companyReason: e.target.value }))}
-                        />
-                        <p className="text-xs text-muted-foreground">Specific reasons show genuine interest</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Alumni Connect Fields */}
-            {outreachType === "alumni" && (
-              <>
-                <div className="space-y-2">
-                  <Label>Their Name <span className="text-destructive">*</span></Label>
-                  <Input
-                    placeholder="e.g., Alex Chen"
-                    value={formData.recipientName || ""}
-                    onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
-                  />
-                </div>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Their Current Company <span className="text-destructive">*</span></Label>
-                    <Input
-                      placeholder="e.g., Amazon"
-                      value={formData.recipientCompany || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, recipientCompany: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Their Current Role</Label>
-                    <Input
-                      placeholder="e.g., Product Manager (optional)"
-                      value={formData.recipientRole || ""}
-                      onChange={(e) => setFormData(prev => ({ ...prev, recipientRole: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Why are you reaching out to them specifically? <span className="text-destructive">*</span></Label>
-                  <Textarea
-                    placeholder="e.g., I saw your recent blog post about transitioning to PM and would love to learn from your experience..."
-                    rows={2}
-                    value={formData.reachoutReason || ""}
-                    onChange={(e) => setFormData(prev => ({ ...prev, reachoutReason: e.target.value }))}
-                  />
-                  <p className="text-xs text-muted-foreground">Be specific — generic messages rarely get responses</p>
-                </div>
-              </>
-            )}
-
-
-
-            {/* Tip */}
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
-              💡 <strong>Tip:</strong> {TIPS[outreachType]}
-            </div>
-
-            {resumeData && (
-              <div className="flex items-center gap-2 text-sm bg-primary/10 text-primary px-3 py-2 rounded-lg">
-                <CheckCircle className="w-4 h-4" />
-                Using your profile and resume: <strong>{resumeData.filename}</strong>
-              </div>
-            )}
-
-            <Button onClick={() => handleGenerate()} disabled={loading} className="w-full">
-              {loading ? (
-                <>
-                  <div className="animate-spin w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full mr-2" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4 mr-2" />
-                  Generate Email
-                </>
-              )}
-            </Button>
-
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
-                <AlertCircle className="w-4 h-4" />
-                {error}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* Generated Email Result */}
-      {generatedEmail && (
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="bg-primary/10 p-4 border-b border-border">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Mail className="w-5 h-5 text-primary" />
-                <h3 className="font-semibold">Generated Email</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleSaveEmail}
-                >
-                  <Bookmark className="w-4 h-4 mr-2" />
-                  Save
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleGenerate(activeTemplate)}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <div className="animate-spin w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full mr-2" />
-                      Regenerating...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Refresh Email
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-            {saveMessage && (
-              <div className="mt-3 text-xs text-muted-foreground">
-                {saveMessage}
-              </div>
-            )}
-          </div>
-
-          <div className="p-6 space-y-4">
-            {/* Subject Line - Only for emails */}
-            {format === "email" && generatedEmail.subject && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <Label className="text-muted-foreground">Subject Line</Label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => handleCopy(generatedEmail.subject, "subject")}
-                  >
-                    {copied === "subject" ? (
+          <div className="grid gap-6 lg:grid-cols-2">
+                  {/* Left: Dynamic Form Fields */}
+                  <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+                    {/* Referral Request Fields */}
+                    {outreachType === "referral" && (
                       <>
-                        <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
-                        Copied!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3 mr-1" /> Copy
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Company Name <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="e.g., Google"
+                              value={formData.companyName || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, companyName: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Role You Are Targeting <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="e.g., Software Engineer"
+                              value={formData.targetRole || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, targetRole: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                  
+                        {/* Collapsible Advanced Section */}
+                        <div className="border-t pt-4">
+                          <button
+                            type="button"
+                            onClick={() => setShowAdvanced(prev => ({ ...prev, referral: !prev.referral }))}
+                            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
+                          >
+                            <div className={`transform transition-transform ${showAdvanced.referral ? 'rotate-90' : ''}`}>
+                              ➤
+                            </div>
+                            <span>Add recipient details (recommended for personalization)</span>
+                          </button>
+                    
+                          {showAdvanced.referral && (
+                            <div className="space-y-4 pl-4">
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Recipient Name</Label>
+                                  <Input
+                                    placeholder="e.g., John Smith"
+                                    value={formData.recipientName || ""}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Their Position</Label>
+                                  <Input
+                                    placeholder="e.g., Senior Engineer"
+                                    value={formData.recipientPosition || ""}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, recipientPosition: e.target.value }))}
+                                  />
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Mutual Connection or Common Ground</Label>
+                                <Textarea
+                                  placeholder="e.g., We both attended UC Berkeley, or saw their recent talk at..."
+                                  rows={2}
+                                  value={formData.mutualConnection || ""}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, mutualConnection: e.target.value }))}
+                                />
+                                <p className="text-xs text-muted-foreground">Adding this significantly improves response rates</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </>
                     )}
-                  </Button>
-                </div>
-                <div className="bg-muted/50 rounded-lg p-3 text-sm font-medium">
-                  {generatedEmail.subject}
-                </div>
-              </div>
-            )}
 
-            {/* Email/Message Body */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <Label className="text-muted-foreground">{format === "email" ? "Email Body" : "Message"}</Label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => handleCopy(generatedEmail.body, "body")}
-                >
-                  {copied === "body" ? (
-                    <>
-                      <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
-                      Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 mr-1" /> Copy
-                    </>
-                  )}
-                </Button>
-              </div>
-              <div className="bg-muted/50 rounded-lg p-4 text-sm whitespace-pre-wrap leading-relaxed">
-                {generatedEmail.body}
-              </div>
-            </div>
-          </div>
-        </div>
+                    {/* Direct Outreach Fields */}
+                    {outreachType === "recruiter" && (
+                      <>
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Company Name <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="e.g., Microsoft"
+                              value={formData.companyName || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, companyName: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Role You Are Targeting <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="e.g., Software Engineer Intern / Data Analyst"
+                              value={formData.targetRole || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, targetRole: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                  
+                        {/* Collapsible Advanced Section */}
+                        <div className="border-t pt-4">
+                          <button
+                            type="button"
+                            onClick={() => setShowAdvanced(prev => ({ ...prev, recruiter: !prev.recruiter }))}
+                            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
+                          >
+                            <div className={`transform transition-transform ${showAdvanced.recruiter ? 'rotate-90' : ''}`}>
+                              ▶
+                            </div>
+                            <span>Add more details (makes email more specific)</span>
+                          </button>
+                    
+                          {showAdvanced.recruiter && (
+                            <div className="space-y-4 pl-4">
+                              <div className="grid md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Recipient Name</Label>
+                                  <Input
+                                    placeholder="e.g., Sarah Lee (if you know it)"
+                                    value={formData.recipientName || ""}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Team or Domain</Label>
+                                  <Input
+                                    placeholder="e.g., Machine Learning Team"
+                                    value={formData.teamDomain || ""}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, teamDomain: e.target.value }))}
+                                  />
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Why this company?</Label>
+                                <Textarea
+                                  placeholder="e.g., I've been following your work on autonomous vehicles and am impressed by your recent breakthrough..."
+                                  rows={2}
+                                  value={formData.companyReason || ""}
+                                  onChange={(e) => setFormData(prev => ({ ...prev, companyReason: e.target.value }))}
+                                />
+                                <p className="text-xs text-muted-foreground">Specific reasons show genuine interest</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Alumni Connect Fields */}
+                    {outreachType === "alumni" && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>Their Name <span className="text-destructive">*</span></Label>
+                          <Input
+                            placeholder="e.g., Alex Chen"
+                            value={formData.recipientName || ""}
+                            onChange={(e) => setFormData(prev => ({ ...prev, recipientName: e.target.value }))}
+                          />
+                        </div>
+                        <div className="grid md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Their Current Company <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="e.g., Amazon"
+                              value={formData.recipientCompany || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, recipientCompany: e.target.value }))}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Their Current Role</Label>
+                            <Input
+                              placeholder="e.g., Product Manager (optional)"
+                              value={formData.recipientRole || ""}
+                              onChange={(e) => setFormData(prev => ({ ...prev, recipientRole: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Why are you reaching out to them specifically? <span className="text-destructive">*</span></Label>
+                          <Textarea
+                            placeholder="e.g., I saw your recent blog post about transitioning to PM and would love to learn from your experience..."
+                            rows={2}
+                            value={formData.reachoutReason || ""}
+                            onChange={(e) => setFormData(prev => ({ ...prev, reachoutReason: e.target.value }))}
+                          />
+                          <p className="text-xs text-muted-foreground">Be specific — generic messages rarely get responses</p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Tip */}
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
+                      💡 <strong>Tip:</strong> {TIPS[outreachType]}
+                    </div>
+
+                    {resumeData && (
+                      <div className="flex items-center gap-2 text-sm bg-primary/10 text-primary px-3 py-2 rounded-lg">
+                        <CheckCircle className="w-4 h-4" />
+                        Using your profile and resume: <strong>{resumeData.filename}</strong>
+                      </div>
+                    )}
+
+                    <Button onClick={() => handleGenerate()} disabled={loading} className="w-full">
+                      {loading ? (
+                        <>
+                          <div className="animate-spin w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full mr-2" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-4 h-4 mr-2" />
+                          Generate Email
+                        </>
+                      )}
+                    </Button>
+
+                    {error && (
+                      <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                        <AlertCircle className="w-4 h-4" />
+                        {error}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: Generated Email Result */}
+                  <div className="space-y-6">
+                    {generatedEmail ? (
+                      <div className="bg-card border border-border rounded-lg overflow-hidden">
+                        <div className="bg-primary/10 p-4 border-b border-border">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Mail className="w-5 h-5 text-primary" />
+                              <h3 className="font-semibold">Generated Email</h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={handleSaveEmail}
+                              >
+                                <Bookmark className="w-4 h-4 mr-2" />
+                                Save
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleGenerate(activeTemplate)}
+                                disabled={loading}
+                              >
+                                {loading ? (
+                                  <>
+                                    <div className="animate-spin w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full mr-2" />
+                                    Regenerating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <RefreshCw className="w-4 h-4 mr-2" />
+                                    Refresh Email
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                          {saveMessage && (
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              {saveMessage}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                          {/* Subject Line - Only for emails */}
+                          {format === "email" && generatedEmail.subject && (
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <Label className="text-muted-foreground">Subject Line</Label>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => handleCopy(generatedEmail.subject, "subject")}
+                                >
+                                  {copied === "subject" ? (
+                                    <>
+                                      <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
+                                      Copied!
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy className="w-3 h-3 mr-1" /> Copy
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                              <div className="bg-muted/50 rounded-lg p-3 text-sm font-medium">
+                                {generatedEmail.subject}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Email/Message Body */}
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <Label className="text-muted-foreground">{format === "email" ? "Email Body" : "Message"}</Label>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={() => handleCopy(generatedEmail.body, "body")}
+                              >
+                                {copied === "body" ? (
+                                  <>
+                                    <CheckCircle className="w-3 h-3 mr-1 text-green-500" />{" "}
+                                    Copied!
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3 mr-1" /> Copy
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                            <div className="bg-muted/50 rounded-lg p-4 text-sm whitespace-pre-wrap leading-relaxed">
+                              {generatedEmail.body}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-card border border-dashed border-border rounded-lg p-6 text-sm text-muted-foreground">
+                        Generated output will appear here. Fill the form and click Generate to preview your cold email.
+                      </div>
+                    )}
+                  </div>
+                </div>
+        </>
       )}
 
       {savedOpen && (
